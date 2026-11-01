@@ -11,6 +11,10 @@ if errorlevel 1 goto :fail
 if errorlevel 1 goto :fail
 release\StandaloneTests.exe standalone-test-output
 if errorlevel 1 goto :fail
+"C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe" /nologo /target:exe /platform:x86 /codepage:65001 /out:release\PrecisionTests.exe /r:release\SpiroLab.exe /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll Tests\PrecisionTests.cs
+if errorlevel 1 goto :fail
+release\PrecisionTests.exe precision-test-output
+if errorlevel 1 goto :fail
 popd
 exit /b 0
 :fail

@@ -12,7 +12,8 @@ namespace SpiroLab.Ui
     {
         private static readonly Color Accent = Color.FromArgb(17,103,137), Ink = Color.FromArgb(31,49,66), Bg = Color.FromArgb(240,245,249);
         private readonly DeviceSession _device = new DeviceSession();
-        private Exam _exam = new Exam();
+        private AppSettings _settings;
+        private Exam _exam;
         private string _path;
         private bool _busy, _dirty, _fast, _rendering, _simulating;
         private volatile bool _stop;
@@ -24,8 +25,11 @@ namespace SpiroLab.Ui
         private int _simPos;
         
         private Panel _patientPanel;
-        private TextBox txtOperator,txtCenter,txtReviewed;
+        private TextBox txtOperator,txtCenter,txtReviewed,txtExamDate,txtVext,txtVextSource;
+        private CheckBox chkVextReviewed;
+        private Button btnSettings;
         private bool _receivedLiveSamples;
+        private int _decodedLiveSamples;
         private string _safeError="none";
         private TextBox txtFirst,txtLast,txtNid,txtEmp,txtCompany,txtJob,txtAge,txtHeight,txtWeight,txtNote,txtLog,txtWarnings,lblInterpretation;
         private ComboBox cmbSex,cmbOrigin;
@@ -36,12 +40,14 @@ namespace SpiroLab.Ui
         private ChartPanel chart,resultChart;
         public MainForm()
         {
-            Text="SpiroLab 5 — اسپیرومتری طب کار"; Font=new Font("Tahoma",9.5f); BackColor=Bg; ForeColor=Ink;
+            _settings=AppSettings.Load(); _exam=Exam.CreateNew(_settings);
+            Text="SpiroLab 5.1 — اسپیرومتری طب کار"; Font=new Font("Tahoma",9.5f); BackColor=Bg; ForeColor=Ink;
             RightToLeft=RightToLeft.Yes; StartPosition=FormStartPosition.CenterScreen;
             MinimumSize=new Size(1080,700); Size=new Size(1280,860);
-            BuildUi(); _device.Line+=AppendLog;
+            BuildUi(); PopulateMetadata(); _device.Line+=AppendLog;
             _timer=new System.Windows.Forms.Timer { Interval=50 }; _timer.Tick+=Tick;
             FormClosing+=ClosingForm; UpdateControls();
+            if(!string.IsNullOrEmpty(_settings.LoadWarning)) lblStatus.Text=_settings.LoadWarning;
         }
         public void SelectTab(int index) { }
         public void ConnectOnLaunch() { lblConnection.Text="آماده برای اتصال"; }
@@ -65,10 +71,12 @@ namespace SpiroLab.Ui
         {
             TableLayoutPanel root=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,Padding=new Padding(12),RightToLeft=RightToLeft.No };
             root.RowStyles.Add(new RowStyle(SizeType.Absolute,50)); root.RowStyles.Add(new RowStyle(SizeType.Percent,100)); root.RowStyles.Add(new RowStyle(SizeType.Absolute,26)); Controls.Add(root);
-            TableLayoutPanel top=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=4 };
+            TableLayoutPanel top=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=5 };
             top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100)); top.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,145)); top.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,145));
             top.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,145));
-            Button diagnostics=MakeButton("وضعیت دستگاه",delegate { using(DiagnosticsForm f=new DiagnosticsForm(DeviceDiagnostics.Read(_device.Connected,_receivedLiveSamples,_device.SafeTransportError!="none"?_device.SafeTransportError:_safeError))) f.ShowDialog(this); },false); top.Controls.Add(diagnostics,3,0);
+            top.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,110));
+            btnSettings=MakeButton("تنظیمات",delegate { using(SettingsForm f=new SettingsForm(_settings)) if(f.ShowDialog(this)==DialogResult.OK) _settings=f.Value; },false); top.Controls.Add(btnSettings,4,0);
+            Button diagnostics=MakeButton("وضعیت دستگاه",delegate { using(DiagnosticsForm f=new DiagnosticsForm(DeviceDiagnostics.Read(_device.ControlResponded,_receivedLiveSamples,_device.SafeTransportError!="none"?_device.SafeTransportError:_safeError,_device.HandleOpened,_device.StartCommandSucceeded,_device.LivePacketCount,_decodedLiveSamples))) f.ShowDialog(this); },false); top.Controls.Add(diagnostics,3,0);
             lblConnection=MakeLabel("SpiroLab",12,true); top.Controls.Add(lblConnection,0,0);
             btnNew=MakeButton("مراجع جدید",delegate { NewExam(); },false); btnOpen=MakeButton("پرونده قبلی",delegate { OpenExam(); },false);
             top.Controls.Add(btnOpen,1,0); top.Controls.Add(btnNew,2,0); root.Controls.Add(top,0,0);
@@ -109,8 +117,13 @@ namespace SpiroLab.Ui
             lblPrediction.BackColor=Color.FromArgb(231,242,247);
             txtCenter=Field(form,"نام مرکز",9); txtOperator=Field(form,"کارشناس",10);
             txtReviewed=Field(form,"تفسیر کارشناس",11); txtReviewed.Multiline=true; txtReviewed.MaxLength=250; form.RowStyles[11].Height=65;
-            form.Controls.Add(lblPrediction,0,12); form.SetColumnSpan(lblPrediction,2); form.RowStyles.Add(new RowStyle(SizeType.Absolute,60));
-            foreach(TextBox metadata in new TextBox[] {txtCenter,txtOperator,txtReviewed}) metadata.TextChanged+=delegate { if(_exam.Trials.Count>0) _dirty=true; };
+            txtExamDate=Field(form,"تاریخ معاینه",12); txtExamDate.RightToLeft=RightToLeft.No; txtExamDate.MaxLength=10;
+            txtVext=Field(form,"VEXT (mL)",13); txtVext.MaxLength=10;
+            txtVextSource=Field(form,"منبع VEXT",14); txtVextSource.MaxLength=200;
+            chkVextReviewed=new CheckBox { Text="VEXT را بازبینی کرده‌ام",Dock=DockStyle.Fill,AutoSize=true }; form.RowStyles.Add(new RowStyle(SizeType.Absolute,32)); form.Controls.Add(chkVextReviewed,0,15); form.SetColumnSpan(chkVextReviewed,2);
+            form.Controls.Add(lblPrediction,0,16); form.SetColumnSpan(lblPrediction,2); form.RowStyles.Add(new RowStyle(SizeType.Absolute,60));
+            foreach(TextBox metadata in new TextBox[] {txtCenter,txtOperator,txtReviewed,txtExamDate,txtVext,txtVextSource}) metadata.TextChanged+=delegate { if(!_rendering && _exam.Trials.Count>0) _dirty=true; };
+            chkVextReviewed.CheckedChanged+=delegate { if(!_rendering && _exam.Trials.Count>0) _dirty=true; };
             txtAge.TextChanged+=delegate { RefreshPrediction(); }; txtHeight.TextChanged+=delegate { RefreshPrediction(); };
             cmbSex.SelectedIndexChanged+=delegate { RefreshPrediction(); }; cmbOrigin.SelectedIndexChanged+=delegate { RefreshPrediction(); };
             Panel card=new Panel { Dock=DockStyle.Fill,BackColor=Color.White,Margin=new Padding(0,6,0,0) };
@@ -175,7 +188,8 @@ namespace SpiroLab.Ui
         }
         private void UpdateControls()
         {
-            btnStart.Enabled=btnDemo.Enabled=!_busy; btnConnect.Enabled=!_busy && !_device.Connected;
+            btnStart.Enabled=btnDemo.Enabled=!_busy && !_exam.FinalizedAt.HasValue; btnConnect.Enabled=!_busy && !_device.Connected;
+            btnSettings.Enabled=!_busy;
             btnStop.Enabled=_busy && _active!=null; btnDisconnect.Enabled=!_busy && _device.Connected;
             btnNew.Enabled=btnOpen.Enabled=btnImport.Enabled=!_busy;
             btnSave.Enabled=btnExport.Enabled=!_busy && _exam.Trials.Count>0;
@@ -183,6 +197,7 @@ namespace SpiroLab.Ui
             btnBest.Enabled=!_busy && _exam.Trials.Count>0;
             chkAccepted.Enabled=!_busy && _selected!=null && _selected.Completed && _selected.Result!=null && _selected.Result.Valid;
             gridTrials.Enabled=!_busy; _patientPanel.Enabled=!_busy;
+            foreach(Control field in new Control[] {txtCenter,txtOperator,txtReviewed,txtExamDate,txtVext,txtVextSource,chkVextReviewed}) field.Enabled=!_busy && !_exam.FinalizedAt.HasValue;
             foreach(Control field in new Control[] {txtFirst,txtLast,txtNid,txtAge,txtHeight,txtWeight,cmbSex,cmbOrigin}) field.Enabled=!_busy && _exam.Trials.Count==0;
             lblConnection.Text=_device.Connected?(_receivedLiveSamples?"نمونه دریافت شد؛ اعتبارسنجی نشده":"پاسخ کنترل USB؛ تست تأیید نشده"):"دستگاه متصل نیست";
         }
@@ -203,6 +218,7 @@ namespace SpiroLab.Ui
         private void DisconnectDevice() { if(_busy) return; _device.Disconnect(); UpdateControls(); lblStatus.Text="اتصال دستگاه قطع شد."; }
         private bool CheckSource(bool simulated,bool imported)
         {
+            if(_exam.FinalizedAt.HasValue) { Error("این معاینه نهایی شده است؛ مراجع جدید را انتخاب کنید."); return false; }
             if(_exam.Trials.Count>=100) { Error("این پرونده به سقف ۱۰۰ مانور رسیده است؛ پروندهٔ جدید باز کنید."); return false; }
             if(_exam.Trials.Count==0) return true;
             Trial first=_exam.Trials[0]; if(first.Simulated==simulated && first.Imported==imported) return true;
@@ -212,19 +228,22 @@ namespace SpiroLab.Ui
         {
             if(_busy || !CheckSource(false,false)) return;
             Patient p=ReadPatient(); if(p==null) return; if(!_device.Connected) { ConnectDevice(true); return; }
-            _exam.Patient=p; _exam.CenterName=txtCenter.Text.Trim(); _exam.OperatorName=txtOperator.Text.Trim(); _exam.ReviewedInterpretation=txtReviewed.Text.Trim(); _stop=false; _decoder=new PacketDecoder(); _active=new Trial { Completed=false }; _selected=null; _busy=true;
+            if(!SyncMetadata()) return;
+            _receivedLiveSamples=false; _decodedLiveSamples=0;
+            _exam.Patient=p; _stop=false; _decoder=new PacketDecoder(); _active=new Trial { Completed=false }; _selected=null; _busy=true;
             lock(_queueLock) _pending.Clear(); chart.Trial=_active; chart.Result=null; lblLive.Text="آماده‌سازی دستگاه…";
              UpdateControls(); _timer.Start(); Trial capturing=_active;
             Thread worker=new Thread(delegate()
             {
                 CaptureOutcome outcome=_device.Capture(capturing,delegate { return _stop; },delegate(DevicePacket packet) { lock(_queueLock) _pending.Enqueue(packet); });
-                Post(delegate { DrainPackets(); _receivedLiveSamples=capturing.Flow.Count>0; _safeError=_receivedLiveSamples?"none":"no_valid_live_samples"; capturing.Completed=outcome.Completed && capturing.EndReason.Length==0; capturing.EndReason=outcome.Reason??capturing.EndReason; capturing.DeviceValues=outcome.Results; FinishTrial(); });
+                Post(delegate { DrainPackets(); _decodedLiveSamples=capturing.Flow.Count; _receivedLiveSamples=_decodedLiveSamples>0; _safeError=_receivedLiveSamples?"none":"no_valid_live_samples"; capturing.Completed=outcome.Completed && capturing.EndReason.Length==0; capturing.EndReason=outcome.Reason??capturing.EndReason; capturing.DeviceValues=outcome.Results; FinishTrial(); });
             }) { IsBackground=true }; worker.Start();
         }
         private void StartSimulation()
         {
             if(_busy || !CheckSource(true,false)) return; Patient p=ReadPatient(); if(p==null) return;
-            _exam.Patient=p; _exam.CenterName=txtCenter.Text.Trim(); _exam.OperatorName=txtOperator.Text.Trim(); _exam.ReviewedInterpretation=txtReviewed.Text.Trim(); _active=Simulator.Build(p,Environment.TickCount); _active.Completed=false;
+            if(!SyncMetadata()) return;
+            _exam.Patient=p; _active=Simulator.Build(p,Environment.TickCount); _active.Completed=false;
             _simPos=0; _simulating=true; _busy=true; _selected=null; chart.Trial=_active; chart.Result=null; chart.VisibleSamples=0;
             lblLive.Text="نمایشی — دادهٔ ساختگی";  UpdateControls(); _timer.Start();
         }
@@ -292,7 +311,8 @@ namespace SpiroLab.Ui
             {
                 AddMetric("FVC (L)",r.Fvc,r.Ref.Fvc,r.Ref.FvcLln); AddMetric("FEV1 (L)",r.Fev1,r.Ref.Fev1,r.Ref.Fev1Lln);
                 AddMetric("FEV1/FVC (%)",r.Fev1Fvc,r.Ref.Fev1Fvc,r.Ref.RatioLln); AddMetric("PEF (L/s)",r.Pef,r.Ref.Pef,0);
-                AddMetric("FEF25 (L/s)",r.Fef25,r.Ref.Fef25,0); AddMetric("FEF50 (L/s)",r.Fef50,r.Ref.Fef50,0); AddMetric("FEF75 (L/s)",r.Fef75,r.Ref.Fef75,0); AddMetric("FEF25-75 (L/s)",r.Fef2575,r.Ref.Fef2575,0); AddMetric("FEV6 (L)",r.Fev6,0,0); AddMetric("FET (s)",r.Fet,0,0); AddMetric("BEV تخمینی (mL)",r.Bev*1000,0,0);
+                AddMetric("FEF25 (L/s)",r.Fef25,r.Ref.Fef25,0); AddMetric("FEF50 (L/s)",r.Fef50,r.Ref.Fef50,0); AddMetric("FEF75 (L/s)",r.Fef75,r.Ref.Fef75,0); AddMetric("FEF25-75 (L/s)",r.Fef2575,r.Ref.Fef2575,0); AddMetric("FEV6 (L)",r.Fev6,0,0); AddMetric("FET (s)",r.Fet,0,0);
+                if(r.BevAvailable) AddMetric("BEV تخمینی (mL)",r.Bev*1000,0,0); else gridResults.Rows.Add("BEV تخمینی (mL)","—","—","—","—");
             }
             lblLive.Text="مانور "+(index+1)+(_selected.Completed?"":" — ناقص")+(_selected.Simulated?" | نمایشی":"");
             _rendering=true; chkAccepted.Checked=_selected.OperatorAccepted; _rendering=false; UpdateControls();
@@ -320,7 +340,7 @@ namespace SpiroLab.Ui
         private bool SaveExam(bool explicitSave)
         {
             if(_exam.Trials.Count==0) return true;
-            _exam.CenterName=txtCenter.Text.Trim(); _exam.OperatorName=txtOperator.Text.Trim(); _exam.ReviewedInterpretation=txtReviewed.Text.Trim();
+            if(!SyncMetadata()) return false;
             try
             {
                 if(_path==null) _path=ExamStore.NewPath(); ExamStore.Save(_path,_exam); _dirty=false; lblStatus.Text="ذخیره شد";
@@ -331,7 +351,7 @@ namespace SpiroLab.Ui
         private void NewExam()
         {
             if(_busy || (_dirty && !SaveExam(false))) return;
-            _exam=new Exam(); txtOperator.Clear(); txtReviewed.Clear(); _receivedLiveSamples=false; _safeError="none"; _selected=null; _path=null; cmbOrigin.SelectedIndex=0;
+            _exam=Exam.CreateNew(_settings); PopulateMetadata(); _dirty=false; _receivedLiveSamples=false; _safeError="none"; _selected=null; _path=null; cmbOrigin.SelectedIndex=0;
             foreach(TextBox t in new TextBox[] { txtFirst,txtLast,txtNid,txtEmp,txtCompany,txtJob,txtAge,txtHeight,txtWeight,txtNote }) t.Clear();
             chart.Trial=resultChart.Trial=null; chart.Result=resultChart.Result=null; gridResults.Rows.Clear(); RenderTrials(); txtWarnings.Clear();
              lblSource.Text="هنوز تستی ثبت نشده است."; lblLive.Text="آماده"; lblStatus.Text="پروندهٔ جدید — مشخصات مراجع را وارد کنید.";
@@ -346,7 +366,7 @@ namespace SpiroLab.Ui
                 try
                 {
                     Exam loaded=ExamStore.Load(dialog.FileName); _exam=loaded; _path=dialog.FileName; _dirty=false; _selected=null;
-                    Populate(_exam.Patient); txtOperator.Text=_exam.OperatorName; txtCenter.Text=_exam.CenterName; txtReviewed.Text=_exam.ReviewedInterpretation; RenderTrials(); if(_exam.Trials.Count>0) SelectTrial(_exam.Trials.Count-1);
+                    Populate(_exam.Patient); PopulateMetadata(); RenderTrials(); if(_exam.Trials.Count>0) SelectTrial(_exam.Trials.Count-1);
                     else { gridResults.Rows.Clear(); chart.Trial=resultChart.Trial=null; txtWarnings.Clear(); lblInterpretation.Text="این پرونده تست ندارد."; }
                     UpdateControls();  lblStatus.Text="پرونده باز شد";
                 }
@@ -386,9 +406,43 @@ namespace SpiroLab.Ui
         private void ShowReport()
         {
             if(ExamSummary.Build(_exam.Trials).Best==null) return;
-            _exam.CenterName=txtCenter.Text.Trim(); _exam.OperatorName=txtOperator.Text.Trim(); _exam.ReviewedInterpretation=txtReviewed.Text.Trim(); SaveExam(false);
-            try { using(ReportForm report=new ReportForm(ExaminationSnapshot.Capture(_exam))) report.ShowDialog(this); }
+            if(!SaveExam(false)) return;
+            try
+            {
+                ExaminationSnapshot snapshot=ExaminationSnapshot.Capture(_exam);
+                if(!_exam.FinalizedAt.HasValue)
+                {
+                    _exam.FinalizeExamination();
+                    try { ExamStore.Save(_path,_exam); } catch { _exam.FinalizedAt=null; throw; }
+                    snapshot=ExaminationSnapshot.Capture(_exam); UpdateControls();
+                }
+                using(ReportForm report=new ReportForm(snapshot)) report.ShowDialog(this);
+            }
             catch(Exception ex) { Error("گزارش آماده نشد: "+ex.Message); }
+        }
+        private void PopulateMetadata()
+        {
+            _rendering=true;
+            txtCenter.Text=_exam.CenterName; txtOperator.Text=_exam.OperatorName; txtReviewed.Text=_exam.ReviewedInterpretation;
+            txtExamDate.Text=_exam.ExaminationDate.HasValue?ExaminationDates.Format(_exam.ExaminationDate.Value):"";
+            txtVext.Text=_exam.ReviewedVextMl.HasValue?Fmt.N(_exam.ReviewedVextMl.Value,2):"";
+            txtVextSource.Text=_exam.ReviewedVextSource; chkVextReviewed.Checked=_exam.VextManuallyReviewed;
+            _rendering=false;
+        }
+        private bool SyncMetadata()
+        {
+            if(_exam.FinalizedAt.HasValue) return true;
+            DateTime date;
+            if(!ExaminationDates.TryParse(txtExamDate.Text,out date)) { Error("تاریخ معتبر با قالب yyyy/MM/dd یا yyyy-MM-dd وارد کنید؛ شمسی یا میلادی."); return false; }
+            double vext=Fmt.Parse(txtVext.Text,double.NaN);
+            if(txtVext.Text.Trim().Length>0 && (double.IsNaN(vext) || vext<0 || vext>12000 || !chkVextReviewed.Checked || txtOperator.Text.Trim().Length==0 || txtVextSource.Text.Trim().Length==0))
+            { Error("برای VEXT، مقدار معتبر، نام کارشناس، منبع و تأیید بازبینی لازم است."); return false; }
+            if(!_exam.ExaminationDate.HasValue || _exam.ExaminationDate.Value.Date!=date) _exam.ExaminationDateSource="operator_selected_date";
+            _exam.ExaminationDate=date; _exam.CenterName=txtCenter.Text.Trim(); _exam.OperatorName=txtOperator.Text.Trim(); _exam.ReviewedInterpretation=txtReviewed.Text.Trim();
+            _exam.ReviewedVextMl=txtVext.Text.Trim().Length==0?(double?)null:vext;
+            _exam.ReviewedVextSource=_exam.ReviewedVextMl.HasValue?txtVextSource.Text.Trim():"";
+            _exam.VextManuallyReviewed=_exam.ReviewedVextMl.HasValue && chkVextReviewed.Checked;
+            return true;
         }
         private void ClosingForm(object sender,FormClosingEventArgs args)
         {

@@ -22,6 +22,7 @@ echo Building SpiroLab.exe ...
   Src\Program.cs ^
   Src\AssemblyInfo.cs ^
   Src\Model.cs ^
+  Src\AppSettings.cs ^
   Src\DeploymentSelfTest.cs ^
   Src\ExaminationSnapshot.cs ^
   Src\Expiration.cs ^
@@ -39,6 +40,7 @@ echo Building SpiroLab.exe ...
   Src\Ui\MainForm.cs ^
   Src\Ui\ReportForm.cs ^
   Src\Ui\DiagnosticsForm.cs ^
+  Src\Ui\SettingsForm.cs ^
   Src\Ui\SpiroReport.cs
 
 if errorlevel 1 goto :fail

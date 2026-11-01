@@ -49,7 +49,7 @@ namespace SpiroLab.Device
 
         private const int ERROR_IO_PENDING = 997;
 
-        [StructLayout(LayoutKind.Sequential)]
+        [StructLayout(LayoutKind.Sequential, Pack=4)]
         private struct WDM_SETUP_PACKET
         {
             public byte RequestType;
@@ -167,6 +167,7 @@ namespace SpiroLab.Device
 
                     string hw = Encoding.Unicode.GetString(buf, 0, (int)Math.Max(0, need - 2)).TrimEnd('\0');
                     if (hw.IndexOf("VID_" + vid, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    if (hw.IndexOf("VID_"+vid+"&PID_0002",StringComparison.OrdinalIgnoreCase)<0) continue;
 
                     StringBuilder sb = new StringBuilder(512);
                     if (!SetupDiGetDeviceInstanceIdW(set, ref did, sb, 512, out need)) continue;
@@ -205,6 +206,7 @@ namespace SpiroLab.Device
             error = null;
             if(CleanupPending) { error="درایور لغو عملیات را تأیید نکرد؛ اتصال مجدد در این اجرا غیرفعال است."; return false; }
             if (IsOpen) { error = null; return true; }
+            LastError=0;
 
             List<string> paths = FindDevicePaths("152B");
             if (paths.Count == 0)
@@ -321,12 +323,14 @@ namespace SpiroLab.Device
             System.Threading.Timer timer=null;
             timer=new System.Threading.Timer(delegate
             {
-                if(WaitForSingleObject(ev,0)!=0 || System.Threading.Interlocked.Exchange(ref released,1)!=0) return;
+                if(System.Threading.Interlocked.CompareExchange(ref released,1,0)!=0) return;
+                if(WaitForSingleObject(ev,0)!=0) { System.Threading.Interlocked.Exchange(ref released,0); return; }
                 if(pin.IsAllocated) pin.Free(); if(setupPin.IsAllocated) setupPin.Free();
                 Marshal.FreeHGlobal(ov); CloseHandle(ev); CloseHandle(failedHandle);
                 lock(CleanupTimers) CleanupTimers.Remove(timer); timer.Dispose();
-            },null,100,100);
+            },null,System.Threading.Timeout.Infinite,System.Threading.Timeout.Infinite);
             lock(CleanupTimers) CleanupTimers.Add(timer);
+            timer.Change(100,100);
         }
         public bool Send(byte cmd) { uint count; return Control(0x40,cmd,null,out count); }
         public byte[] Get(byte cmd,int length)
@@ -354,10 +358,11 @@ namespace SpiroLab.Device
                 Marshal.StructureToPtr(new OVERLAPPED { EventHandle = ev }, ov, false);
                 bool ok = write ? WriteFile(handle, pin.AddrOfPinnedObject(), (uint)data.Length, out count, ov)
                                 : ReadFile(handle, pin.AddrOfPinnedObject(), (uint)data.Length, out count, ov);
-                if (ok) return true;
-                if (Marshal.GetLastWin32Error() != ERROR_IO_PENDING) return false;
+                if (ok) { LastError=0; return true; }
+                LastError=Marshal.GetLastWin32Error();
+                if (LastError != ERROR_IO_PENDING) return false;
                 if (WaitForSingleObject(ev, (uint)Math.Max(1, timeout)) == 0)
-                    return GetOverlappedResult(handle, ov, out count, false);
+                { ok=GetOverlappedResult(handle, ov, out count, false); LastError=ok?0:Marshal.GetLastWin32Error(); return ok; }
                 CancelIoEx(handle,ov);
                 if(WaitForSingleObject(ev,2000)!=0)
                 {
@@ -367,8 +372,9 @@ namespace SpiroLab.Device
                     if(handle==_bulkIn) _bulkIn=IntPtr.Zero; if(handle==_bulkOut) _bulkOut=IntPtr.Zero;
                     int released=0;
                     System.Threading.Timer cleaner=null;
-                    cleaner=new System.Threading.Timer(delegate { if(WaitForSingleObject(heldEvent,0)!=0 || System.Threading.Interlocked.Exchange(ref released,1)!=0) return; held.Free(); Marshal.FreeHGlobal(heldOv); CloseHandle(heldEvent); CloseHandle(handle); lock(CleanupTimers) CleanupTimers.Remove(cleaner); cleaner.Dispose(); },null,100,100);
+                    cleaner=new System.Threading.Timer(delegate { if(System.Threading.Interlocked.CompareExchange(ref released,1,0)!=0) return; if(WaitForSingleObject(heldEvent,0)!=0) { System.Threading.Interlocked.Exchange(ref released,0); return; } held.Free(); Marshal.FreeHGlobal(heldOv); CloseHandle(heldEvent); CloseHandle(handle); lock(CleanupTimers) CleanupTimers.Remove(cleaner); cleaner.Dispose(); },null,System.Threading.Timeout.Infinite,System.Threading.Timeout.Infinite);
                     lock(CleanupTimers) CleanupTimers.Add(cleaner);
+                    cleaner.Change(100,100);
                 }
                 LastError=1460;
                 return false;

@@ -18,6 +18,23 @@ namespace SpiroLab
         public string ReviewedQualityGrade = "";
         public string ReviewedQualityComment = "";
         public bool LegacyRecord;
+        public DateTime? ExaminationDate;
+        public string ExaminationDateSource="legacy_capture_date";
+        public DateTime? FinalizedAt;
+        public string ReportSnapshotId="";
+        public double? ReviewedVextMl;
+        public string ReviewedVextSource="";
+        public bool VextManuallyReviewed;
+        public static Exam CreateNew(AppSettings settings)
+        { return new Exam { CenterName=settings.CenterName,OperatorName=settings.OperatorName,ExaminationDate=DateTime.Today,ExaminationDateSource="windows_local_date" }; }
+        public void FinalizeExamination()
+        {
+            if(FinalizedAt.HasValue) return;
+            ExaminationSnapshot.Capture(this); // validate before freezing
+            foreach(Trial t in Trials) { if(t.Result==null) t.Result=SpiroAnalysis.Analyze(t,Patient); t.FinalizedResult=t.Result.Clone(); }
+            ReportSnapshotId=Guid.NewGuid().ToString("N");
+            FinalizedAt=DateTime.Now;
+        }
         public Patient Patient = new Patient();
         public List<Trial> Trials = new List<Trial>();
     }
@@ -62,8 +79,9 @@ namespace SpiroLab
                     if (!Finite(t.Flow[i]) || Math.Abs(t.Flow[i]) > 25 || (t.Time.Count > 0 && (!Finite(t.Time[i]) || t.Time[i] < 0 || t.Time[i] > 3600 || (i > 0 && t.Time[i] < t.Time[i - 1]))) || (t.Volume.Count > 0 && (!Finite(t.Volume[i]) || Math.Abs(t.Volume[i]) > 100)))
                         throw new InvalidDataException("نمونهٔ نامعتبر در فایل وجود دارد.");
                 }
-                t.Result = SpiroAnalysis.Analyze(t, e.Patient);
+                t.Result = e.FinalizedAt.HasValue && t.FinalizedResult!=null ? t.FinalizedResult.Clone() : SpiroAnalysis.Analyze(t, e.Patient);
             }
+            if(!e.ExaminationDate.HasValue && e.Trials.Count>0) { e.ExaminationDate=e.Trials[0].When.Date; e.ExaminationDateSource="legacy_capture_date"; }
             return e;
         }
         private static bool Finite(double x) { return !double.IsNaN(x) && !double.IsInfinity(x); }
@@ -131,7 +149,7 @@ namespace SpiroLab
                         string[] keys = { "FVC", "FEV1", "FEV1/FVC", "PEF", "FEF25", "FEF50", "FEF75", "FEF25-75", "FEV6", "FET", "BEV" };
                         double[] vals = { r.Fvc, r.Fev1, r.Fev1Fvc, r.Pef, r.Fef25, r.Fef50, r.Fef75, r.Fef2575, r.Fev6, r.Fet, r.Bev*1000 };
                         string[] units = { "L", "L", "%", "L/s", "L/s", "L/s", "L/s", "L/s", "L", "s", "mL" };
-                        for (int i = 0; i < keys.Length; i++) w.WriteLine(prefix + "Result,,,," + keys[i] + "," + vals[i].ToString("R", CultureInfo.InvariantCulture) + "," + units[i]);
+                        for (int i = 0; i < keys.Length; i++) w.WriteLine(prefix + "Result,,,," + keys[i] + "," + (keys[i]=="BEV" && !r.BevAvailable?"":vals[i].ToString("R", CultureInfo.InvariantCulture)) + "," + units[i]);
                     }
                     double volume = 0;
                     for (int i = 0; i < t.Flow.Count; i++)

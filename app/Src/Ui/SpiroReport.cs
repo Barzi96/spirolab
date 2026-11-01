@@ -36,7 +36,7 @@ namespace SpiroLab.Ui
                 g.DrawLine(Pens.LightGray,60,177,1140,177);
                 Text(g,p.FullName+"    |    کد ملی: "+p.NationalId,new RectangleF(60,192,1080,33),17,true,true,false);
                 Text(g,"سن: "+p.Age+"    جنسیت: "+(p.Sex==Sex.Male?"مرد":"زن")+"    قد: "+Fmt.N(p.HeightCm,1)+" cm    وزن: "+Fmt.N(p.WeightKg,1)+" kg",new RectangleF(60,232,1080,33),14,false,true,false);
-                Text(g,"Test date: "+snapshot.TestedAt.ToString("yyyy/MM/dd HH:mm",CultureInfo.InvariantCulture)+"    |    Origin: "+OriginText(p.Origin)+"    |    Predicted: ERS",new RectangleF(60,276,1080,29),13,false,false,false);
+                Text(g,"Exam date: "+ExaminationDates.Format(snapshot.TestedAt)+" ("+PersianDate.Format(snapshot.TestedAt)+")    |    Origin: "+OriginText(p.Origin)+"    |    Predicted: ERS",new RectangleF(60,276,1080,29),13,false,false,false);
                 Text(g,"FLOW–VOLUME & VOLUME–TIME CURVES",new RectangleF(60,321,1080,30),16,true,false,true);
                 DrawCurves(g,new Rectangle(60,362,1080,483),s,delegate(Trial t) { return snapshot.Index(t); });
                 Text(g,"BEST VALUES",new RectangleF(60,880,1080,32),18,true,false,true);
@@ -44,19 +44,29 @@ namespace SpiroLab.Ui
                 Table(g,60,920,1080,32,new string[] {"PARAMETER","UNIT","Pred.","Measured","%Pred."},best);
                 Text(g,"MANEUVER DETAILS — BEST THREE",new RectangleF(60,1133,1080,30),14,true,false,true);
                 List<string[]> detail=new List<string[]>();
+                int[] starred={0,1,3}; double[] maxima={s.Fvc,s.Fev1,s.Pef};
+                for(int k=0;k<starred.Length;k++)
+                {
+                    int i=starred[k]; List<string> row=new List<string> {"*"+MetricName(i),Unit(i),Predicted(s.Best.Ref,i)>0?Fmt.N(Predicted(s.Best.Ref,i),2):"—"};
+                    for(int j=0;j<3;j++) { row.Add(j<s.Trials.Count?Fmt.N(maxima[k],2):"—"); if(j==0) row.Add(Predicted(s.Best.Ref,i)>0?Fmt.N(maxima[k]/Predicted(s.Best.Ref,i)*100,0):"—"); }
+                    detail.Add(row.ToArray());
+                }
                 for(int i=0;i<8;i++)
                 {
                     List<string> row=new List<string> {MetricName(i),Unit(i),Predicted(s.Best.Ref,i)>0?Fmt.N(Predicted(s.Best.Ref,i),i==2?1:2):"—"};
-                    for(int j=0;j<3;j++) row.Add(j<s.Trials.Count?Fmt.N(Value(s.Trials[j].Result,i),i==2?1:i==8?0:2):"—");
+                    for(int j=0;j<3;j++) { row.Add(j<s.Trials.Count?Fmt.N(Value(s.Trials[j].Result,i),i==2?1:2):"—"); if(j==0) row.Add(s.Trials.Count>0 && Predicted(s.Best.Ref,i)>0?Fmt.N(Value(s.Trials[0].Result,i)/Predicted(s.Best.Ref,i)*100,0):"—"); }
                     detail.Add(row.ToArray());
                 }
-                Table(g,60,1170,1080,27,new string[] {"PARAMETER","UNIT","Pred.",s.Trials.Count>0?"PRE #"+snapshot.Index(s.Trials[0]):"—",s.Trials.Count>1?"PRE #"+snapshot.Index(s.Trials[1]):"—",s.Trials.Count>2?"PRE #"+snapshot.Index(s.Trials[2]):"—"},detail.ToArray());
-                Text(g,"INTERPRETATION: "+snapshot.InterpretationText,new RectangleF(60,1425,1080,62),12,false,true,false);
-                Text(g,"QUALITY GRADE: "+(string.IsNullOrWhiteSpace(snapshot.Data.ReviewedQualityGrade)?"UNAVAILABLE / UNVALIDATED":snapshot.Data.ReviewedQualityGrade+" (manual)")+"  |  VEXT: unavailable",new RectangleF(60,1495,1080,30),12,false,false,false);
+                List<string> evol=new List<string> {"EVol (calc.)","mL","—"};
+                for(int j=0;j<3;j++) { evol.Add(j<s.Trials.Count && s.Trials[j].Result.BevAvailable?Fmt.N(s.Trials[j].Result.Bev*1000,0):"—"); if(j==0) evol.Add("—"); }
+                detail.Add(evol.ToArray());
+                Table(g,60,1170,1080,22,new string[] {"PARAMETER","UNIT","Pred.",s.Trials.Count>0?"PRE #"+snapshot.Index(s.Trials[0]):"—","%Pred.",s.Trials.Count>1?"PRE #"+snapshot.Index(s.Trials[1]):"—",s.Trials.Count>2?"PRE #"+snapshot.Index(s.Trials[2]):"—"},detail.ToArray());
+                Text(g,"INTERPRETATION: "+snapshot.InterpretationText,new RectangleF(60,1462,1080,40),12,false,true,false);
+                Text(g,"QUALITY: "+(string.IsNullOrWhiteSpace(snapshot.Data.ReviewedQualityGrade)?"UNVALIDATED":snapshot.Data.ReviewedQualityGrade+" (manual)")+" | EVol: timing unverified | VEXT: "+(snapshot.Data.ReviewedVextMl.HasValue?Fmt.N(snapshot.Data.ReviewedVextMl.Value,2)+" mL (manual review)":"unavailable"),new RectangleF(60,1505,1080,25),11,false,false,false);
                 Text(g,snapshot.Data.ReviewedQualityComment,new RectangleF(60,1531,1080,40),12,false,true,false);
                 Text(g,"REPEATABILITY (descriptive, unvalidated): "+s.Repeatability,new RectangleF(60,1572,1080,30),11,false,false,false);
                 Text(g,"Exam: "+snapshot.Data.ExaminationId+" | Best: PRE #"+snapshot.BestIndex,new RectangleF(60,1655,1080,26),10,false,false,false);
-                Text(g,"Independent SpiroLab 5 | SN: "+(string.IsNullOrEmpty(s.BestTrial.DeviceSerial)?"not verified":s.BestTrial.DeviceSerial)+" | Not a MIR-generated report",new RectangleF(60,1620,1080,28),11,false,false,false);
+                Text(g,"Independent SpiroLab 5.1 | SN: "+(string.IsNullOrEmpty(s.BestTrial.DeviceSerial)?"not verified":s.BestTrial.DeviceSerial)+" | Not a MIR-generated report",new RectangleF(60,1620,1080,28),11,false,false,false);
             }
             return image;
         }

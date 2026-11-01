@@ -1,0 +1,14 @@
+{
+  "kind": "anonymized_printed_output_reference_not_raw_signal",
+  "input": { "age": 44, "heightCm": 164, "weightKg": 74, "sex": "Male", "origin": "Unspecified" },
+  "predicted": [3.96, 3.29, 79.3, 8.33, 3.99],
+  "best": [4.22, 3.74, 88.6, 9.65, 5.16],
+  "percent": [107, 114, 112, 116, 129],
+  "maneuvers": [
+    { "FVC": 4.22, "FEV1": 3.74, "ratio": 88.6, "PEF": 9.65, "FEF25": 9.27, "FEF50": 6.29, "FEF75": 1.99, "FEF25_75": 5.16, "EVolMl": 110 },
+    { "FVC": 4.20, "FEV1": 3.70, "ratio": 88.1, "PEF": 8.40, "FEF25": 8.37, "FEF50": 6.07, "FEF75": 2.02, "FEF25_75": 5.01, "EVolMl": 132 },
+    { "FVC": 4.17, "FEV1": 3.70, "ratio": 88.7, "PEF": 8.61, "FEF25": 8.46, "FEF50": 6.34, "FEF75": 2.06, "FEF25_75": 5.17, "EVolMl": 105 }
+  ],
+  "localHtml": { "ratio": 88.63, "VEXTMl": 132 },
+  "limitations": "Printed values are rounded. No paired raw acquisition, verified BTPS coefficient, firmware algorithm or automatic VEXT selection rule is available."
+}

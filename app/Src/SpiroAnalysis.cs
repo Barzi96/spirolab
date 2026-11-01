@@ -26,16 +26,19 @@ namespace SpiroLab
             r.Fef25 = s.FlowAtVolume(r.Fvc * .25); r.Fef50 = s.FlowAtVolume(r.Fvc * .5); r.Fef75 = s.FlowAtVolume(r.Fvc * .75);
             double span = s.TimeAtVolume(r.Fvc * .75) - s.TimeAtVolume(r.Fvc * .25);
             r.Fef2575 = span > 0 ? r.Fvc * .5 / span : 0;
-            // Tangent at maximum slope (PEF); estimate, not a certified BEV algorithm.
-            r.Bev = Math.Max(0, r.Pef * r.PefTime - s.VolumeAt(r.PefTime));
-            r.BevOk = r.Bev <= Math.Max(.100, .05 * r.Fvc);
+            // ATS/ERS: the peak tangent locates Time Zero; BEV is V(Time Zero),
+            // not PEF * Time Zero. Acquisition timing is still unvalidated.
+            r.BevAvailable = TryBackExtrapolation(s, r.PefTime, r.Pef, out r.TimeZero, out r.Bev);
+            r.BevSourceAdequacy = r.BevAvailable ? "computed_from_reconstructed_signal_timing_unverified" : "time_zero_not_bracketed_or_invalid_signal";
+            r.BevOk = r.BevAvailable && r.Bev <= Math.Max(.100, .05 * r.Fvc);
             r.PlateauOk = r.Fet >= 1 && r.Fvc - s.VolumeAt(r.Fet - 1) <= .025;
             r.FetOk = r.PlateauOk || r.Fet >= 15;
             r.PeftOk = r.PefTime <= .150;
             r.Valid = true;
             if (!trial.Completed) r.Warnings.Add("تست متوقف یا ناقص است؛ برای انتخاب بهترین تست استفاده نمی‌شود. " + trial.EndReason);
             if (!r.FetOk) r.Warnings.Add("فلات پایانی ۲۵ میلی‌لیتر در یک ثانیه مشاهده نشد؛ پایان بازدم را بررسی کنید.");
-            if (!r.BevOk) r.Warnings.Add("برآورد حجم پس‌برون‌یابی بالاست؛ شروع مانور را بررسی کنید.");
+            if (!r.BevAvailable) r.Warnings.Add("زمان صفر از دادهٔ موجود قابل محاسبه نیست.");
+            else if (!r.BevOk) r.Warnings.Add("برآورد حجم پس‌برون‌یابی بالاست؛ شروع مانور را بررسی کنید.");
             if (!r.PeftOk) r.Warnings.Add("اوج جریان دیررس است؛ شروع بازدم را بررسی کنید.");
             if (r.Cough) r.Warnings.Add("افت ناگهانی جریان در ثانیهٔ اول؛ بررسی سرفه لازم است.");
             if (r.Fet < 1) r.Warnings.Add("بازدم کمتر از یک ثانیه است؛ FEV1 قابل اتکا نیست.");
@@ -46,6 +49,20 @@ namespace SpiroLab
             if (!trial.Completed) r.Interpretation = "مانور ناقص؛ تفسیر قابل اتکا نیست. " + r.Interpretation;
             return r;
         }
+
+        public static bool TryBackExtrapolation(Expiration s,double peakTime,double peakFlow,out double timeZero,out double bev)
+        {
+            timeZero=bev=0;
+            if(s==null || s.Time==null || s.Volume==null || s.Count<2 || s.Volume.Length!=s.Count || !Finite(peakTime) || !Finite(peakFlow) || peakFlow<=0) return false;
+            for(int i=0;i<s.Count;i++)
+                if(!Finite(s.Time[i]) || !Finite(s.Volume[i]) || s.Volume[i]<0 || (i>0 && (s.Time[i]<=s.Time[i-1] || s.Volume[i]<s.Volume[i-1]))) return false;
+            if(peakTime<s.Time[0] || peakTime>s.Time[s.Count-1]) return false;
+            timeZero=peakTime-s.VolumeAt(peakTime)/peakFlow;
+            if(timeZero<s.Time[0] || timeZero>peakTime) return false;
+            bev=s.VolumeAt(timeZero);
+            return Finite(bev);
+        }
+        private static bool Finite(double value) { return !double.IsNaN(value) && !double.IsInfinity(value); }
 
         private static void Interpret(AnalysisResult r, Patient p)
         {

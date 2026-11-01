@@ -15,11 +15,12 @@ namespace SpiroLab
         public readonly string Source;
         public readonly string Status;
         public readonly DateTime TestedAt;
+        public readonly DateTime CaptureStartedAt;
         private ExaminationSnapshot(Exam exam)
         {
             Data=new Exam { ExaminationId=exam.ExaminationId,CenterName=exam.CenterName,OperatorName=exam.OperatorName,
                 ReviewedInterpretation=exam.ReviewedInterpretation,ReviewedQualityGrade=exam.ReviewedQualityGrade,ReviewedQualityComment=exam.ReviewedQualityComment,
-                Patient=exam.Patient.Clone(),LegacyRecord=exam.LegacyRecord };
+                Patient=exam.Patient.Clone(),LegacyRecord=exam.LegacyRecord,ExaminationDate=exam.ExaminationDate,ExaminationDateSource=exam.ExaminationDateSource,FinalizedAt=exam.FinalizedAt,ReviewedVextMl=exam.ReviewedVextMl,ReviewedVextSource=exam.ReviewedVextSource,VextManuallyReviewed=exam.VextManuallyReviewed };
             string problem;
             if(!Data.Patient.IsUsable(out problem)) throw new ArgumentException(problem);
             HashSet<string> ids=new HashSet<string>();
@@ -39,8 +40,10 @@ namespace SpiroLab
             foreach(Trial t in Data.Trials) if(t.Simulated!=simulated || t.Imported!=imported) throw new InvalidOperationException("منبع مانورها یکسان نیست.");
             Source=simulated?"simulation":imported?"replay":"usb_live";
             Status=Source=="usb_live"?"DEVELOPMENT — UNVERIFIED MEASUREMENTS":"NON-CLINICAL TEST DATA";
-            SnapshotId=Guid.NewGuid().ToString("N");
-            TestedAt=Data.Trials[0].When;
+            SnapshotId=exam.FinalizedAt.HasValue && !string.IsNullOrEmpty(exam.ReportSnapshotId)?exam.ReportSnapshotId:Guid.NewGuid().ToString("N");
+            CaptureStartedAt=Data.Trials[0].When;
+            TestedAt=Data.ExaminationDate.HasValue?Data.ExaminationDate.Value.Date:CaptureStartedAt;
+            if(Data.ReviewedVextMl.HasValue && (!Data.VextManuallyReviewed || string.IsNullOrWhiteSpace(Data.OperatorName) || string.IsNullOrWhiteSpace(Data.ReviewedVextSource) || double.IsNaN(Data.ReviewedVextMl.Value) || double.IsInfinity(Data.ReviewedVextMl.Value) || Data.ReviewedVextMl<0 || Data.ReviewedVextMl>12000)) throw new ArgumentException("مقدار VEXT باید با نام کارشناس، منبع و تأیید بازبینی ثبت شود.");
             Document=BuildDocument();
         }
         public static ExaminationSnapshot Capture(Exam exam) { return new ExaminationSnapshot(exam); }
@@ -66,25 +69,26 @@ namespace SpiroLab
             Dictionary<string,object> d=new Dictionary<string,object>();
             d["schemaVersion"]=2;
             d["patient"]=new { nationalId=Data.Patient.NationalId,firstName=Data.Patient.FirstName,lastName=Data.Patient.LastName,age=Data.Patient.Age,sex=Data.Patient.Sex.ToString(),origin=Data.Patient.Origin.ToString(),heightCm=Data.Patient.HeightCm,weightKg=Data.Patient.WeightKg };
-            d["examination"]=new { id=Data.ExaminationId,snapshotId=SnapshotId,type="PRE",testedAt=TestedAt.ToString("o",CultureInfo.InvariantCulture),operatorName=Data.OperatorName,operatorStatus=string.IsNullOrWhiteSpace(Data.OperatorName)?"unavailable":"manually_entered",centerName=Data.CenterName,maneuverCount=Data.Trials.Count,includedManeuverCount=Summary.Candidates.Count,bestManeuverId=Summary.BestTrial.ManeuverId,bestManeuverIndex=BestIndex };
+            d["examination"]=new { id=Data.ExaminationId,snapshotId=SnapshotId,type="PRE",testedAt=TestedAt.ToString("o",CultureInfo.InvariantCulture),examinationDate=ExaminationDates.Format(TestedAt),dateSource=Data.ExaminationDateSource,captureStartedAt=CaptureStartedAt.ToString("o",CultureInfo.InvariantCulture),operatorName=Data.OperatorName,operatorStatus=string.IsNullOrWhiteSpace(Data.OperatorName)?"unavailable":"manually_entered",centerName=Data.CenterName,maneuverCount=Data.Trials.Count,includedManeuverCount=Summary.Candidates.Count,bestManeuverId=Summary.BestTrial.ManeuverId,bestManeuverIndex=BestIndex };
             d["device"]=new { model="MIR Spirolab (protocol family; model not verified)",serial=Summary.BestTrial.DeviceSerial,hardwareValidation="HARDWARE VALIDATION PENDING" };
+            d["review"]=new { finalizedAt=Data.FinalizedAt.HasValue?Data.FinalizedAt.Value.ToString("o",CultureInfo.InvariantCulture):null,manualVext=Data.ReviewedVextMl.HasValue?(object)new { reviewer=Data.OperatorName,source=Data.ReviewedVextSource,reviewed=Data.VextManuallyReviewed,selectionMethod="explicit_operator_entry_no_automatic_EVol_selection" }:null };
             Dictionary<string,object> values=new Dictionary<string,object>();
             values["FVC"]=Measure(Summary.Best,0,Summary.Fvc,Provider("FVC")); values["FEV1"]=Measure(Summary.Best,1,Summary.Fev1,Provider("FEV1"));
             values["FEV1_FVC"]=Measure(Summary.Best,2,Summary.Ratio,"independent_max_FEV1_divided_by_max_FVC");
             values["FEF25_75"]=Measure(Summary.Best,7,Summary.Best.Fef2575,Summary.BestTrial.ManeuverId); values["PEF"]=Measure(Summary.Best,3,Summary.Pef,Provider("PEF"));
-            values["VEXT"]=Measurement(null,"mL",null,"not_available","not_validated","unavailable"); d["spirometry"]=values;
+            values["VEXT"]=Data.ReviewedVextMl.HasValue?Measurement(Data.ReviewedVextMl,"mL",null,"manual_review: "+Data.ReviewedVextSource,"manually_reviewed_not_device_verified","available"):Measurement(null,"mL",null,"not_available","not_validated","unavailable"); d["spirometry"]=values;
             List<object> maneuvers=new List<object>();
             foreach(Trial t in Data.Trials)
             {
                 Dictionary<string,object> metrics=new Dictionary<string,object>();
                 if(t.Result.Valid) for(int i=0;i<8;i++) metrics[Ui.SpiroReport.MetricName(i)]=Measure(t.Result,i,Ui.SpiroReport.Value(t.Result,i),t.ManeuverId);
-                maneuvers.Add(new { id=t.ManeuverId,index=Index(t),testedAt=t.When.ToString("o",CultureInfo.InvariantCulture),completed=t.Completed,signalUsable=t.Result.Valid,verificationStatus="unverified",measurements=metrics,estimatedBEV=t.Result.Valid?Measurement(t.Result.Bev*1000,"mL",null,"peak_tangent_estimate","not_equivalent_to_validated_VEXT","available"):null });
+                maneuvers.Add(new { id=t.ManeuverId,index=Index(t),testedAt=t.When.ToString("o",CultureInfo.InvariantCulture),completed=t.Completed,signalUsable=t.Result.Valid,verificationStatus="unverified",measurements=metrics,estimatedBEV=t.Result.Valid && t.Result.BevAvailable?Measurement(t.Result.Bev*1000,"mL",null,"volume_at_peak_tangent_time_zero","not_equivalent_to_validated_VEXT","available"):null,backExtrapolation=new { timeZeroSeconds=t.Result.BevAvailable?(double?)t.Result.TimeZero:null,method="peak_tangent_time_zero_then_interpolated_volume",sourceAdequacy=t.Result.BevSourceAdequacy,timedVolumeOrigin="reconstructed_segment_origin_not_device_time_zero",evolDeviceParity="not_validated" } });
             }
             d["maneuvers"]=maneuvers;
             d["interpretation"]=new { text=string.IsNullOrWhiteSpace(Data.ReviewedInterpretation)?Summary.Interpretation:Data.ReviewedInterpretation,valueSource=string.IsNullOrWhiteSpace(Data.ReviewedInterpretation)?"unvalidated_algorithm":"clinician_entered",verificationStatus=string.IsNullOrWhiteSpace(Data.ReviewedInterpretation)?"not_validated":"manual_entry_not_independently_verified" };
             d["quality"]=new { grade=string.IsNullOrWhiteSpace(Data.ReviewedQualityGrade)?null:Data.ReviewedQualityGrade,comment=Data.ReviewedQualityComment,valueSource=string.IsNullOrWhiteSpace(Data.ReviewedQualityGrade)?"unavailable":"clinician_entered",verificationStatus="not_automatically_validated",repeatability=Summary.Repeatability };
             List<object> displayed=new List<object>(); foreach(Trial t in Summary.Trials) displayed.Add(new { id=t.ManeuverId,index=Index(t) });
-            d["report"]=new { file="Spirometry-Report.jpg",format="image/jpeg",application="Independent SpiroLab 5",reference="ERS/ECCS 1993",displayedManeuvers=displayed,predictedCurve="not_generated_no_validated_method",vextDisplay="unavailable" };
+            d["report"]=new { file="Spirometry-Report.jpg",format="image/jpeg",application="Independent SpiroLab 5.1",reference="ERS/ECCS 1993",displayedManeuvers=displayed,predictedCurve="not_generated_no_validated_method",vextDisplay=Data.ReviewedVextMl.HasValue?"manual_review":"unavailable",selectionPolicy="FVC_FEV1_PEF_independent_max;FEF25_75_from_largest_FVC_plus_FEV1;ratio_max_FEV1_div_max_FVC",selectionVerification="supported_by_references_not_paired_live_validated" };
             d["provenance"]=new { source=Source,status=Status,measurementVerification="unverified",clinicalValidation="pending",hardwareValidation="HARDWARE VALIDATION PENDING",legacyRecord=Data.LegacyRecord,btpsCorrection="not_verified",vextReason="BEV estimate has not been validated as the occupational-health VEXT field" };
             return d;
         }

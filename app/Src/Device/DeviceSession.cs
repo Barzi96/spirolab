@@ -43,6 +43,10 @@ namespace SpiroLab.Device
         public event Action<string> Line;
 
         public bool Connected { get { return _usb.IsOpen; } }
+        public bool HandleOpened { get; private set; }
+        public bool ControlResponded { get; private set; }
+        public bool StartCommandSucceeded { get; private set; }
+        public int LivePacketCount { get; private set; }
         public string SafeTransportError { get { MirUsb native=_usb as MirUsb; return native==null?"none":native.CleanupPending?"native_cancel_acknowledgement_pending":native.LastError==0?"none":"Win32 error "+native.LastError; } }
         public string SerialNumber { get; private set; }
         public string ModelName { get; private set; }
@@ -72,6 +76,7 @@ namespace SpiroLab.Device
                     OpenLog();
                     SerialNumber = "";
                     ModelName = "";
+                    HandleOpened=ControlResponded=StartCommandSucceeded=false; LivePacketCount=0;
                     Log("=== connect ===");
 
                     if (!_usb.Open(out error))
@@ -81,9 +86,11 @@ namespace SpiroLab.Device
                     }
 
                     Log("device " + _usb.DevicePath);
+                    HandleOpened=true;
                     byte state = _usb.State();
                     Log("state = 0x" + state.ToString("X2"));
                     if (state == 0xFF) { error = "دستگاه پاسخ نمی‌دهد؛ کابل، درایور و بسته بودن نرم‌افزار MIR را بررسی کنید."; _usb.Close(); return false; }
+                    ControlResponded=true;
 
                     byte[] sda = _usb.ReadSda(92);
                     if (sda != null && sda.Length > 0)
@@ -154,6 +161,7 @@ namespace SpiroLab.Device
             error = null;
             lock (_lock)
             {
+                StartCommandSucceeded=false; LivePacketCount=0;
                 if (!_usb.IsOpen) { error = "دستگاه متصل نیست."; return false; }
 
                 if (!_usb.WaitReady(5000))
@@ -190,6 +198,7 @@ namespace SpiroLab.Device
 
                 Log(string.Format("step 0x{0:X2} value={1} -> volume step {2:F3} L / time step {3:F3} s",
                                   step[0], value, VolumeStepL, TimeStepS));
+                StartCommandSucceeded=true;
                 return true;
             }
         }
@@ -239,6 +248,7 @@ namespace SpiroLab.Device
                     }
                     failures = 0;
                     if (type == 0xFF) { Thread.Sleep(1); continue; }
+                    LivePacketCount++;
                     DevicePacket p = new DevicePacket { Seconds = watch.Elapsed.TotalSeconds, Type = type, Raw = raw };
                     Log(string.Format(System.Globalization.CultureInfo.InvariantCulture, "packet {0:F4}s {1:X2} {2}", p.Seconds, type, raw));
                     packet(p);

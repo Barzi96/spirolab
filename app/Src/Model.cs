@@ -84,6 +84,7 @@ namespace SpiroLab
         public DateTime When = DateTime.Now;
         public bool Simulated;
         [XmlIgnore] public AnalysisResult Result;
+        public AnalysisResult FinalizedResult;
 
         public void Add(double flow)
         {
@@ -112,6 +113,7 @@ namespace SpiroLab
             t.When = When;
             t.Simulated = Simulated;
             t.Result = Result == null ? null : Result.Clone();
+            t.FinalizedResult = FinalizedResult == null ? null : FinalizedResult.Clone();
             return t;
         }
     }
@@ -140,6 +142,9 @@ namespace SpiroLab
         public double Fvc, Fev1, Fev6, Fev1Fvc, Fev1Fev6;
         public double Pef, PefTime, Fef25, Fef50, Fef75, Fef2575;
         public double Fet, Fif, Bev, Fev3;
+        public double TimeZero;
+        public bool BevAvailable;
+        public string BevSourceAdequacy = "not_assessed";
         public double VolumeMax;
         public int SampleCount;
 
