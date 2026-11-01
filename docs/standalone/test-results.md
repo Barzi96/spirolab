@@ -11,3 +11,6 @@ Driver checks inspect the signed exported package without installing, then rejec
 Full results: app/v51-test-results.txt and app/driver-test-results.txt; copies included in distribution Docs. Packaged EXE self-test additionally checks persistence/JPG/JSON on this development host.
 
 Pending: clean Windows A, physical live USB B, second-PC installation/binding, real driver timeout/cancel/reconnect, 32-bit Windows driver package, BTPS/start/timing/signal/firmware parity, automatic VEXT selection, quality grading and clinical interpretation. No hardware or clean-PC pass is inferred from software checks.
+
+## 5.1.1 addendum validation
+All204 retained checks PASS plus59 new maneuver-selection checks:263 total. One/five/125 saved attempts; GUI129; explicit nonrecommended primary, real selection button persistence/reopen/append, rejection/invalid/incomplete retention, independent aggregates, legacy migration, matching JPG/JSON snapshot and40MiB rollback guard. Full current log is full-test-results.txt. Hardware/second-PC status is unchanged; tests use simulation and retained USB mocks.

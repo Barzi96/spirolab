@@ -55,3 +55,6 @@ Printed EVol110/132/105mL and HTML VEXT132mL are a clue, not an established mapp
 - [ERS/ECCS1993 reference](https://doi.org/10.1183/09041950.005s1693) — existing equation family retained.
 
 To close measured parity: acquire deidentified simultaneous device/independent-app maneuvers with known step/clock/BTPS conditions, device results and raw timing, including cases with maxima in different trials. Compare each layer before changing formulas. These hardware-dependent checks remain pending.
+
+## 5.1.1: operator primary is separate from numeric aggregation
+Explicit primary selection changes report display, never substitutes its numbers for aggregate best values. Existing printed-output regression checks remain green. Incomplete/invalid/operator-rejected attempts are retained but excluded from candidates; clinical acceptability and exact MIR firmware behavior remain pending. Local report display policy (primary plus recommendations, up to3) is an independent presentation rule, not claimed as verified firmware behavior.

@@ -1,3 +1,7 @@
+# Current patch: SpiroLab5.1.1
+
+Mandatory addendum completed: no maneuver-count cap, explicit persisted primary selection, all-attempt history, independent aggregates, shared selected snapshot and263 passing software checks. See [full addendum](maneuver-selection-addendum.md). The 5.1 phase record below is retained as history; its204-test total and automatic display subset are superseded by this addendum.
+
 # SpiroLab5.1 delivery record
 
 1. **Baseline:** Existing5.0 source/release/reference inputs inspected. All138 baseline checks passed before changes. Source preserved in phase-backups/before-5.1.zip and baseline Git commit cc7ed58.

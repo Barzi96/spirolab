@@ -17,3 +17,6 @@ Both MIR photos were inspected alongside v5 JPG/JSON. Photos establish section o
 JPG remains actual JPEG quality97, 2400x3394, 300DPI. Shared renderer serves preview/export/print. Added details fit y1170–1456; interpretation starts1462 and quality1505, with no overlap in inspected output.
 
 Delivery Comparison-5.1/Before-5.0 and After-5.1 contain synthetic JPG/JSON pairs; index.html displays them side by side. Both use existing simulator seeds100–102, age35/height175/weight75. Header/date fields demonstrate the new settings/date behavior. These are not paired live acquisitions or medical parity evidence. Default-center output and separate UI/settings previews were visually inspected on this host.
+
+## 5.1.1 correction
+The chosen primary is explicitly identified in header, legend and footer with its original PRE number and selection reviewer. Primary plus up to two recommended traces replaces the purely automatic display subset; the aggregate best-values table is unchanged. The inspected development example has129 attempts, primary PRE125 and recommendation PRE45. See [selection addendum](maneuver-selection-addendum.md).
