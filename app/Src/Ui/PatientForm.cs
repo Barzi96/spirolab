@@ -12,6 +12,8 @@ namespace SpiroLab.Ui
         readonly TextBox nid,first,last,age,height,weight,birth;
         readonly ComboBox sex,origin;
         readonly Label error;
+        readonly Button fetch;
+        string lastLookupError="";
         readonly HLineClient hline;
         readonly DateTime examinationDate;
         readonly System.Windows.Forms.Timer lookupTimer;
@@ -44,7 +46,7 @@ namespace SpiroLab.Ui
             {
                 serverName=new Label {Text=original.ServerFullName,AutoEllipsis=true,TextAlign=ContentAlignment.MiddleLeft};ClinicalStyle.Row(table,"نام کامل سایت",serverName,44);Height+=44;
                 lookupTimer=new System.Windows.Forms.Timer {Interval=400};
-                lookupTimer.Tick+=async delegate {lookupTimer.Stop();await Fetch();};
+                lookupTimer.Tick+=async delegate {lookupTimer.Stop();await Fetch(false);};
             }
             ClinicalStyle.Row(table,"سن (سال)",age,44); ClinicalStyle.Row(table,"جنسیت",sex,44); ClinicalStyle.Row(table,"گروه مرجع",origin,44);
             ClinicalStyle.Row(table,"قد (سانتی‌متر)",height,44); ClinicalStyle.Row(table,"وزن (کیلوگرم)",weight,44);
@@ -53,8 +55,10 @@ namespace SpiroLab.Ui
             error=new Label { Name="ValidationMessage",Dock=DockStyle.Bottom,Height=35,ForeColor=Color.FromArgb(165,55,55),Padding=new Padding(16,0,16,0) }; Controls.Add(error);
             foreach(TextBox field in new TextBox[] {nid,first,last,age,height,weight}) field.TextChanged+=delegate { error.Text=""; };
             FlowLayoutPanel actions=new FlowLayoutPanel { Dock=DockStyle.Bottom,Height=58,FlowDirection=FlowDirection.RightToLeft,RightToLeft=RightToLeft.No,Padding=new Padding(12,4,12,4) };
-            save=ClinicalStyle.Button(readOnly?"بستن":"ذخیره و ادامه",delegate { if(readOnly) { DialogResult=DialogResult.Cancel; return; } Patient p; string message; if(TryRead(out p,out message)) { Value=p; DialogResult=DialogResult.OK; } else error.Text=message; },true); save.Name="SavePatient";
+            save=ClinicalStyle.Button(readOnly?"بستن":"ذخیره و ادامه",async delegate { if(readOnly) { DialogResult=DialogResult.Cancel; return; } await SaveAndContinue(); },true); save.Name="SavePatient";
+            fetch=ClinicalStyle.Button("دریافت از سایت",async delegate { await Fetch(true); },false); fetch.Name="FetchHLinePatient";
             Button cancel=ClinicalStyle.Button("انصراف",delegate { DialogResult=DialogResult.Cancel; },false); cancel.Name="CancelPatient";
+            if(!readOnly && hline!=null) actions.Controls.Add(fetch);
             actions.Controls.Add(save); if(!readOnly) actions.Controls.Add(cancel); Controls.Add(actions); AcceptButton=save; CancelButton=cancel;
             FormClosing+=delegate(object s,FormClosingEventArgs e) {e.Cancel=fetching;};
             if(lookupTimer!=null)
@@ -62,47 +66,88 @@ namespace SpiroLab.Ui
                 nid.TextChanged+=delegate
                 {
                     if(populating || Fmt.NormalizeNumber(nid.Text)==boundCode) return;
-                    lookupVersion++;lookupTimer.Stop();boundCode="";
+                    lookupVersion++;lookupTimer.Stop();boundCode="";lastLookupError="";
                     original=new Patient {Origin=original.Origin,HeightCm=double.NaN,WeightKg=double.NaN,SexUnconfirmed=true};
                     first.Clear();last.Clear();age.Clear();height.Clear();weight.Clear();birth.Clear();serverName.Text="";sex.SelectedIndex=-1;
                     ScheduleLookup();
                 };
-                nid.KeyDown+=delegate(object s,KeyEventArgs e) {if(e.KeyCode==Keys.Enter && boundCode!=Fmt.NormalizeNumber(nid.Text)) {ScheduleLookup();e.Handled=e.SuppressKeyPress=true;}};
+                nid.KeyDown+=async delegate(object s,KeyEventArgs e) {if(e.KeyCode==Keys.Enter && boundCode!=Fmt.NormalizeNumber(nid.Text)) {lookupTimer.Stop();e.Handled=e.SuppressKeyPress=true;await Fetch(true);}};
                 Shown+=delegate {if(boundCode.Length==0) ScheduleLookup();};
                 Disposed+=delegate {lookupTimer.Dispose();};
             }
         }
         void ScheduleLookup()
         {
+            // Typing pause only refreshes an existing session; it never opens a dialog.
             if(!Regex.IsMatch(Fmt.NormalizeNumber(nid.Text),"^[0-9]{10}$")) return;
-            if(hline.Status!=SessionStatus.Connected) {error.Text="ابتدا وارد سامانه شوید.";return;}
             if(!fetching) lookupTimer.Start();
         }
-        async Task Fetch()
+        // interactive=true (Enter, "دریافت از سایت", Save) may open the login dialog.
+        async Task Fetch(bool interactive)
         {
             if(fetching || IsDisposed) return;
             string code=Fmt.NormalizeNumber(nid.Text);int version=lookupVersion;
-            if(!Regex.IsMatch(code,"^[0-9]{10}$") || code==boundCode) return;
-            fetching=true;save.Enabled=false;error.Text="در حال دریافت مشخصات…";
+            if(!Regex.IsMatch(code,"^[0-9]{10}$")) return;
+            if(code==boundCode && !interactive) return;
+            if(hline.Status!=SessionStatus.Connected)
+            {
+                if(!interactive) { error.Text=hline.Status==SessionStatus.Expired?"نشست منقضی شده؛ دوباره وارد شوید.":"برای دریافت مشخصات، «ورود به سامانه» را بزنید."; return; }
+                error.Text="در حال ورود به سامانه…";
+            }
+            fetching=true;save.Enabled=false;fetch.Enabled=false;error.Text="در حال دریافت مشخصات…";
             foreach(Control c in new Control[] {first,last,age,height,weight,birth,sex,origin}) c.Enabled=false;
             try
             {
-                Patient p=await Task.Factory.StartNew(delegate {return hline.LoadLatestPatient(code);});
-                if(version!=lookupVersion || code!=Fmt.NormalizeNumber(nid.Text)) return;
+                Patient p=await Lookup(code,interactive);
+                if(p==null || version!=lookupVersion || code!=Fmt.NormalizeNumber(nid.Text)) return;
                 p.SetAgeAt(examinationDate);original=p.Clone();boundCode=code;populating=true;
                 nid.Text=p.NationalId;first.Text=p.FirstName;last.Text=p.LastName;
                 age.Text=p.BirthDate.HasValue?p.Age.ToString():"";height.Text=double.IsNaN(p.HeightCm)?"":Fmt.N(p.HeightCm,1);weight.Text=double.IsNaN(p.WeightKg)?"":Fmt.N(p.WeightKg,1);sex.SelectedIndex=p.SexUnconfirmed?-1:(int)p.Sex;
                 birth.Text=p.BirthDate.HasValue?ExaminationDates.Jalali(p.BirthDate.Value):"";serverName.Text=p.ServerFullName;
-                error.Text="مشخصات دریافت شد.";
+                lastLookupError="";error.Text="مشخصات دریافت شد.";
             }
-            catch(HLineException e) {if(version==lookupVersion) error.Text=e.Message;}
-            catch {if(version==lookupVersion) error.Text="دریافت مشخصات انجام نشد.";}
+            catch(ArgumentException e) { lastLookupError=e.Message; if(version==lookupVersion) error.Text=e.Message; }
+            catch { lastLookupError="دریافت مشخصات انجام نشد."; if(version==lookupVersion) error.Text=lastLookupError; }
             finally
             {
-                fetching=populating=false;save.Enabled=true;
-                foreach(Control c in new Control[] {first,last,age,height,weight,birth,sex,origin}) c.Enabled=true;
-                if(version!=lookupVersion) ScheduleLookup();
+                fetching=populating=false;
+                if(!IsDisposed) { save.Enabled=true;fetch.Enabled=true;foreach(Control c in new Control[] {first,last,age,height,weight,birth,sex,origin}) c.Enabled=true; }
+                if(version!=lookupVersion && !IsDisposed) ScheduleLookup();
             }
+        }
+        // Authenticates on demand, retries once after an expired session, and resumes the same lookup.
+        async Task<Patient> Lookup(string code,bool interactive)
+        {
+            for(int attempt=0;attempt<2;attempt++)
+            {
+                if(hline.Status!=SessionStatus.Connected)
+                {
+                    if(!interactive) { lastLookupError="نشست منقضی شده؛ دوباره وارد شوید.";if(!IsDisposed) error.Text=lastLookupError;return null; }
+                    if(!HLineLoginForm.SignIn(hline,this))
+                    { lastLookupError="ورود به سامانه انجام نشد.";if(!IsDisposed) error.Text=lastLookupError;return null; }
+                }
+                try { return await Task.Factory.StartNew(delegate {return hline.LoadLatestPatient(code);}); }
+                catch(HLineException e)
+                {
+                    if((e.Code=="expired" || e.Code=="session") && attempt==0) continue;
+                    lastLookupError=e.Message;if(!IsDisposed) error.Text=e.Message;return null;
+                }
+                catch { lastLookupError="دریافت مشخصات انجام نشد.";if(!IsDisposed) error.Text=lastLookupError;return null; }
+            }
+            return null;
+        }
+        async Task SaveAndContinue()
+        {
+            if(fetching) return;
+            string code=Fmt.NormalizeNumber(nid.Text);
+            if(hline!=null && boundCode!=code)
+            {
+                await Fetch(true);
+                if(boundCode!=code && lastLookupError.Length>0) return; // real cause already displayed
+            }
+            Patient p;string message;
+            if(TryRead(out p,out message)) { Value=p; DialogResult=DialogResult.OK; }
+            else error.Text=message;
         }
         public static bool ValidatePatient(Patient p,out string message)
         {
@@ -114,7 +159,7 @@ namespace SpiroLab.Ui
         public bool TryRead(out Patient p,out string message)
         {
             p=original.Clone(); message="";
-            if(hline!=null && (fetching || boundCode!=Fmt.NormalizeNumber(nid.Text) || original.HLinePersonId.Length==0 || original.HLineRecordId.Length==0)) {message="ابتدا مشخصات و آخرین پرونده باید از سایت دریافت شود.";return false;}
+            if(hline!=null && (fetching || boundCode!=Fmt.NormalizeNumber(nid.Text) || original.HLinePersonId.Length==0 || original.HLineRecordId.Length==0)) {message=lastLookupError.Length>0?lastLookupError:"مشخصات از سامانه دریافت نشده است؛ «دریافت از سایت» را بزنید.";return false;}
             if(birth.Text.Trim().Length>0) {DateTime d;if(!ExaminationDates.TryParse(birth.Text,out d)) {message="تاریخ تولد معتبر وارد کنید.";return false;}p.BirthDate=d;}
             else {p.BirthDate=null;p.ReferenceAgeYears=null;}
             double a=Fmt.Parse(age.Text,double.NaN);

@@ -76,7 +76,7 @@ namespace SpiroLab.HLine
         public SessionStatus Status {get;private set;}
         public HLineClient():this(new HLineHttpTransport("https://hline.ssu.ac.ir/")) { }
         public HLineClient(IHLineTransport transport) { this.transport=transport; }
-        public string StatusText {get { switch(Status) {case SessionStatus.Connected:return "متصل";case SessionStatus.Expired:return "نشست منقضی شده";case SessionStatus.AuthenticationError:return "خطای احراز هویت";case SessionStatus.Unavailable:return "عدم دسترسی به سامانه";default:return "متصل نیست";} } }
+        public string StatusText {get { switch(Status) {case SessionStatus.Connected:return "متصل به سامانه";case SessionStatus.Expired:return "نشست منقضی شده";case SessionStatus.AuthenticationError:return "خطای احراز هویت";case SessionStatus.Unavailable:return "عدم دسترسی به سامانه";default:return "متصل نیست";} } }
         object Request(string method,string path,object body)
         {
             HLineResponse r;

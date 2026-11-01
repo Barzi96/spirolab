@@ -34,7 +34,7 @@ namespace SpiroLab.Ui
         TextBox txtExamDate;
         Label lblConnection,lblSiteConnection,lblStatus,lblLive,lblSummary;
         LinkLabel lblPatient;
-        Button btnStart,btnStop,btnReport,btnSettings,btnNew,btnOpen,btnCalendar;
+        Button btnStart,btnStop,btnReport,btnSettings,btnNew,btnOpen,btnLogin,btnCalendar;
         List<string> _legacyReportIds=new List<string>();
         public MainForm():this(new HLineClient(),null,null) { }
         public MainForm(HLineClient hline,ISubmissionGateway submissionGateway,MedicalRecord designatedTestRecord)
@@ -73,11 +73,12 @@ namespace SpiroLab.Ui
             toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,72)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,28));
             FlowLayoutPanel buttons=new FlowLayoutPanel { Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft,RightToLeft=RightToLeft.No,WrapContents=false };
             btnNew=MakeButton("مراجع جدید",delegate { NewExam(); },true); btnOpen=MakeButton("پرونده قبلی",delegate { OpenExam(); },false); btnSettings=MakeButton("تنظیمات",delegate { OpenSettings(); },false);
-            buttons.Controls.AddRange(new Control[] {btnNew,btnOpen,btnSettings}); toolbar.Controls.Add(buttons,0,0);
+            btnLogin=MakeButton("ورود به سامانه",delegate { SignInSite(); },false); btnLogin.Name="LoginToSite";
+            buttons.Controls.AddRange(new Control[] {btnNew,btnOpen,btnSettings,btnLogin}); toolbar.Controls.Add(buttons,0,0);
             lblConnection=ClinicalStyle.Label("● متصل نیست"); lblConnection.ForeColor=Color.FromArgb(113,126,138); lblConnection.Cursor=Cursors.Hand;
             lblConnection.Click+=delegate { if(!_busy) OpenSettings(); }; _tips.SetToolTip(lblConnection,"اتصال و جزئیات دستگاه در تنظیمات");
             TableLayoutPanel connections=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=2}; connections.RowStyles.Add(new RowStyle(SizeType.Percent,50));connections.RowStyles.Add(new RowStyle(SizeType.Percent,50));
-            lblSiteConnection=ClinicalStyle.Label("سایت: متصل نیست");lblSiteConnection.Cursor=Cursors.Hand;lblSiteConnection.Click+=delegate {if(!_busy) LoginSite();};
+            lblSiteConnection=ClinicalStyle.Label("سایت: متصل نیست");lblSiteConnection.Cursor=Cursors.Hand;lblSiteConnection.Click+=delegate {if(!_busy) SignInSite();};
             connections.Controls.Add(lblSiteConnection,0,0);connections.Controls.Add(lblConnection,0,1);toolbar.Controls.Add(connections,1,0); root.Controls.Add(toolbar,0,0);
             TableLayoutPanel strip=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2,RowCount=2,RightToLeft=RightToLeft.Yes,Padding=new Padding(4,4,4,8) };
             strip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100)); strip.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,275));
@@ -141,7 +142,7 @@ namespace SpiroLab.Ui
         void UpdateControls()
         {
             bool editable=!_busy && !_exam.FinalizedAt.HasValue;
-            btnNew.Enabled=btnOpen.Enabled=btnSettings.Enabled=!_busy;
+            btnNew.Enabled=btnOpen.Enabled=btnSettings.Enabled=btnLogin.Enabled=!_busy;
             btnStart.Enabled=editable && _hasPatient && (_developerMode || _device.Connected);
             btnStart.Text=_developerMode?"مانور نمایشی":_exam.Trials.Count>0?"تست بعدی":"شروع تست";
             btnStop.Enabled=_busy && _active!=null; gridTrials.Enabled=true;
@@ -321,6 +322,7 @@ namespace SpiroLab.Ui
             if(_busy) return;
             using(PatientForm form=new PatientForm(null,false,_hline)) if(form.ShowDialog(this)==DialogResult.OK && CanLeave())
                 try { BeginExam(form.Value,true); } catch(Exception ex) { Error("ثبت معاینه انجام نشد؛ پروندهٔ قبلی حفظ شد. "+ex.Message); }
+            UpdateControls(); // reflect a session opened from inside the patient form
         }
         private void BeginExam(Patient patient,bool persist)
         {
@@ -395,8 +397,12 @@ namespace SpiroLab.Ui
             }
             catch(Exception ex) { Error("گزارش آماده نشد: "+ex.Message); }
         }
-        void LoginSite()
-        { using(HLineLoginForm form=new HLineLoginForm(_hline)) form.ShowDialog(this); UpdateControls(); }
+        void SignInSite()
+        {
+            if(_busy) return;
+            if(HLineLoginForm.SignIn(_hline,this)) lblStatus.Text="متصل به سامانه";
+            UpdateControls();
+        }
         async Task SendSite()
         {
             if(_busy) return;

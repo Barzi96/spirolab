@@ -14,6 +14,7 @@ using SpiroLab;
 using SpiroLab.Device;
 using SpiroLab.HLine;
 using SpiroLab.Ui;
+using Timer=System.Windows.Forms.Timer;
 class HLineIntegrationTests
 {
     static int checks;static string root;
@@ -37,7 +38,7 @@ class HLineIntegrationTests
             PumpUntil(delegate {return (string)Field(form,"boundCode")=="0000000001" && !(bool)Field(form,"fetching");});
             Patient p;string error;
             Check(form.TryRead(out p,out error) && p.HLinePersonId=="TEST-P" && p.HLineRecordId=="2" && p.HeightCm==164 && p.WeightKg==74,"typing national ID automatically populates exact person and latest record without a click");
-            Check(form.Controls.Find("FetchHLinePatient",true).Length==0 && form.Controls.Find("ConfirmAnthropometry",true).Length==0 && Application.OpenForms.Count==1,"automatic patient flow has no fetch button, checkbox or record dialog");
+            Check(form.Controls.Find("FetchHLinePatient",true).Length==1 && form.Controls.Find("ConfirmAnthropometry",true).Length==0 && Application.OpenForms.Count==1,"patient form has one manual fetch button and no confirmation checkbox or record dialog");
             TextField(form,"Height").Text="166";calls=mock.Calls.Count;PumpFor(450);
             Check(form.TryRead(out p,out error) && p.HeightCm==166 && mock.Calls.Count==calls,"manual field correction is preserved without refetch or approval");Shot(form,"03-automatic-patient");
             TextField(form,"NationalId").Text="0000000002";
@@ -68,6 +69,142 @@ class HLineIntegrationTests
         patient=client.LoadLatestPatient("0000000001");Check(double.IsNaN(patient.HeightCm) && double.IsNaN(patient.WeightKg),"unusable anthropometry is not presented as valid data");mock.VitalsOverride=null;
         mock.VitalsOverride="{\"data\":null}";patient=client.LoadLatestPatient("0000000001");Check(patient.HLineRecordId=="2" && double.IsNaN(patient.HeightCm) && double.IsNaN(patient.WeightKg),"empty vitals response still loads identity and leaves measurements blank");mock.VitalsOverride=null;
     }
+    static Timer AutoLogin()
+    {
+        Timer timer=new Timer {Interval=20};
+        timer.Tick+=delegate
+        {
+            HLineLoginForm dialog=Application.OpenForms.Cast<Form>().OfType<HLineLoginForm>().FirstOrDefault();
+            if(dialog==null) return;
+            TextField(dialog,"HLineUsername").Text="synthetic";
+            TextField(dialog,"HLinePassword").Text="synthetic-password";
+            TextField(dialog,"HLineMfa").Text="123456";
+            ((Button)dialog.Controls.Find("HLineLogin",true)[0]).PerformClick();
+            timer.Stop();
+        };
+        timer.Start();return timer;
+    }
+    static void LoginUiTests()
+    {
+        // 1. Visible toolbar button, modal Persian dialog, username/password/MFA, connected state.
+        var mock=new MockServer {Mode="vitals"};
+        using(var client=new HLineClient(mock)) using(var form=new MainForm(client,null,null))
+        {
+            form.Show();Application.DoEvents();
+            Button login=(Button)Field(form,"btnLogin");bool opened=false,modal=false;
+            using(var timer=new Timer {Interval=20})
+            {
+                timer.Tick+=delegate
+                {
+                    HLineLoginForm dialog=Application.OpenForms.Cast<Form>().OfType<HLineLoginForm>().FirstOrDefault();
+                    if(dialog==null) return;
+                    opened=true;modal=dialog.Modal;
+                    TextField(dialog,"HLineUsername").Text="synthetic";TextField(dialog,"HLinePassword").Text="synthetic-password";TextField(dialog,"HLineMfa").Text="123456";
+                    ((Button)dialog.Controls.Find("HLineLogin",true)[0]).PerformClick();timer.Stop();
+                };
+                timer.Start();login.PerformClick();
+            }
+            Check(login.Text=="ورود به سامانه" && login.Visible,"toolbar login button is visible with the Persian caption");
+            Check(opened && modal && client.Status==SessionStatus.Connected,"login button opens the modal login dialog and authenticates username, password and MFA");
+            Check(((Label)Field(form,"lblStatus")).Text=="متصل به سامانه","successful login reports متصل به سامانه");
+            Check(((Label)Field(form,"lblSiteConnection")).Text.Contains("متصل به سامانه"),"site indicator reflects the authenticated session");
+            Shot(form,"07-login-connected");
+        }
+        // 2. Unauthenticated national ID + Enter opens login, then resumes and populates.
+        mock=new MockServer {Mode="vitals"};
+        using(var client=new HLineClient(mock)) using(var form=new PatientForm(null,false,client,new DateTime(2026,5,16)))
+        {
+            form.Show();Application.DoEvents();
+            TextField(form,"NationalId").Text="0000000001";
+            Check(client.Status!=SessionStatus.Connected,"patient lookup starts unauthenticated");
+            using(var timer=AutoLogin())
+            {
+                typeof(Control).GetMethod("OnKeyDown",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(TextField(form,"NationalId"),new object[] {new KeyEventArgs(Keys.Enter)});
+                PumpUntil(delegate {return (string)Field(form,"boundCode")=="0000000001" && !(bool)Field(form,"fetching");});
+            }
+            Patient p;string issue;
+            Check(client.Status==SessionStatus.Connected && form.TryRead(out p,out issue) && p.HLineRecordId=="2" && p.HeightCm==164,"national ID lookup opens login, resumes without retyping and populates the form");
+            TextField(form,"Height").Text="166";
+            ((Button)form.Controls.Find("SavePatient",true)[0]).PerformClick();
+            Check(form.DialogResult==DialogResult.OK && form.Value!=null && form.Value.HeightCm==166,"operator edits populated fields and Save and Continue accepts them");
+        }
+        // 3. Save on a logged-out form authenticates and retrieves before validating.
+        mock=new MockServer {Mode="vitals"};
+        using(var client=new HLineClient(mock)) using(var form=new PatientForm(null,false,client,new DateTime(2026,5,16)))
+        {
+            form.Show();Application.DoEvents();
+            TextField(form,"NationalId").Text="0000000001";
+            using(var timer=AutoLogin())
+            {
+                ((Button)form.Controls.Find("SavePatient",true)[0]).PerformClick();
+                PumpUntil(delegate {return form.DialogResult==DialogResult.OK;});
+            }
+            Check(form.Value!=null && form.Value.NationalId=="0000000001" && form.Value.HeightCm==164 && form.Value.HLineRecordId=="2","Save and Continue authenticates and retrieves before validating");
+        }
+        // 4. Expired session prompts login again and resumes the same lookup.
+        mock=new MockServer {Mode="vitals"};
+        using(var client=new HLineClient(mock))
+        {
+            client.Login("synthetic","synthetic","123456");mock.Expired=true;
+            using(var form=new PatientForm(null,false,client,new DateTime(2026,5,16)))
+            {
+                form.Show();Application.DoEvents();
+                TextField(form,"NationalId").Text="0000000001";
+                using(var timer=AutoLogin())
+                {
+                    typeof(Control).GetMethod("OnKeyDown",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(TextField(form,"NationalId"),new object[] {new KeyEventArgs(Keys.Enter)});
+                    PumpUntil(delegate {return (string)Field(form,"boundCode")=="0000000001" && !(bool)Field(form,"fetching");});
+                }
+                Check(client.Status==SessionStatus.Connected && mock.Posts==2,"expired session prompts login again and resumes the same lookup");
+            }
+        }
+        // 5. Genuine failure reports the real cause, never the misleading pre-auth sentence.
+        mock=new MockServer {Mode="missing"};
+        using(var client=new HLineClient(mock))
+        {
+            client.Login("synthetic","synthetic","123456");
+            using(var form=new PatientForm(null,false,client,new DateTime(2026,5,16)))
+            {
+                form.Show();Application.DoEvents();
+                TextField(form,"NationalId").Text="0000000001";
+                string message="";
+                PumpUntil(delegate {message=((Label)form.Controls.Find("ValidationMessage",true)[0]).Text;return message.Contains("پیدا نشد");});
+                Patient p;string issue;bool refused=!form.TryRead(out p,out issue);
+                Check(refused && issue.Contains("پیدا نشد") && !issue.Contains("ابتدا مشخصات") && !issue.Contains("ابتدا باید"),"failed lookup reports the actual cause instead of the misleading confirmation message");
+            }
+        }
+        // 6. Wrong credentials keep the dialog open with the real error and never echo secrets.
+        var rejected=new MockServer {LoginError="invalid_credentials"};
+        using(var badClient=new HLineClient(rejected)) using(var dialog=new HLineLoginForm(badClient))
+        {
+            dialog.Show();Application.DoEvents();
+            TextField(dialog,"HLineUsername").Text="synthetic";TextField(dialog,"HLinePassword").Text="wrong-secret";TextField(dialog,"HLineMfa").Text="123456";
+            ((Button)dialog.Controls.Find("HLineLogin",true)[0]).PerformClick();
+            PumpUntil(delegate {return badClient.Status==SessionStatus.AuthenticationError;});
+            Label status=(Label)dialog.Controls.Find("HLineStatus",true)[0];
+            Check(dialog.Visible && status.Text=="خطای احراز هویت" && !status.Text.Contains("wrong-secret") && TextField(dialog,"HLinePassword").Text.Length==0,"login failure keeps the dialog open with the real error and no secret");
+        }
+        // 7. Server asks for MFA: prompt for the code, then finish without retyping the password.
+        var mfaMock=new MockServer {RequireMfa=true};
+        using(var mfaClient=new HLineClient(mfaMock))
+        {
+            HLineLoginForm dialog=new HLineLoginForm(mfaClient);
+            try
+            {
+                dialog.Show();Application.DoEvents();
+                TextField(dialog,"HLineUsername").Text="synthetic";TextField(dialog,"HLinePassword").Text="synthetic-password";
+                ((Button)dialog.Controls.Find("HLineLogin",true)[0]).PerformClick();
+                PumpUntil(delegate {return mfaClient.Status==SessionStatus.AuthenticationError;});
+                Label mfaStatus=(Label)dialog.Controls.Find("HLineStatus",true)[0];
+                Check(dialog.Visible && mfaStatus.Text.Contains("دومرحله") && TextField(dialog,"HLinePassword").Text.Length==0,"server MFA request prompts for the code and keeps the dialog open");
+                TextField(dialog,"HLineMfa").Text="123456";
+                ((Button)dialog.Controls.Find("HLineLogin",true)[0]).PerformClick();
+                PumpUntil(delegate {return mfaClient.Status==SessionStatus.Connected;});
+                Check(mfaMock.Posts==2 && mfaClient.Status==SessionStatus.Connected,"MFA retry completes authentication without retyping the password");
+            }
+            finally { try { if(!dialog.IsDisposed) dialog.Dispose(); } catch { } }
+        }
+    }
     static void OneClickMainTests()
     {
         foreach(int outcome in new int[] {0,1,2,3})
@@ -95,6 +232,8 @@ class HLineIntegrationTests
     sealed class MockServer : IHLineTransport
     {
         public string LoginError="",Mode="";public bool Network;public List<string> Calls=new List<string>();public int Posts;
+        public bool Expired;
+        public bool RequireMfa;
         public string RecordsOverride,VitalsOverride;
         public int SearchDelay;
         public ManualResetEvent SearchStarted;
@@ -103,12 +242,15 @@ class HLineIntegrationTests
             Calls.Add(method+" "+path.Split('?')[0]);
             if(Network) throw new IOException("DO_NOT_LEAK_SECRET");
             if(path=="/auth/csrf") return R(200,"{\"csrf\":\"synthetic-csrf\"}");
+            if(Expired && method=="GET") return R(401,"{}");
             if(method=="POST")
             {
                 Posts++;if(path!="/auth/login" || csrf!="synthetic-csrf") throw new Exception("Forbidden mock write");
                 var p=(Dictionary<string,object>)new JavaScriptSerializer().DeserializeObject(body);
                 Check(p.ContainsKey("username") && p.ContainsKey("password") && Convert.ToInt32(p["mfa_token_method"])==1,"verified authentication request keys and CSRF");
-                return LoginError.Length==0?R(200,"{\"data\":{\"data\":{\"user\":{\"id\":\"synthetic-user\"}}}}"):R(422,"{\"errors\":[\""+LoginError+"\"]}");
+                if(RequireMfa && Convert.ToString(p["mfa_token"]).Length==0) return R(422,"{\"errors\":[\"missing_mfa_token\"]}");
+                if(LoginError.Length==0) {Expired=false;return R(200,"{\"data\":{\"data\":{\"user\":{\"id\":\"synthetic-user\"}}}}");}
+                return R(422,"{\"errors\":[\""+LoginError+"\"]}");
             }
             if(path=="/me") return R(200,Mode=="rawme"?"{\"data\":{\"id\":\"synthetic-user\"}}":"{\"data\":{\"user\":{\"id\":\"synthetic-user\"}}}");
             if(path.StartsWith("/people?"))
@@ -220,6 +362,7 @@ class HLineIntegrationTests
                 mock.Network=true;bool safe=false;try {client.Lookup("0000000001");} catch(HLineException ex) {safe=!ex.Message.Contains("DO_NOT_LEAK_SECRET");}Check(safe && client.Status==SessionStatus.Unavailable,"network errors sanitized without secrets");
             }
             using(var client=new HLineClient(new MockServer())) using(var login=new HLineLoginForm(client)) Shot(login,"02-hline-login");
+            LoginUiTests();
             OneClickMainTests();
             Exam exam=Exam(false);SubmissionDraft draft=Draft(exam);
             Check(draft.RecordId=="2" && draft.ExaminationDate==new DateTime(2026,10,19) && draft.Fields["vext"]==132,"submission binds exact record, Gregorian examination date and same-maneuver VEXT");
