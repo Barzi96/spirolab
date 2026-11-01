@@ -59,9 +59,9 @@ class HLinePhaseTests
                 Check(((Button)Get(form,"btnReport")).Enabled && ((Button)Get(form,"btnReport")).Text=="ارسال به سایت" && !exam.FinalizedAt.HasValue,"main final action enabled before finalization");
                 using(var timer=new System.Windows.Forms.Timer {Interval=25})
                 {
-                    bool preview=false;timer.Tick+=delegate {var dialog=Application.OpenForms.OfType<SubmissionForm>().FirstOrDefault();if(dialog!=null) {preview=true;dialog.Close();}};timer.Start();
+                    bool extraDialog=false;timer.Tick+=delegate {foreach(Form dialog in Application.OpenForms) if(dialog!=form) {extraDialog=true;dialog.Close();}};timer.Start();
                     var task=(System.Threading.Tasks.Task)Call(form,"SendSite");while(!task.IsCompleted) {Application.DoEvents();System.Threading.Thread.Sleep(10);}task.GetAwaiter().GetResult();timer.Stop();
-                    Check(preview && !exam.FinalizedAt.HasValue && exam.ExportReferences.Count==1,"send opens review, retains local JPG JSON and leaves examination editable");
+                    Check(!extraDialog && !exam.FinalizedAt.HasValue && exam.ExportReferences.Count==1 && ((Label)Get(form,"lblStatus")).Text.Contains("ساختگی"),"send rejects simulated data inline without dialogs and retains local JPG JSON");
                 }
             }
             Exam automatic=SpiroLab.Exam.CreateNew(new AppSettings());automatic.Patient=new Patient {Origin=Origin.Caucasian};

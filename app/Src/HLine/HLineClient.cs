@@ -35,7 +35,7 @@ namespace SpiroLab.HLine
             if((method!="GET" && !(method=="POST" && path=="/auth/login")) || !path.StartsWith("/") || path.StartsWith("//") || path.Contains(":") || path.Contains("\\")) throw new InvalidOperationException("عملیات شبکه مجاز نیست.");
             HttpWebRequest request=(HttpWebRequest)WebRequest.Create(new Uri(origin,"api"+path));
             request.Method=method; request.CookieContainer=cookies; request.AllowAutoRedirect=false; request.Timeout=15000; request.ReadWriteTimeout=15000;
-            request.Accept="application/json"; request.Referer=origin.AbsoluteUri; request.Headers["Origin"]=origin.GetLeftPart(UriPartial.Authority); request.UserAgent="SpiroLab/5.3";
+            request.Accept="application/json"; request.Referer=origin.AbsoluteUri; request.Headers["Origin"]=origin.GetLeftPart(UriPartial.Authority); request.UserAgent="SpiroLab/5.3.1";
             if(!string.IsNullOrEmpty(csrf)) request.Headers["X-CSRF-Token"]=csrf;
             try
             {
@@ -129,7 +129,7 @@ namespace SpiroLab.HLine
             string pid=Text(matches[0],"id"); RequireId(pid);
             Dictionary<string,object> detail=DataObject(Request("GET","/people/"+Segment(pid),null));
             if(Text(detail,"id")!=pid || Fmt.NormalizeNumber(Text(detail,"person_id_no"))!=nationalId) throw new HLineException("identity","هویت جزئیات شخص با جستجو مطابقت ندارد.");
-            Patient patient=new Patient {NationalId=nationalId,FirstName=Text(detail,"first_name"),LastName=Text(detail,"last_name"),ServerFullName=Text(detail,"full_name"),HLinePersonId=pid,HeightCm=double.NaN,WeightKg=double.NaN,Origin=Origin.Caucasian,DemographicSource="hline_person_review_required"};
+            Patient patient=new Patient {NationalId=nationalId,FirstName=Text(detail,"first_name"),LastName=Text(detail,"last_name"),ServerFullName=Text(detail,"full_name"),HLinePersonId=pid,HeightCm=double.NaN,WeightKg=double.NaN,Origin=Origin.Caucasian,DemographicSource="hline_person"};
             DateTime birth; if(TryDate(Text(detail,"birth_date"),out birth)) patient.BirthDate=birth;
             string gender=Text(detail,"gender").Trim().ToLowerInvariant();
             if(Array.IndexOf(new string[] {"male","m","مرد","مذکر"},gender)>=0) patient.Sex=Sex.Male;
@@ -153,8 +153,7 @@ namespace SpiroLab.HLine
             MedicalRecord latest=null;
             foreach(MedicalRecord r in records)
             {
-                // Status vocabulary does not prove current/open eligibility: unknown or missing requires review.
-                if(!r.Date.HasValue || r.Status.Length==0) return null;
+                if(!r.Date.HasValue) return null;
                 if(latest==null || r.Date>latest.Date) latest=r;
             }
             int ties=0; foreach(MedicalRecord r in records) if(r.Date==latest.Date) ties++;
@@ -167,20 +166,56 @@ namespace SpiroLab.HLine
             if(actual.Id!=selected.Id || actual.DateText!=selected.DateText || actual.Status!=selected.Status) throw new HLineException("destination_changed","مشخصات پرونده تغییر کرده است؛ مقصد را دوباره انتخاب کنید.");
             return actual;
         }
+        public Patient LoadLatestPatient(string nationalId)
+        {
+            HLinePerson person=Lookup(nationalId);
+            MedicalRecord latest=LatestUnambiguous(person.Records);
+            if(latest==null) throw new HLineException("latest_record","آخرین پروندهٔ پزشکی با تاریخ مشخص و یکتا یافت نشد.");
+            return PopulateRecord(person,latest);
+        }
+        public void VerifyLatestRecord(Patient patient)
+        {
+            HLinePerson person=Lookup(patient.NationalId);
+            MedicalRecord latest=LatestUnambiguous(person.Records);
+            if(latest==null) throw new HLineException("latest_record","آخرین پروندهٔ پزشکی مشخص نیست؛ ارسال انجام نشد.");
+            if(person.Patient.HLinePersonId!=patient.HLinePersonId || latest.Id!=patient.HLineRecordId || latest.DateText!=patient.HLineRecordDate || latest.Status!=patient.HLineRecordStatus) throw new HLineException("destination_changed","پروندهٔ مقصد تغییر کرده است؛ مشخصات را دوباره از سایت دریافت کنید.");
+            VerifyRecord(latest,patient.HLinePersonId,patient.NationalId);
+        }
         public Patient PopulateRecord(HLinePerson person,MedicalRecord record)
         {
             VerifyRecord(record,person.Patient.HLinePersonId,person.Patient.NationalId);
             Patient p=person.Patient.Clone(); p.HLineRecordId=record.Id; p.HLineRecordDate=record.DateText; p.HLineRecordStatus=record.Status;
             List<Dictionary<string,object>> vitals=Rows(Request("GET","/medical-records/"+Segment(record.Id)+"/vitals/history",null));
             var same=vitals.FindAll(delegate(Dictionary<string,object> r) {return Text(r,"medical_record_id")==record.Id;});
-            // Do not borrow anthropometry from another visit or resolve conflicting rows by ID.
-            if(same.Count==1)
+            Dictionary<string,object> selected=same.Count==1?same[0]:null;
+            if(same.Count>1)
             {
-                p.HeightCm=Number(same[0],"height"); p.WeightKg=Number(same[0],"weight");
-                p.AnthropometrySource="hline_record_operator_confirmation_required";
+                DateTimeOffset latest=DateTimeOffset.MinValue;bool ambiguous=false;
+                foreach(var row in same)
+                {
+                    DateTimeOffset date;
+                    if(!VitalDate(row,out date)) {selected=null;ambiguous=true;break;}
+                    if(date>latest) {latest=date;selected=row;ambiguous=false;}
+                    else if(date==latest) ambiguous=true;
+                }
+                if(ambiguous) selected=null;
             }
-            else p.AnthropometrySource="missing_or_ambiguous_operator_measurement_required";
+            // Keep the latest row together; never backfill one missing measurement from an older row.
+            if(selected!=null)
+            {
+                double height=Number(selected,"height"),weight=Number(selected,"weight");
+                p.HeightCm=height>=100 && height<=230?height:double.NaN;
+                p.WeightKg=weight>=10 && weight<=300?weight:double.NaN;
+                p.AnthropometrySource="hline_latest_row_in_latest_record";
+            }
+            else p.AnthropometrySource="missing_or_ambiguous";
             return p;
+        }
+        static bool VitalDate(Dictionary<string,object> row,out DateTimeOffset date)
+        {
+            string text=Text(row,"test_date");if(text.Length==0) text=Text(row,"created_at");
+            DateTime day;if(TryDate(text,out day)) {date=new DateTimeOffset(day,TimeSpan.Zero);return true;}
+            return DateTimeOffset.TryParseExact(text,new string[] {"yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK","yyyy-MM-dd'T'HH:mm:ssK","yyyy-MM-dd HH:mm:ss","yyyy/MM/dd HH:mm:ss"},CultureInfo.InvariantCulture,DateTimeStyles.AssumeUniversal,out date) && date.Year>=1900 && date.Year<=2200;
         }
         public bool HasSpirometry(MedicalRecord record)
         {

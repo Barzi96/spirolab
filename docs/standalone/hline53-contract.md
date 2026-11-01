@@ -19,10 +19,10 @@ The accompanying `app.63d81e53_s3Zl.js`, SHA256 `79E93301CF183266ED095488AAAD6C9
 - `GET /api/people/{personId}`: person ID and national ID must both match search.
 - `GET /api/medical-records?person_id_no=...&person_id_no_exact=true&page_size=200&page_no=1`.
 - `GET /api/medical-records/{recordId}`: recheck IDs, admission date and status.
-- `GET /api/medical-records/{recordId}/vitals/history`: only same-record values may populate height and weight. Other records are ignored. Missing or conflicting values stay blank. Every fetched measurement requires operator confirmation.
+- `GET /api/medical-records/{recordId}/vitals/history`: only same-record values may populate height and weight. Other records are ignored. In 5.3.1 the latest unambiguous measurement row is chosen by actual date; missing or conflicting values stay blank. Operator confirmation is not required.
 - `GET /api/medical-records/{recordId}/spirometry/history`: existing result prevents automatic replacement. Unlinked rows fail closed.
 
-No other medical modules are queried. Person IDs and medical-record IDs are never interchangeable. Latest-date suggestions use parsed Gregorian `admission_date`, never numeric ID. Ties, missing dates/statuses require explicit selection. Record status eligibility is not established by reader code; therefore even a unique chronological suggestion requires operator confirmation. A live current-record selection remains pending.
+No other medical modules are queried. Person IDs and medical-record IDs are never interchangeable. In 5.3.1 the latest record is resolved automatically using parsed Gregorian `admission_date`, never numeric ID. Ties or missing dates give a clear error instead of a selection dialog. Optional record status is retained and checked for changes; it is not an extra approval requirement. Live current-record selection remains pending.
 
 Birth date is only mapped from `birth_date` in the repository-proven Gregorian date shape. `gender` uses the proven string vocabulary. `first_name`, `last_name` and `full_name` are preserved separately; a combined name is never split. Age for ERS uses the selected local examination date and a birth-date-based fractional age when available. Locally edited demographics are not written to the site.
 
@@ -64,8 +64,8 @@ Normal frontend order is upload first, then form create/update with `file_id`. T
 
 1. Authenticated read-only browser/network inspection of the current form and supported permissions, without modifying unrelated records.
 2. A user-designated dedicated test person's national ID, internal person ID, medical-record ID, admission date/status, and verification that this is the intended test destination.
-3. Explicit authorization for the particular create + JPEG association test operation and exact reviewed numeric/test inputs. The supplied HTML supplies none of this authorization.
+3. In the simplified workflow the main Send action initiates the complete operation with no separate approval. Integration writes remain restricted to the user's designated test person/record and a verified request contract; the supplied HTML does not designate a test destination.
 4. Confirm required fields, date encoding, flow/VEXT units, precision, duplicate behavior, file response schema and allowed size/MIME against current requests. No speculative mutation requests.
 5. Implement the live gateway only after that evidence. Reread the exact record, compare all six core values plus available predictions, verify `file_id` in the same record/module, and retrieve/compare the submitted JPEG bytes. HTTP 200/201 alone is insufficient.
 
-No live gateway is shipped in 5.3. The production HTTP transport rejects all non-GET operations except `/auth/login`; injection of a mock gateway is used only by tests. Stage C is partial static discovery; Stage D has not run.
+No live gateway is shipped in 5.3 or 5.3.1. The production HTTP transport rejects all non-GET operations except `/auth/login`; injection of a mock gateway is used only by tests. Stage C is partial static discovery; Stage D has not run. Current UI behavior and test results: [5.3.1 workflow](hline531-workflow.md).

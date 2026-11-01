@@ -12,7 +12,9 @@ namespace SpiroLab.Ui
     public sealed class MainForm : Form
     {
         readonly DeviceSession _device=new DeviceSession();
-        readonly HLineClient _hline=new HLineClient();
+        readonly HLineClient _hline;
+        readonly ISubmissionGateway _submissionGateway;
+        readonly MedicalRecord _testRecord;
         AppSettings _settings;
         Exam _exam;
         string _path;
@@ -34,10 +36,12 @@ namespace SpiroLab.Ui
         LinkLabel lblPatient;
         Button btnStart,btnStop,btnReport,btnSettings,btnNew,btnOpen,btnCalendar;
         List<string> _legacyReportIds=new List<string>();
-        public MainForm()
+        public MainForm():this(new HLineClient(),null,null) { }
+        public MainForm(HLineClient hline,ISubmissionGateway submissionGateway,MedicalRecord designatedTestRecord)
         {
+            _hline=hline;_submissionGateway=submissionGateway;_testRecord=designatedTestRecord;
             _settings=AppSettings.Load(); _exam=Exam.CreateNew(_settings);
-            ClinicalStyle.Form(this,"اسپیرومتری طب کار — SpiroLab 5.3",new Size(1280,820));
+            ClinicalStyle.Form(this,"اسپیرومتری طب کار — SpiroLab 5.3.1",new Size(1280,820));
             StartPosition=FormStartPosition.CenterScreen; MinimumSize=new Size(780,500);
             BuildUi(); PopulateMetadata(); _device.Line+=AppendLog;
             _timer=new System.Windows.Forms.Timer { Interval=50 }; _timer.Tick+=Tick;
@@ -405,33 +409,24 @@ namespace SpiroLab.Ui
                 ExaminationSnapshot snapshot=ExaminationSnapshot.Capture(_exam);
                 ResultPackage package=ResultExport.SaveToDirectory(Path.Combine(Path.GetDirectoryName(_path),"exports"),snapshot);RecordExport(package);
                 SubmissionDraft draft=new SubmissionDraft(snapshot,package);
-                string blocked="ارسال واقعی فعال نیست: قرارداد درخواست و واحدها، پروندهٔ تست مشخص و مجوز همان عملیات هنوز تأیید نشده‌اند.";
-                try {draft.ValidateForSubmission();} catch(Exception ex) {blocked=ex.Message+"\r\n"+blocked;}
-                if(_exam.Patient.HLinePersonId.Length>0)
+                draft.ValidateForSubmission();
+                await Task.Factory.StartNew(delegate
                 {
-                    try
-                    {
-                        if(_hline.Status!=SessionStatus.Connected) {using(HLineLoginForm login=new HLineLoginForm(_hline)) login.ShowDialog(this);}
-                        await Task.Factory.StartNew(delegate
-                        {
-                            _hline.VerifySession();
-                            var p=_exam.Patient;
-                            MedicalRecord record=new MedicalRecord {Id=p.HLineRecordId,PersonId=p.HLinePersonId,NationalId=p.NationalId,DateText=p.HLineRecordDate,Status=p.HLineRecordStatus};
-                            _hline.VerifyRecord(record,p.HLinePersonId,p.NationalId);
-                            if(_hline.HasSpirometry(record)) throw new HLineException("existing_result","پروندهٔ مقصد اسپیرومتری دارد؛ جایگزینی خودکار ممنوع است.");
-                        });
-                    }
-                    catch(HLineException ex) {blocked=ex.Message+"\r\n"+blocked;}
-                }
-                using(SubmissionForm preview=new SubmissionForm(draft,blocked)) preview.ShowDialog(this);
-                lblStatus.Text="بازبینی آماده شد؛ JPG و JSON محلی محفوظ‌اند. هیچ داده‌ای به سایت ارسال نشد.";
+                    _hline.VerifyLatestRecord(_exam.Patient);
+                    MedicalRecord record=new MedicalRecord {Id=draft.RecordId};
+                    if(_hline.HasSpirometry(record)) throw new HLineException("existing_result","این پرونده نتیجهٔ اسپیرومتری دارد؛ ارسال دوباره انجام نشد.");
+                    new SubmissionCoordinator(_submissionGateway,_exam.Submission,delegate {ExamStore.Save(_path,_exam);},_testRecord).Submit(draft);
+                });
+                lblStatus.Text="نتیجه و تصویر در سایت ثبت و بررسی شد.";
             }
-            catch(Exception ex) {Error("آماده‌سازی ارسال انجام نشد؛ معاینه حفظ شد. "+ex.Message);}
+            catch(HLineException ex) {Error(ex.Message);}
+            catch(InvalidOperationException ex) {Error(ex.Message);}
+            catch {Error(_exam.Submission.WriteAttempted?"نتیجهٔ ارسال نامطمئن است؛ وضعیت سایت باید بازخوانی شود.":"ارسال انجام نشد؛ پروندهٔ محلی محفوظ است.");}
             finally {_busy=false;UpdateControls();}
         }
         void RecordExport(ResultPackage package)
         {
-            _exam.ExportReferences.Add(new ExportReference { SnapshotId=_exam.ReportSnapshotId,ReportPath=package.ReportPath,DataPath=package.DataPath,CreatedAt=DateTime.Now });
+            _exam.ExportReferences.Add(new ExportReference { SnapshotId=package.SourceSnapshotId,ReportPath=package.ReportPath,DataPath=package.DataPath,CreatedAt=DateTime.Now });
             try { ExamStore.Save(_path,_exam); } catch(Exception ex) { _dirty=true; Error("فایل‌ها صادر شدند؛ ثبت مسیر خروجی در سابقه انجام نشد: "+ex.Message); }
         }
         void ClosingForm(object sender,FormClosingEventArgs args)

@@ -8,20 +8,24 @@ namespace SpiroLab.Ui
 {
     public sealed class PatientForm : Form
     {
-        readonly Patient original;
+        Patient original;
         readonly TextBox nid,first,last,age,height,weight,birth;
         readonly ComboBox sex,origin;
         readonly Label error;
         readonly HLineClient hline;
         readonly DateTime examinationDate;
-        CheckBox confirmAnthropometry;
+        readonly System.Windows.Forms.Timer lookupTimer;
+        readonly Button save;
         Label serverName;
-        bool fetching;
+        bool fetching,populating;
+        int lookupVersion;
+        string boundCode="";
         public Patient Value { get; private set; }
         public PatientForm(Patient patient=null,bool readOnly=false,HLineClient hline=null,DateTime? examinationDate=null)
         {
             this.hline=hline; this.examinationDate=examinationDate??DateTime.Today;
             original=patient==null?new Patient { Origin=Origin.Caucasian }:patient.Clone();
+            if(original.HLinePersonId.Length>0) boundCode=Fmt.NormalizeNumber(original.NationalId);
             ClinicalStyle.Form(this,readOnly?"مشخصات مراجع":"ثبت مراجع جدید",new Size(630,570));
             Panel body=new Panel { Dock=DockStyle.Fill,AutoScroll=true,BackColor=Color.White }; Controls.Add(body);
             TableLayoutPanel table=ClinicalStyle.FormTable(); table.RowCount=0; body.Controls.Add(table);
@@ -39,9 +43,8 @@ namespace SpiroLab.Ui
             if(!readOnly && hline!=null)
             {
                 serverName=new Label {Text=original.ServerFullName,AutoEllipsis=true,TextAlign=ContentAlignment.MiddleLeft};ClinicalStyle.Row(table,"نام کامل سایت",serverName,44);Height+=44;
-                Button fetch=ClinicalStyle.Button("دریافت مشخصات از سایت",async delegate {await Fetch();},false);fetch.Name="FetchHLinePatient";ClinicalStyle.Row(table,"HLine",fetch,48);
-                confirmAnthropometry=new CheckBox {Name="ConfirmAnthropometry",Text="قد و وزن و جنسیت برای این معاینه بررسی و تأیید شد",AutoSize=true}; ClinicalStyle.Row(table,"تأیید مشخصات",confirmAnthropometry,44);
-                Height+=90;
+                lookupTimer=new System.Windows.Forms.Timer {Interval=400};
+                lookupTimer.Tick+=async delegate {lookupTimer.Stop();await Fetch();};
             }
             ClinicalStyle.Row(table,"سن (سال)",age,44); ClinicalStyle.Row(table,"جنسیت",sex,44); ClinicalStyle.Row(table,"گروه مرجع",origin,44);
             ClinicalStyle.Row(table,"قد (سانتی‌متر)",height,44); ClinicalStyle.Row(table,"وزن (کیلوگرم)",weight,44);
@@ -50,38 +53,56 @@ namespace SpiroLab.Ui
             error=new Label { Name="ValidationMessage",Dock=DockStyle.Bottom,Height=35,ForeColor=Color.FromArgb(165,55,55),Padding=new Padding(16,0,16,0) }; Controls.Add(error);
             foreach(TextBox field in new TextBox[] {nid,first,last,age,height,weight}) field.TextChanged+=delegate { error.Text=""; };
             FlowLayoutPanel actions=new FlowLayoutPanel { Dock=DockStyle.Bottom,Height=58,FlowDirection=FlowDirection.RightToLeft,RightToLeft=RightToLeft.No,Padding=new Padding(12,4,12,4) };
-            Button save=ClinicalStyle.Button(readOnly?"بستن":"ذخیره و ادامه",delegate { if(readOnly) { DialogResult=DialogResult.Cancel; return; } Patient p; string message; if(TryRead(out p,out message)) { Value=p; DialogResult=DialogResult.OK; } else error.Text=message; },true); save.Name="SavePatient";
+            save=ClinicalStyle.Button(readOnly?"بستن":"ذخیره و ادامه",delegate { if(readOnly) { DialogResult=DialogResult.Cancel; return; } Patient p; string message; if(TryRead(out p,out message)) { Value=p; DialogResult=DialogResult.OK; } else error.Text=message; },true); save.Name="SavePatient";
             Button cancel=ClinicalStyle.Button("انصراف",delegate { DialogResult=DialogResult.Cancel; },false); cancel.Name="CancelPatient";
             actions.Controls.Add(save); if(!readOnly) actions.Controls.Add(cancel); Controls.Add(actions); AcceptButton=save; CancelButton=cancel;
             FormClosing+=delegate(object s,FormClosingEventArgs e) {e.Cancel=fetching;};
+            if(lookupTimer!=null)
+            {
+                nid.TextChanged+=delegate
+                {
+                    if(populating || Fmt.NormalizeNumber(nid.Text)==boundCode) return;
+                    lookupVersion++;lookupTimer.Stop();boundCode="";
+                    original=new Patient {Origin=original.Origin,HeightCm=double.NaN,WeightKg=double.NaN,SexUnconfirmed=true};
+                    first.Clear();last.Clear();age.Clear();height.Clear();weight.Clear();birth.Clear();serverName.Text="";sex.SelectedIndex=-1;
+                    ScheduleLookup();
+                };
+                nid.KeyDown+=delegate(object s,KeyEventArgs e) {if(e.KeyCode==Keys.Enter && boundCode!=Fmt.NormalizeNumber(nid.Text)) {ScheduleLookup();e.Handled=e.SuppressKeyPress=true;}};
+                Shown+=delegate {if(boundCode.Length==0) ScheduleLookup();};
+                Disposed+=delegate {lookupTimer.Dispose();};
+            }
+        }
+        void ScheduleLookup()
+        {
+            if(!Regex.IsMatch(Fmt.NormalizeNumber(nid.Text),"^[0-9]{10}$")) return;
+            if(hline.Status!=SessionStatus.Connected) {error.Text="ابتدا وارد سامانه شوید.";return;}
+            if(!fetching) lookupTimer.Start();
         }
         async Task Fetch()
         {
-            string code=Fmt.NormalizeNumber(nid.Text); fetching=true; Enabled=false;
+            if(fetching || IsDisposed) return;
+            string code=Fmt.NormalizeNumber(nid.Text);int version=lookupVersion;
+            if(!Regex.IsMatch(code,"^[0-9]{10}$") || code==boundCode) return;
+            fetching=true;save.Enabled=false;error.Text="در حال دریافت مشخصات…";
+            foreach(Control c in new Control[] {first,last,age,height,weight,birth,sex,origin}) c.Enabled=false;
             try
             {
-                if(hline.Status!=SessionStatus.Connected) {using(HLineLoginForm login=new HLineLoginForm(hline)) if(login.ShowDialog(this)!=DialogResult.OK) return;}
-                HLinePerson person=await Task.Factory.StartNew(delegate {return hline.Lookup(code);});
-                if(person.Records.Count==0) {error.Text="پروندهٔ پزشکی برای این شخص یافت نشد.";return;}
-                MedicalRecord selected;
-                using(MedicalRecordForm records=new MedicalRecordForm(person.Records,HLineClient.LatestUnambiguous(person.Records))) {if(records.ShowDialog(this)!=DialogResult.OK) return;selected=records.Value;}
-                Patient p=await Task.Factory.StartNew(delegate {return hline.PopulateRecord(person,selected);});
-                p.SetAgeAt(examinationDate); CopyIdentity(p);
+                Patient p=await Task.Factory.StartNew(delegate {return hline.LoadLatestPatient(code);});
+                if(version!=lookupVersion || code!=Fmt.NormalizeNumber(nid.Text)) return;
+                p.SetAgeAt(examinationDate);original=p.Clone();boundCode=code;populating=true;
                 nid.Text=p.NationalId;first.Text=p.FirstName;last.Text=p.LastName;
                 age.Text=p.BirthDate.HasValue?p.Age.ToString():"";height.Text=double.IsNaN(p.HeightCm)?"":Fmt.N(p.HeightCm,1);weight.Text=double.IsNaN(p.WeightKg)?"":Fmt.N(p.WeightKg,1);sex.SelectedIndex=p.SexUnconfirmed?-1:(int)p.Sex;
                 birth.Text=p.BirthDate.HasValue?ExaminationDates.Jalali(p.BirthDate.Value):"";serverName.Text=p.ServerFullName;
-                confirmAnthropometry.Checked=false;
-                error.Text=(p.ServerFullName.Length>0?p.ServerFullName+" | ":"")+"مشخصات و قد و وزن این مراجعه را بررسی کنید.";
+                error.Text="مشخصات دریافت شد.";
             }
-            catch(HLineException e) {error.Text=e.Message;}
-            catch {error.Text="دریافت مشخصات انجام نشد؛ اطلاعات واردشده حفظ شد.";}
-            finally {fetching=false;Enabled=true;}
-        }
-        void CopyIdentity(Patient p)
-        {
-            original.HLinePersonId=p.HLinePersonId;original.HLineRecordId=p.HLineRecordId;original.HLineRecordDate=p.HLineRecordDate;original.HLineRecordStatus=p.HLineRecordStatus;
-            original.BirthDate=p.BirthDate;original.ServerFullName=p.ServerFullName;original.DemographicSource=p.DemographicSource;original.AnthropometrySource=p.AnthropometrySource;original.NationalId=p.NationalId;
-            original.FirstName=p.FirstName;original.LastName=p.LastName;original.Sex=p.Sex;
+            catch(HLineException e) {if(version==lookupVersion) error.Text=e.Message;}
+            catch {if(version==lookupVersion) error.Text="دریافت مشخصات انجام نشد.";}
+            finally
+            {
+                fetching=populating=false;save.Enabled=true;
+                foreach(Control c in new Control[] {first,last,age,height,weight,birth,sex,origin}) c.Enabled=true;
+                if(version!=lookupVersion) ScheduleLookup();
+            }
         }
         public static bool ValidatePatient(Patient p,out string message)
         {
@@ -93,6 +114,7 @@ namespace SpiroLab.Ui
         public bool TryRead(out Patient p,out string message)
         {
             p=original.Clone(); message="";
+            if(hline!=null && (fetching || boundCode!=Fmt.NormalizeNumber(nid.Text) || original.HLinePersonId.Length==0 || original.HLineRecordId.Length==0)) {message="ابتدا مشخصات و آخرین پرونده باید از سایت دریافت شود.";return false;}
             if(birth.Text.Trim().Length>0) {DateTime d;if(!ExaminationDates.TryParse(birth.Text,out d)) {message="تاریخ تولد معتبر وارد کنید.";return false;}p.BirthDate=d;}
             else {p.BirthDate=null;p.ReferenceAgeYears=null;}
             double a=Fmt.Parse(age.Text,double.NaN);
@@ -104,8 +126,8 @@ namespace SpiroLab.Ui
             if(p.HLinePersonId.Length>0)
             {
                 if(p.NationalId!=original.NationalId) {message="با تغییر کد ملی، مشخصات را دوباره از سایت دریافت کنید.";return false;}
-                if(confirmAnthropometry!=null && !confirmAnthropometry.Checked) {message="قد و وزن و جنسیت این مراجعه را تأیید کنید.";return false;}
-                p.AnthropometryConfirmed=true;p.SexUnconfirmed=false;p.DemographicSource=p.BirthDate!=original.BirthDate || p.FirstName!=original.FirstName || p.LastName!=original.LastName || p.Sex!=original.Sex?"operator_edited_after_hline_lookup":"hline_person_operator_reviewed";p.AnthropometrySource="operator_confirmed_for_examination";
+                p.SexUnconfirmed=false;p.DemographicSource=p.BirthDate!=original.BirthDate || p.FirstName!=original.FirstName || p.LastName!=original.LastName || p.Sex!=original.Sex?"operator_edited_after_hline_lookup":"hline_person";
+                if(p.HeightCm!=original.HeightCm || p.WeightKg!=original.WeightKg) {p.AnthropometrySource="operator_edited_after_hline_lookup";p.AnthropometryConfirmed=false;}
             }
             return ValidatePatient(p,out message);
         }

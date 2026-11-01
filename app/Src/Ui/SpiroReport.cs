@@ -67,7 +67,7 @@ namespace SpiroLab.Ui
                 Text(g,snapshot.Data.ReviewedQualityComment,new RectangleF(60,1558,1080,23),11,false,true,false);
                 Text(g,"REPEATABILITY (descriptive, unvalidated): "+s.Repeatability,new RectangleF(60,1582,1080,28),11,false,false,false);
                 Text(g,"Exam: "+snapshot.Data.ExaminationId+" | Report best: PRE #"+snapshot.BestIndex+" | Site: "+snapshot.PrimaryLabel,new RectangleF(60,1655,1080,26),10,false,false,false);
-                Text(g,"Independent SpiroLab 5.3 | SN: "+(string.IsNullOrEmpty(s.BestTrial.DeviceSerial)?"not verified":s.BestTrial.DeviceSerial)+" | Not a MIR-generated report",new RectangleF(60,1620,1080,28),11,false,false,false);
+                Text(g,"Independent SpiroLab 5.3.1 | SN: "+(string.IsNullOrEmpty(s.BestTrial.DeviceSerial)?"not verified":s.BestTrial.DeviceSerial)+" | Not a MIR-generated report",new RectangleF(60,1620,1080,28),11,false,false,false);
             }
             return image;
         }
