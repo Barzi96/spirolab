@@ -1,14 +1,19 @@
-# Report comparison
+# Report comparison — 5.0 to 5.1
 
-The supplied photograph defines section order: header, combined flow/volume and inverted time/volume axes, PRE legend, BEST VALUES, maneuver parameter table, interpretation/quality/repeatability and footer. The independent renderer follows this structure with white portrait paper, monochrome differentiated curves, dotted grid, plain numeric tables and Persian-capable names.
+Both MIR photos were inspected alongside v5 JPG/JSON. Photos establish section order and numeric references, not raw signal data. Their identities/stamps are not redistributed.
 
-The output deliberately differs where copying the photograph would be misleading:
+| Area | Retained / corrected in 5.1 | Remaining difference |
+|---|---|---|
+| Header | Saved configured center/operator, Persian shaping | Independent application status |
+| Date | Saved selected date in Gregorian and Jalali | No date borrowed from HTML |
+| Curves | Shared volume x-axis, flow up left, time down right, monochrome styles, dotted grid | Reconstructed curves only; no fabricated predicted curve |
+| Legend | Original PRE indices, at most three displayed complete maneuvers | All maneuvers remain in JSON |
+| Best table | Five measured/predicted/% rows | Independent ratio policy still firmware-unverified |
+| Details | Added *FVC, *FEV1, *PEF repeated maxima, first displayed PRE percent, per-maneuver EVol calculation | EVol timing unverified |
+| Interpretation | Saved clinician text or labeled independent algorithm | No copied Normal Spirometry / Grade A default |
+| Quality/VEXT | Short status; reviewed manual VEXT or unavailable | Automatic grading/selection pending |
+| Footer | Independent5.1, exam ID, actual PRE index | No copied stamp, signature or fake serial |
 
-- No stamp, signature, scanner noise, original center identity or original patient data is copied into synthetic samples.
-- Application footer identifies Independent SpiroLab 5, not original MIR output.
-- No predicted flow curve is invented from a handful of predicted indices; only supported scalar reference values are displayed.
-- Original maneuver PRE indices are preserved, including when three maneuvers are selected from five or more.
-- Estimated BEV is not displayed as verified extrapolated volume; VEXT is unavailable in both outputs.
-- Algorithmic interpretation is explicitly UNVALIDATED. Quality grade is unavailable unless entered manually. Test samples are prominently NON-CLINICAL TEST DATA. No clinical grade or diagnosis from the photograph is copied.
+JPG remains actual JPEG quality97, 2400x3394, 300DPI. Shared renderer serves preview/export/print. Added details fit y1170–1456; interpretation starts1462 and quality1505, with no overlap in inspected output.
 
-The package Examples/Spirometry-Report.jpg and Examples/Spirometry-Data.json are the same synthetic finalized snapshot. Preview and export use the same renderer; JPEG uses a real encoder at 97 by default, 2400×3394, 300 DPI. Original reference remains Downloads/spiro.jpg on the development PC and is intentionally not redistributed with patient information.
+Delivery Comparison-5.1/Before-5.0 and After-5.1 contain synthetic JPG/JSON pairs; index.html displays them side by side. Both use existing simulator seeds100–102, age35/height175/weight75. Header/date fields demonstrate the new settings/date behavior. These are not paired live acquisitions or medical parity evidence. Default-center output and separate UI/settings previews were visually inspected on this host.

@@ -1,30 +1,31 @@
-# Occupational-health field mapping — schemaVersion 2
+# Local field mapping — schemaVersion2, application5.1
 
-The supplied `spiro.htm` was inspected locally as a visible results page. It is not an API or permission to send requests. No login, HTTP client, credential handling, browser automation or website transport is implemented.
+The supplied local spiro.htm was inspected as a visible results reference only. No login, HTTP/API client, credentials, browser automation or upload was implemented.
 
-| HTML/clinical field | JSON location | Unit and source |
+| Field | JSON location | Unit and selection |
 |---|---|---|
-| FVC | spirometry.FVC | L; independent largest complete usable maneuver FVC; source maneuver UUID |
-| FEV1 | spirometry.FEV1 | L; independent largest FEV1; source UUID |
-| FEV1/FVC | spirometry.FEV1_FVC | percent, not fraction; ratio of independent maxima |
-| FEF25–75 | spirometry.FEF25_75 | L/s from maneuver with greatest FVC+FEV1 |
-| PEF | spirometry.PEF | L/s; independent largest PEF; source UUID |
-| VEXT | spirometry.VEXT | value null, mL, unavailable/not_validated |
-| Test date/time | examination.testedAt | first acquisition timestamp, ISO 8601; not export time |
-| Operator | examination.operatorName/status | manual input, unavailable when blank; no guessed login identity |
-| Interpretation | interpretation | clinician-entered text when supplied; otherwise explicitly unvalidated algorithm |
-| Patient | patient.nationalId | string; preserves leading zeros |
-| Examination | examination.id / snapshotId | persisted examination UUID and fixed export snapshot UUID |
-| Device | device | known source serial, model family not verified, hardware validation pending |
+| FVC | spirometry.FVC | L; largest complete usable maneuver value; source UUID |
+| FEV1 | spirometry.FEV1 | L; independent maximum; source UUID |
+| FEV1/FVC | spirometry.FEV1_FVC | percent; maxFEV1/maxFVC*100, firmware equivalence pending |
+| FEF25–75 | spirometry.FEF25_75 | L/s; largest FVC+FEV1 maneuver, not largest FEF |
+| PEF | spirometry.PEF | L/s; independent maximum; source UUID |
+| VEXT | spirometry.VEXT | null when unavailable; explicitly reviewed manual value in mL otherwise |
+| Selected date | examination.examinationDate / testedAt | Saved ISO date / ISO date at midnight; authoritative for JPG |
+| Actual acquisition | examination.captureStartedAt / maneuvers[].testedAt | Original first capture / per-maneuver timestamps |
+| Date provenance | examination.dateSource | windows_local_date, operator_selected_date, legacy_capture_date |
+| Center/operator | examination.centerName / operatorName | Copied into exam; no later global-default substitution |
+| Reviewer | review.manualVext | Name, source, reviewed flag, explicit manual selection method |
+| Finalization | review.finalizedAt | Actual finalization timestamp; independent of selected exam date |
+| Interpretation | interpretation | Clinician text with source, or unvalidated independent algorithm |
+| Patient ID | patient.nationalId | String, leading zeros retained |
+| IDs | examination.id / snapshotId; maneuvers[].id | Stable examination, finalized snapshot and maneuver IDs |
 
-Each numerical measurement retains `value`, `unit`, `predicted`, `percentPredicted`, `valueSource`, `verificationStatus`, `missingDataStatus`. JSON preserves precision; report alone rounds. Missing values use null. Reference ERS/ECCS 1993 is declared; unsupported age/height/origin has null reference values.
+Every measurement retains value, unit, predicted, percentPredicted, valueSource, verificationStatus and missingDataStatus. No intermediate numeric rounding is introduced. Display rounds volumes/flows to2 decimals, ratios1, percent predicted0 and EVol mL0. Unsupported reference range/group gives null predictions.
 
-BEV estimation is kept separately under maneuvers[].estimatedBEV, explicitly not equivalent to validated VEXT. The term extrapolated volume in standards is related to back extrapolation, but the HTML label alone does not establish algorithmic equivalence, time zero, BTPS correction, or validity of this implementation. No guessed VEXT appears in JPG or JSON. Source: ATS/ERS 2019 https://pmc.ncbi.nlm.nih.gov/articles/PMC6794117/ and ATS/ERS 2005 https://www.thoracic.org/statements/resources/pft/PFT2.pdf .
+Per-maneuver estimatedBEV is separate from VEXT. backExtrapolation records Time Zero, method, source adequacy and unverified device parity. Mathematically available BEV uses V(t0) after peak-tangent intersection. Missing/unbracketed input gives null and a reason; no zero is substituted. VEXT manual source is also reflected in JPG. No automatic maximum-EVol rule is inferred from B's132mL match.
 
-The JSON includes all original maneuvers in acquisition order; stable IDs and indices remain intact. The report displays at most three selected complete usable maneuvers in their original order with their original PRE indices (e.g. #2, #4, #5); it does not rename a sorted #5 to #1. Selection and independent best values are distinct.
+All maneuvers remain in acquisition order in JSON. At most three complete signal-usable maneuvers selected by FVC+FEV1 are drawn, in their original order with actual PRE indices. One maneuver is sufficient for development export. Signal usability is not clinical acceptability.
 
-`ExaminationSnapshot` deep-copies patient, maneuver signal, analysis and reference values once. Both JPG rendering and JSON consume that same snapshot. Original examination edits cannot change an open preview's export. Exports publish a unique directory atomically after JPEG/JSON verification. Duplicate snapshot publication is refused. Existing reports are never overwritten.
+Snapshot deep-copies signals/analysis/references; JPG and JSON use that same copy. Finalization persists cloned analysis and stable snapshot UUID. Reopening final records reuses frozen results, including BEV, rather than recalculating with future formulas. Metadata/capture is locked in the UI after finalization. XML saves retain .bak; published export folders are never overwritten. Drafts and legacy records can reconstruct saved signals. Missing legacy selected date derives from first saved capture; absent old operator/center remain absent.
 
-Schema v1 exports are not silently imported as v2; old `.spiro` XML records (Version=1) load with Version=2 and LegacyRecord=true. Existing history remains; normal save uses a .bak. Missing old maneuver IDs are assigned on migration and persisted at next save. Old operator/interpretation remain unavailable until entered. No invented clinical approval is inferred from legacy OperatorAccepted flags.
-
-Source categories: simulation, replay, usb_live. Simulation/replay: NON-CLINICAL TEST DATA. Current live reconstruction: DEVELOPMENT — UNVERIFIED MEASUREMENTS. Hardware and clinical validation are pending. Quality grade is unavailable unless entered manually; manual entry is not independently verified. No occupational exposure, smoking history, serial longitudinal comparisons or website-only metadata is added.
+Source simulation/replay is NON-CLINICAL TEST DATA. Live reconstruction is DEVELOPMENT — UNVERIFIED MEASUREMENTS. Clinical/hardware/BTPS validation remains pending. Device interpretation blocks are not treated as verified result sources. No occupational exposure, smoking or website-only fields are invented.
