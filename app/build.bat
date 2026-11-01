@@ -28,6 +28,9 @@ echo Building SpiroLab.exe ...
   Src\Expiration.cs ^
   Src\ExamStore.cs ^
   Src\ExamSummary.cs ^
+  Src\ManeuverAssessment.cs ^
+  Src\HLine\HLineClient.cs ^
+  Src\HLine\Submission.cs ^
   Src\ResultExport.cs ^
   Src\Ers93.cs ^
   Src\SpiroAnalysis.cs ^
@@ -40,6 +43,7 @@ echo Building SpiroLab.exe ...
   Src\Ui\MainForm.cs ^
   Src\Ui\ClinicalStyle.cs ^
   Src\Ui\PatientForm.cs ^
+  Src\Ui\HLineForms.cs ^
   Src\Ui\JalaliDateForm.cs ^
   Src\Ui\RadioColumn.cs ^
   Src\Ui\ExaminationDetailsForm.cs ^

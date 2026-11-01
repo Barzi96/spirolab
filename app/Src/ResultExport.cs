@@ -16,6 +16,8 @@ namespace SpiroLab
         [Obsolete("There is only one primary report image; retained for source compatibility.")]
         public string CurvesPath;
         public string DataPath;
+        internal string SourceSnapshotId;
+        internal byte[] ReportBytes;
     }
     public static class ResultExport
     {
@@ -46,10 +48,11 @@ namespace SpiroLab
                 if(ExportCheckpoint!=null) ExportCheckpoint("after-jpg");
                 File.WriteAllText(json,snapshot.ToJson(),new UTF8Encoding(false));
                 using(Image check=Image.FromFile(jpg)) if(check.RawFormat.Guid!=ImageFormat.Jpeg.Guid) throw new InvalidDataException("JPEG verification failed");
+                byte[] reportBytes=File.ReadAllBytes(jpg);
                 var parsed=new JavaScriptSerializer { MaxJsonLength=ExaminationSnapshot.MaxJsonCharacters }.DeserializeObject(File.ReadAllText(json)) as Dictionary<string,object>;
                 if(parsed==null || (int)parsed["schemaVersion"]!=2) throw new InvalidDataException("JSON verification failed");
                 Directory.Move(stage,final); // atomically publish BOTH files on the same volume
-                return new ResultPackage { ReportPath=Path.Combine(final,"Spirometry-Report.jpg"),DataPath=Path.Combine(final,"Spirometry-Data.json"),CurvesPath=Path.Combine(final,"Spirometry-Report.jpg") };
+                return new ResultPackage { ReportPath=Path.Combine(final,"Spirometry-Report.jpg"),DataPath=Path.Combine(final,"Spirometry-Data.json"),CurvesPath=Path.Combine(final,"Spirometry-Report.jpg"),SourceSnapshotId=snapshot.SnapshotId,ReportBytes=reportBytes };
             }
             catch
             {

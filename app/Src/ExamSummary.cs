@@ -13,8 +13,10 @@ namespace SpiroLab
         public double Ratio { get { return Fvc > 0 ? Fev1 / Fvc * 100 : 0; } }
         public bool OperatorReviewed;
         public int Excluded;
-        public static bool CanReport(Trial t) { return t!=null && t.Completed && !t.OperatorRejected && t.Result!=null && t.Result.Valid; }
+        public static bool CanReport(Trial t) { ManeuverAssessment a=ManeuverAssessment.Assess(t);return t!=null && !t.OperatorRejected && a.TechnicalValid && a.FvcUsable; }
         public static ExamSummary Build(IList<Trial> trials)
+        { return Build(trials,true); }
+        internal static ExamSummary Build(IList<Trial> trials,bool qualityRanking)
         {
             ExamSummary s = new ExamSummary();
             foreach (Trial t in trials)
@@ -23,7 +25,7 @@ namespace SpiroLab
 
             Dictionary<Trial,int> originalOrder=new Dictionary<Trial,int>();
             for(int i=0;i<s.Candidates.Count;i++) if(!originalOrder.ContainsKey(s.Candidates[i])) originalOrder.Add(s.Candidates[i],i);
-            s.Candidates.Sort(delegate(Trial a, Trial b) { int score=(b.Result.Fvc + b.Result.Fev1).CompareTo(a.Result.Fvc + a.Result.Fev1); return score!=0?score:originalOrder[a].CompareTo(originalOrder[b]); });
+            s.Candidates.Sort(delegate(Trial a, Trial b) { int score=qualityRanking?ManeuverAssessment.Compare(a,b):(b.Result.Fvc+b.Result.Fev1).CompareTo(a.Result.Fvc+a.Result.Fev1); return score!=0?score:originalOrder[a].CompareTo(originalOrder[b]); });
             foreach (Trial t in s.Candidates)
             { s.Fvc = Math.Max(s.Fvc,t.Result.Fvc); s.Fev1 = Math.Max(s.Fev1,t.Result.Fev1); s.Pef = Math.Max(s.Pef,t.Result.Pef); }
             if (s.Candidates.Count > 0)

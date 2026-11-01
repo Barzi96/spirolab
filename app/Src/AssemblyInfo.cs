@@ -1,5 +1,5 @@
 using System.Reflection;
 [assembly: AssemblyTitle("Independent SpiroLab")]
-[assembly: AssemblyDescription("Development spirometry acquisition and local JPG/JSON export")]
-[assembly: AssemblyVersion("5.2.0.0")]
-[assembly: AssemblyFileVersion("5.2.0.0")]
+[assembly: AssemblyDescription("Spirometry acquisition, HLine read integration and protected upload preparation")]
+[assembly: AssemblyVersion("5.3.0.0")]
+[assembly: AssemblyFileVersion("5.3.0.0")]

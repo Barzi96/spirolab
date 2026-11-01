@@ -118,7 +118,7 @@ internal static class ManeuverSelectionTests
                 Check(ui.Trials.Count==129 && ui.OperatorSelectedManeuverId==firstId && ExamStore.Load(saved).OperatorSelectedManeuverId==firstId,"new acquisition through FinishTrial preserves and saves manual selection");
                 Check(((Trial)Field(form,"_selected")).ManeuverId==firstId,"new acquisition restores saved primary preview instead of silently selecting recommendation");
                 Call(form,"SelectTrial",125);
-                Check(!(bool)((DataGridView)Field(form,"gridTrials")).Rows[125].Cells[6].Tag && ((DataGridView)Field(form,"gridTrials")).Rows[125].Cells[0].ToolTipText.Contains(incomplete.EndReason),"incomplete attempt has inspectable warning and cannot be explicitly selected");
+                Check((bool)((DataGridView)Field(form,"gridTrials")).Rows[125].Cells[6].Tag && ((DataGridView)Field(form,"gridTrials")).Rows[125].Cells[0].ToolTipText.Contains(incomplete.EndReason),"incomplete attempt remains selectable for review with its precise warning");
                 Call(form,"SelectTrial",127); Check(((DataGridView)Field(form,"gridTrials")).Rows[127].Cells[0].Value.ToString().Contains("ردشده"),"rejected state visible in maneuver review");
                 Call(form,"SelectTrial",0);
                 Call(form,"ChangeChoice",ui.Trials.IndexOf(ExamSummary.Build(ui.Trials).BestTrial),6);

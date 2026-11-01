@@ -5,11 +5,14 @@ using System.IO;
 using System.Threading;
 using System.Windows.Forms;
 using SpiroLab.Device;
+using SpiroLab.HLine;
+using System.Threading.Tasks;
 namespace SpiroLab.Ui
 {
     public sealed class MainForm : Form
     {
         readonly DeviceSession _device=new DeviceSession();
+        readonly HLineClient _hline=new HLineClient();
         AppSettings _settings;
         Exam _exam;
         string _path;
@@ -27,14 +30,14 @@ namespace SpiroLab.Ui
         ChartPanel chart;
         DataGridView gridTrials;
         TextBox txtExamDate;
-        Label lblConnection,lblStatus,lblLive,lblSummary;
+        Label lblConnection,lblSiteConnection,lblStatus,lblLive,lblSummary;
         LinkLabel lblPatient;
         Button btnStart,btnStop,btnReport,btnSettings,btnNew,btnOpen,btnCalendar;
         List<string> _legacyReportIds=new List<string>();
         public MainForm()
         {
             _settings=AppSettings.Load(); _exam=Exam.CreateNew(_settings);
-            ClinicalStyle.Form(this,"اسپیرومتری طب کار — SpiroLab 5.2",new Size(1280,820));
+            ClinicalStyle.Form(this,"اسپیرومتری طب کار — SpiroLab 5.3",new Size(1280,820));
             StartPosition=FormStartPosition.CenterScreen; MinimumSize=new Size(780,500);
             BuildUi(); PopulateMetadata(); _device.Line+=AppendLog;
             _timer=new System.Windows.Forms.Timer { Interval=50 }; _timer.Tick+=Tick;
@@ -68,7 +71,10 @@ namespace SpiroLab.Ui
             btnNew=MakeButton("مراجع جدید",delegate { NewExam(); },true); btnOpen=MakeButton("پرونده قبلی",delegate { OpenExam(); },false); btnSettings=MakeButton("تنظیمات",delegate { OpenSettings(); },false);
             buttons.Controls.AddRange(new Control[] {btnNew,btnOpen,btnSettings}); toolbar.Controls.Add(buttons,0,0);
             lblConnection=ClinicalStyle.Label("● متصل نیست"); lblConnection.ForeColor=Color.FromArgb(113,126,138); lblConnection.Cursor=Cursors.Hand;
-            lblConnection.Click+=delegate { if(!_busy) OpenSettings(); }; _tips.SetToolTip(lblConnection,"اتصال و جزئیات دستگاه در تنظیمات"); toolbar.Controls.Add(lblConnection,1,0); root.Controls.Add(toolbar,0,0);
+            lblConnection.Click+=delegate { if(!_busy) OpenSettings(); }; _tips.SetToolTip(lblConnection,"اتصال و جزئیات دستگاه در تنظیمات");
+            TableLayoutPanel connections=new TableLayoutPanel {Dock=DockStyle.Fill,ColumnCount=1,RowCount=2}; connections.RowStyles.Add(new RowStyle(SizeType.Percent,50));connections.RowStyles.Add(new RowStyle(SizeType.Percent,50));
+            lblSiteConnection=ClinicalStyle.Label("سایت: متصل نیست");lblSiteConnection.Cursor=Cursors.Hand;lblSiteConnection.Click+=delegate {if(!_busy) LoginSite();};
+            connections.Controls.Add(lblSiteConnection,0,0);connections.Controls.Add(lblConnection,0,1);toolbar.Controls.Add(connections,1,0); root.Controls.Add(toolbar,0,0);
             TableLayoutPanel strip=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2,RowCount=2,RightToLeft=RightToLeft.Yes,Padding=new Padding(4,4,4,8) };
             strip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100)); strip.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,275));
             strip.RowStyles.Add(new RowStyle(SizeType.Percent,52)); strip.RowStyles.Add(new RowStyle(SizeType.Percent,48));
@@ -91,16 +97,17 @@ namespace SpiroLab.Ui
             float[] weights={9,13,14,14,13,15,11,11};
             for(int i=0;i<captions.Length;i++) gridTrials.Columns.Add(new DataGridViewTextBoxColumn { Name="Metric"+i,HeaderText=captions[i],ReadOnly=true,FillWeight=weights[i],MinimumWidth=25,SortMode=DataGridViewColumnSortMode.NotSortable });
             RadioColumn radio=new RadioColumn { Name="SiteSelection",HeaderText="ارسال به سامانه",FillWeight=weights[6],MinimumWidth=25 }; radio.SelectRow=delegate(int row) { ChangeChoice(row,6); }; gridTrials.Columns.Add(radio);
-            gridTrials.Columns.Add(new DataGridViewCheckBoxColumn { Name="ReportSelection",HeaderText="نمایش در گزارش",ReadOnly=true,FillWeight=weights[7],MinimumWidth=25,SortMode=DataGridViewColumnSortMode.NotSortable });
+            gridTrials.Columns.Add(new ReportColumn { Name="ReportSelection",HeaderText="نمایش در گزارش",ReadOnly=true,FillWeight=weights[7],MinimumWidth=25,SortMode=DataGridViewColumnSortMode.NotSortable,ToggleRow=delegate(int row) {ChangeChoice(row,7);} });
             gridTrials.RowTemplate.Height=31;
             gridTrials.ColumnHeadersDefaultCellStyle.BackColor=Color.FromArgb(236,242,246); gridTrials.ColumnHeadersDefaultCellStyle.ForeColor=ClinicalStyle.Ink; gridTrials.ColumnHeadersDefaultCellStyle.Alignment=DataGridViewContentAlignment.MiddleCenter; gridTrials.ColumnHeadersDefaultCellStyle.WrapMode=DataGridViewTriState.True;
             gridTrials.DefaultCellStyle.Alignment=DataGridViewContentAlignment.MiddleCenter; gridTrials.DefaultCellStyle.SelectionBackColor=Color.FromArgb(223,239,242); gridTrials.DefaultCellStyle.SelectionForeColor=ClinicalStyle.Ink; gridTrials.GridColor=Color.FromArgb(233,238,242); gridTrials.CellBorderStyle=DataGridViewCellBorderStyle.SingleHorizontal;
             gridTrials.SelectionChanged+=delegate { if(!_rendering && gridTrials.CurrentRow!=null) SelectTrial(gridTrials.CurrentRow.Index); };
-            gridTrials.CellContentClick+=delegate(object sender,DataGridViewCellEventArgs e) { ChangeChoice(e.RowIndex,e.ColumnIndex); };
+            gridTrials.CellClick+=delegate(object sender,DataGridViewCellEventArgs e) { ChangeChoice(e.RowIndex,e.ColumnIndex); };
             gridTrials.KeyDown+=delegate(object sender,KeyEventArgs e) { if(e.KeyCode==Keys.Space && gridTrials.CurrentCell!=null && gridTrials.CurrentCell.ColumnIndex>=6) { ChangeChoice(gridTrials.CurrentCell.RowIndex,gridTrials.CurrentCell.ColumnIndex); e.Handled=e.SuppressKeyPress=true; } };
             history.Controls.Add(gridTrials); history.Controls.Add(lblSummary); root.Controls.Add(history,0,3);
             FlowLayoutPanel actions=new FlowLayoutPanel { Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft,RightToLeft=RightToLeft.No,WrapContents=false,Padding=new Padding(0,6,0,0) };
-            btnStart=MakeButton("شروع تست",delegate { if(_developerMode) StartSimulation(); else StartTest(); },true); btnStop=MakeButton("توقف مانور",delegate { StopTest(); },false); btnReport=MakeButton("پایان و گزارش",delegate { ShowReport(); },false);
+            btnStart=MakeButton("شروع تست",delegate { if(_developerMode) StartSimulation(); else StartTest(); },true); btnStop=MakeButton("توقف مانور",delegate { StopTest(); },false); btnReport=MakeButton("ارسال به سایت",async delegate { await SendSite(); },false);
+            ContextMenuStrip localMenu=new ContextMenuStrip();localMenu.Items.Add("ذخیره JPG + JSON",null,delegate {ShowReport();});btnReport.ContextMenuStrip=localMenu; _tips.SetToolTip(btnReport,"بازبینی ارسال؛ کلیک راست برای خروجی محلی JPG + JSON");
             actions.Controls.AddRange(new Control[] {btnStart,btnStop,btnReport}); root.Controls.Add(actions,0,4);
             lblStatus=ClinicalStyle.Label("آماده"); lblStatus.Font=new Font("Tahoma",8.5f); lblStatus.ForeColor=Color.FromArgb(104,121,137); root.Controls.Add(lblStatus,0,5);
             root.Layout+=delegate
@@ -133,15 +140,16 @@ namespace SpiroLab.Ui
             btnNew.Enabled=btnOpen.Enabled=btnSettings.Enabled=!_busy;
             btnStart.Enabled=editable && _hasPatient && (_developerMode || _device.Connected);
             btnStart.Text=_developerMode?"مانور نمایشی":_exam.Trials.Count>0?"تست بعدی":"شروع تست";
-            btnStop.Enabled=_busy && _active!=null; gridTrials.Enabled=!_busy;
+            btnStop.Enabled=_busy && _active!=null; gridTrials.Enabled=true;
             txtExamDate.Enabled=btnCalendar.Enabled=editable && _hasPatient;
-            btnReport.Enabled=!_busy && _hasPatient && CanReport();
+            btnReport.Enabled=!_busy && _hasPatient && _exam.Trials.Count>0;
             _tips.SetToolTip(btnStart,!_hasPatient?"ابتدا مراجع جدید را ثبت کنید.":!_device.Connected && !_developerMode?"اتصال دستگاه را در تنظیمات بررسی کنید.":"ثبت یک مانور تازه");
-            _tips.SetToolTip(btnReport,btnReport.Enabled?"نهایی‌سازی معاینه و پیش‌نمایش گزارش":"مانور قابل استفاده و تعداد لازمِ تیک گزارش را انتخاب کنید.");
+            _tips.SetToolTip(btnReport,btnReport.Enabled?"بازبینی ارسال به سایت؛ کلیک راست برای JPG + JSON محلی":"ابتدا یک مانور ثبت کنید.");
+            lblSiteConnection.Text="سایت: "+_hline.StatusText;
             lblConnection.Text=_busy && _active!=null?"● در حال دریافت":_device.Connected?"● متصل":"● متصل نیست";
             lblConnection.ForeColor=_device.Connected?ClinicalStyle.Accent:Color.FromArgb(113,126,138);
             lblPatient.Enabled=_hasPatient && !_busy;
-            foreach(DataGridViewRow row in gridTrials.Rows) { bool enabled=editable && ExamSummary.CanReport(_exam.Trials[row.Index]); row.Cells[6].Tag=enabled; row.Cells[7].Style.ForeColor=enabled?ClinicalStyle.Ink:Color.LightGray; }
+            foreach(DataGridViewRow row in gridTrials.Rows) { row.Cells[6].Tag=row.Cells[7].Tag=editable; row.Cells[7].Style.ForeColor=editable?ClinicalStyle.Ink:Color.LightGray; }
         }
         bool CanReport()
         {
@@ -184,7 +192,7 @@ namespace SpiroLab.Ui
             Thread worker=new Thread(delegate()
             {
                 CaptureOutcome outcome=_device.Capture(capturing,delegate { return _stop; },delegate(DevicePacket packet) { lock(_queueLock) _pending.Enqueue(packet); });
-                Post(delegate { DrainPackets(); _decodedLiveSamples=capturing.Flow.Count; _receivedLiveSamples=_decodedLiveSamples>0; _safeError=_receivedLiveSamples?"none":"no_valid_live_samples"; capturing.Completed=outcome.Completed && capturing.EndReason.Length==0; capturing.EndReason=outcome.Reason??capturing.EndReason; capturing.DeviceValues=outcome.Results; FinishTrial(); });
+                Post(delegate { DrainPackets(); _decodedLiveSamples=capturing.Flow.Count; _receivedLiveSamples=_decodedLiveSamples>0; _safeError=_receivedLiveSamples?"none":"no_valid_live_samples"; capturing.Completed=outcome.Completed && capturing.CaptureError.Length==0; capturing.OperatorStopped=!outcome.Completed && outcome.Reason=="توقف توسط کاربر"; if(!outcome.Completed && !capturing.OperatorStopped) capturing.CaptureError=outcome.Reason??"capture_failed"; capturing.EndReason=outcome.Reason??capturing.EndReason; capturing.DeviceValues=outcome.Results; FinishTrial(); });
             }) { IsBackground=true }; worker.Start();
         }
         private void StartSimulation()
@@ -199,7 +207,7 @@ namespace SpiroLab.Ui
         {
             if(_active==null) return;
             try { lock(_queueLock) while(_pending.Count>0) _decoder.Add(_active,_pending.Dequeue()); }
-            catch(Exception ex) { _stop=true; _active.EndReason=ex.Message; AppendLog(ex.Message); }
+            catch(Exception ex) { _stop=true; _active.CaptureError=_active.EndReason=ex.Message; AppendLog(ex.Message); }
         }
         private void Tick(object sender,EventArgs args)
         {
@@ -240,10 +248,11 @@ namespace SpiroLab.Ui
             _rendering=true; gridTrials.Rows.Clear();
             for(int i=0;i<_exam.Trials.Count;i++)
             {
-                Trial t=_exam.Trials[i]; AnalysisResult r=t.Result; string state=t.OperatorRejected?"ردشده":!t.Completed?"ناقص":r==null || !r.Valid?"داده ناکافی":"";
+                Trial t=_exam.Trials[i]; AnalysisResult r=t.Result; string state=ManeuverAssessment.Assess(t).Status;
                 gridTrials.Rows.Add(t.AcquisitionSequence+(state.Length>0?" · "+state:""),Metric(r,0),Metric(r,1),Metric(r,2),Metric(r,3),Metric(r,7),t.ManeuverId==_exam.OperatorSelectedManeuverId,ReportIds().Contains(t.ManeuverId));
                 string info=ExamStore.Source(t)+" | "+t.When.ToString("o")+(t.EndReason.Length>0?" | "+t.EndReason:"");
                 if(r!=null) info+=" | "+r.InvalidReason;
+                info+=" | "+ManeuverAssessment.Assess(t).Status+" | "+ManeuverAssessment.Assess(t).Problem;
                 foreach(DataGridViewCell cell in gridTrials.Rows[i].Cells) cell.ToolTipText=info;
                 if(!ExamSummary.CanReport(t)) gridTrials.Rows[i].DefaultCellStyle.ForeColor=Color.FromArgb(144,113,113);
             }
@@ -254,7 +263,7 @@ namespace SpiroLab.Ui
         void ChangeChoice(int row,int column)
         {
             if(_rendering || _busy || _exam.FinalizedAt.HasValue || row<0 || row>=_exam.Trials.Count || (column!=6 && column!=7)) return;
-            Trial t=_exam.Trials[row]; if(!ExamSummary.CanReport(t)) { Error("این مانور ناقص یا غیرقابل استفاده است."); return; }
+            Trial t=_exam.Trials[row];
             try
             {
                 if(column==6) _exam.SelectSiteManeuver(t.ManeuverId);
@@ -274,7 +283,7 @@ namespace SpiroLab.Ui
         {
             if(index<0 || index>=_exam.Trials.Count) return;
             _selected=_exam.Trials[index]; chart.Trial=_selected; chart.Result=_selected.Result;
-            _rendering=true; gridTrials.CurrentCell=gridTrials.Rows[index].Cells[0]; _rendering=false;
+            _rendering=true; if(gridTrials.CurrentRow==null || gridTrials.CurrentRow.Index!=index) gridTrials.CurrentCell=gridTrials.Rows[index].Cells[0]; _rendering=false;
             lblLive.Text=(_selected.Simulated?"دادهٔ آزمایشی | ":"")+"نمایش مانور "+_selected.AcquisitionSequence+(!_selected.Completed?" · ناقص":_selected.OperatorRejected?" · ردشده":_selected.Result==null || !_selected.Result.Valid?" · داده ناکافی":"");
             UpdateControls();
         }
@@ -306,13 +315,13 @@ namespace SpiroLab.Ui
         private void NewExam()
         {
             if(_busy) return;
-            using(PatientForm form=new PatientForm()) if(form.ShowDialog(this)==DialogResult.OK && CanLeave())
+            using(PatientForm form=new PatientForm(null,false,_hline)) if(form.ShowDialog(this)==DialogResult.OK && CanLeave())
                 try { BeginExam(form.Value,true); } catch(Exception ex) { Error("ثبت معاینه انجام نشد؛ پروندهٔ قبلی حفظ شد. "+ex.Message); }
         }
         private void BeginExam(Patient patient,bool persist)
         {
             string problem; if(!PatientForm.ValidatePatient(patient,out problem)) throw new ArgumentException(problem);
-            Exam fresh=Exam.CreateNew(_settings); fresh.Patient=patient.Clone();
+            Exam fresh=Exam.CreateNew(_settings); fresh.Patient=patient.Clone();fresh.Patient.SetAgeAt(fresh.ExaminationDate.Value);
             string path=persist?ExamStore.NewPath():_path;
             if(persist) ExamStore.Save(path,fresh);
             _exam=fresh; _path=path; _hasPatient=true; _selected=null; _dirty=false; _developerMode=false; _receivedLiveSamples=false; _safeError="none"; _legacyReportIds.Clear();
@@ -346,7 +355,13 @@ namespace SpiroLab.Ui
             if(_exam.FinalizedAt.HasValue || !_hasPatient) return true;
             DateTime date;
             if(!ExaminationDates.TryParse(txtExamDate.Text,out date)) { Error("تاریخ شمسی معتبر وارد کنید؛ مثال: ۱۴۰۵/۰۸/۱۰"); return false; }
-            if(!_exam.ExaminationDate.HasValue || _exam.ExaminationDate.Value.Date!=date) { _exam.ExaminationDate=date; _exam.ExaminationDateSource="operator_selected_date"; _dirty=true; }
+            if(!_exam.ExaminationDate.HasValue || _exam.ExaminationDate.Value.Date!=date)
+            {
+                Patient patient=_exam.Patient.Clone();try {patient.SetAgeAt(date);string problem;if(!patient.IsUsable(out problem)) {Error(problem);return false;}}catch(Exception ex) {Error(ex.Message);return false;}
+                _exam.Patient=patient;_exam.ExaminationDate=date; _exam.ExaminationDateSource="operator_selected_date";
+                foreach(Trial t in _exam.Trials) t.Result=SpiroAnalysis.Analyze(t,patient);
+                _exam.MaintainSelections();_dirty=true;
+            }
             return true;
         }
         void ShowDetails()
@@ -371,15 +386,48 @@ namespace SpiroLab.Ui
             if(!CanReport() || !SaveExam(false)) return;
             try
             {
-                if(!_exam.FinalizedAt.HasValue)
-                {
-                    _exam.FinalizeExamination();
-                    try { ExamStore.Save(_path,_exam); } catch { _exam.FinalizedAt=null; throw; }
-                }
                 ExaminationSnapshot snapshot=ExaminationSnapshot.Capture(_exam); UpdateControls();
                 using(ReportForm report=new ReportForm(snapshot)) { report.Exported+=RecordExport; report.ShowDialog(this); }
             }
             catch(Exception ex) { Error("گزارش آماده نشد: "+ex.Message); }
+        }
+        void LoginSite()
+        { using(HLineLoginForm form=new HLineLoginForm(_hline)) form.ShowDialog(this); UpdateControls(); }
+        async Task SendSite()
+        {
+            if(_busy) return;
+            if(!_hasPatient || _exam.Trials.Count==0) {Error("ابتدا معاینه و مانور را ثبت کنید.");return;}
+            try {_exam.ValidateSelection(true);_exam.ValidateReportSelection(true);} catch(Exception ex) {Error(ex.Message);return;}
+            if(!SaveExam(false)) return;
+            _busy=true;UpdateControls();
+            try
+            {
+                ExaminationSnapshot snapshot=ExaminationSnapshot.Capture(_exam);
+                ResultPackage package=ResultExport.SaveToDirectory(Path.Combine(Path.GetDirectoryName(_path),"exports"),snapshot);RecordExport(package);
+                SubmissionDraft draft=new SubmissionDraft(snapshot,package);
+                string blocked="ارسال واقعی فعال نیست: قرارداد درخواست و واحدها، پروندهٔ تست مشخص و مجوز همان عملیات هنوز تأیید نشده‌اند.";
+                try {draft.ValidateForSubmission();} catch(Exception ex) {blocked=ex.Message+"\r\n"+blocked;}
+                if(_exam.Patient.HLinePersonId.Length>0)
+                {
+                    try
+                    {
+                        if(_hline.Status!=SessionStatus.Connected) {using(HLineLoginForm login=new HLineLoginForm(_hline)) login.ShowDialog(this);}
+                        await Task.Factory.StartNew(delegate
+                        {
+                            _hline.VerifySession();
+                            var p=_exam.Patient;
+                            MedicalRecord record=new MedicalRecord {Id=p.HLineRecordId,PersonId=p.HLinePersonId,NationalId=p.NationalId,DateText=p.HLineRecordDate,Status=p.HLineRecordStatus};
+                            _hline.VerifyRecord(record,p.HLinePersonId,p.NationalId);
+                            if(_hline.HasSpirometry(record)) throw new HLineException("existing_result","پروندهٔ مقصد اسپیرومتری دارد؛ جایگزینی خودکار ممنوع است.");
+                        });
+                    }
+                    catch(HLineException ex) {blocked=ex.Message+"\r\n"+blocked;}
+                }
+                using(SubmissionForm preview=new SubmissionForm(draft,blocked)) preview.ShowDialog(this);
+                lblStatus.Text="بازبینی آماده شد؛ JPG و JSON محلی محفوظ‌اند. هیچ داده‌ای به سایت ارسال نشد.";
+            }
+            catch(Exception ex) {Error("آماده‌سازی ارسال انجام نشد؛ معاینه حفظ شد. "+ex.Message);}
+            finally {_busy=false;UpdateControls();}
         }
         void RecordExport(ResultPackage package)
         {
@@ -389,7 +437,7 @@ namespace SpiroLab.Ui
         void ClosingForm(object sender,FormClosingEventArgs args)
         {
             if(_busy) { args.Cancel=true; if(_active!=null) StopTest(); Error("ابتدا پایان ثبت یا توقف را منتظر بمانید."); return; }
-            if(_dirty && !SaveExam(false)) { args.Cancel=true; return; } _timer.Dispose(); _device.Dispose(); _tips.Dispose();
+            if(_dirty && !SaveExam(false)) { args.Cancel=true; return; } _timer.Dispose(); _device.Dispose(); _hline.Dispose(); _tips.Dispose();
         }
     }
 }

@@ -25,13 +25,26 @@ namespace SpiroLab
         public double HeightCm = 175.0;
         public double WeightKg = 75.0;
         public string Note = "";
+        public DateTime? BirthDate;
+        public double? ReferenceAgeYears;
+        public bool SexUnconfirmed,AnthropometryConfirmed;
+        public string ServerFullName="",HLinePersonId="",HLineRecordId="",HLineRecordDate="",HLineRecordStatus="",DemographicSource="operator_entered",AnthropometrySource="operator_entered";
+        public void SetAgeAt(DateTime examinationDate)
+        {
+            if(!BirthDate.HasValue) return;
+            DateTime born=BirthDate.Value.Date,date=examinationDate.Date;
+            int years=date.Year-born.Year; if(born.AddYears(years)>date) years--;
+            if(years<0) throw new ArgumentException("تاریخ معاینه پیش از تولد است.");
+            Age=years; DateTime previous=born.AddYears(years),next=born.AddYears(years+1);
+            ReferenceAgeYears=years+(date-previous).TotalDays/(next-previous).TotalDays;
+        }
 
         public string FullName
         {
             get
             {
                 string s = (FirstName + " " + LastName).Trim();
-                return s.Length == 0 ? "(بدون نام)" : s;
+                return s.Length == 0 ? (ServerFullName.Length==0?"(بدون نام)":ServerFullName) : s;
             }
         }
 
@@ -82,6 +95,8 @@ namespace SpiroLab
         public string ReviewedVextSource="",VextReviewer="";
         public DateTime? VextReviewedAt;
         public bool Completed = true;
+        public bool OperatorStopped;
+        public string CaptureError="";
         public bool Imported;
         public bool OperatorAccepted;
         public string EndReason = "";
@@ -112,6 +127,7 @@ namespace SpiroLab
             t.Time.AddRange(Time);
             t.Volume.AddRange(Volume);
             t.Completed = Completed;
+            t.OperatorStopped=OperatorStopped; t.CaptureError=CaptureError;
             t.Imported = Imported;
             t.OperatorAccepted = OperatorAccepted;
             t.StepType = StepType;

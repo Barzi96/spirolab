@@ -79,7 +79,7 @@ internal static class StandaloneTests
             string liveStart=main.Substring(main.IndexOf("private void StartTest()"),main.IndexOf("private void StartSimulation()")-main.IndexOf("private void StartTest()"));
             Check(!liveStart.Contains("StartSimulation("),"no silent simulation fallback on USB failure");
             string allSource=string.Join("\n",Directory.GetFiles(sources,"*.cs",SearchOption.AllDirectories).Select(File.ReadAllText).ToArray());
-            Check(!allSource.Contains("HttpClient") && !allSource.Contains("WebClient") && !allSource.Contains("HttpWebRequest") && !allSource.Contains("System.Net"),"no website transport implemented");
+            Check(!allSource.Contains("ServerCertificateValidationCallback") && !allSource.Contains("class HLineHttpWriter"),"TLS validation preserved and no live clinical HTTP writer enabled");
             string usb=File.ReadAllText(Path.Combine(sources,"MirUsb.cs"));
             Check(usb.Contains("CancelIoEx") && usb.Contains("Quarantine") && !usb.Contains("out count, true)"),"bounded native waits and deferred cancellation cleanup present (hardware path pending)");
             string legacy=Path.Combine(root,"legacy.spiro"); Exam old=new Exam { Version=1,Patient=new Patient() }; Trial bt=Simulator.Build(old.Patient,7); old.Trials.Add(bt); ExamStore.Save(legacy,old);

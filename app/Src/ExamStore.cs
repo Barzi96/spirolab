@@ -35,7 +35,10 @@ namespace SpiroLab
         public bool ReportSelectionManual;
         public DateTime? ReportSelectionTimestamp;
         public string ReportSelectionOperator="";
+        [XmlIgnore] public string SiteSelectedManeuverId {get {return OperatorSelectedManeuverId;} }
+        [XmlIgnore] public IList<string> ReportSelectedManeuverIds {get {return ReportManeuverIds.AsReadOnly();} }
         public List<ExportReference> ExportReferences=new List<ExportReference>();
+        public HLine.SubmissionJournal Submission=new HLine.SubmissionJournal();
         [XmlIgnore] public Trial OperatorSelectedManeuver { get { return Trials.Find(delegate(Trial t) { return t.ManeuverId==OperatorSelectedManeuverId; }); } }
         public void EnsureManeuverIdentities()
         {
@@ -67,24 +70,29 @@ namespace SpiroLab
                 if(OperatorSelectedManeuverId!=summary.BestTrial.ManeuverId)
                 { OperatorSelectedManeuverId=summary.BestTrial.ManeuverId; SelectionMethod="automatic"; SelectionTimestamp=DateTime.Now; SelectionOperatorName=OperatorName; SelectionReason=""; }
             }
-            if(!ReportSelectionManual) foreach(Trial t in Trials)
-                if(ReportManeuverIds.Count<3 && ExamSummary.CanReport(t) && !ReportManeuverIds.Contains(t.ManeuverId)) { ReportManeuverIds.Add(t.ManeuverId); ReportSelectionTimestamp=DateTime.Now; ReportSelectionOperator=OperatorName; }
+            else if(summary.BestTrial==null && SelectionMethod=="automatic") OperatorSelectedManeuverId="";
+            if(!ReportSelectionManual)
+            {
+                ReportManeuverIds.Clear();
+                foreach(Trial t in summary.Trials) ReportManeuverIds.Add(t.ManeuverId);
+                ReportSelectionTimestamp=DateTime.Now; ReportSelectionOperator=OperatorName;
+            }
         }
         public void SelectSiteManeuver(string id)
         {
             if(FinalizedAt.HasValue) throw new InvalidOperationException("معاینه نهایی شده است.");
             Trial t=Trials.Find(delegate(Trial item) { return item.ManeuverId==id; });
-            if(!ExamSummary.CanReport(t)) throw new ArgumentException("این مانور قابل انتخاب نیست.");
+            if(t==null) throw new ArgumentException("مانور در این معاینه وجود ندارد.");
             OperatorSelectedManeuverId=id; SelectionMethod="manual"; SelectionOperatorName=OperatorName; SelectionTimestamp=DateTime.Now; SelectionReason="";
         }
         public void SetReportManeuver(string id,bool included)
         {
             if(FinalizedAt.HasValue) throw new InvalidOperationException("معاینه نهایی شده است.");
             Trial t=Trials.Find(delegate(Trial item) { return item.ManeuverId==id; });
-            if(!ExamSummary.CanReport(t)) throw new ArgumentException("این مانور قابل انتخاب نیست.");
+            if(t==null) throw new ArgumentException("مانور در این معاینه وجود ندارد.");
             if(included && !ReportManeuverIds.Contains(id))
             {
-                if(ReportManeuverIds.Count>=3) throw new InvalidOperationException("برای گزارش حداکثر ۳ مانور قابل انتخاب است.");
+                if(ReportManeuverIds.Count>=3) throw new InvalidOperationException("برای گزارش حداکثر سه مانور قابل انتخاب است.");
                 ReportManeuverIds.Add(id);
             }
             else if(!included) ReportManeuverIds.Remove(id);
@@ -94,14 +102,19 @@ namespace SpiroLab
         {
             if(SelectionWorkflowVersion<2) return;
             if(ReportManeuverIds==null || ReportManeuverIds.Count>3 || new HashSet<string>(ReportManeuverIds).Count!=ReportManeuverIds.Count) throw new InvalidDataException("انتخاب‌های گزارش معتبر نیستند.");
-            foreach(string id in ReportManeuverIds) if(!ExamSummary.CanReport(Trials.Find(delegate(Trial t) { return t.ManeuverId==id; }))) throw new InvalidDataException("مانور انتخاب‌شدهٔ گزارش قابل استفاده نیست.");
-            int eligible=Trials.FindAll(ExamSummary.CanReport).Count;
-            if(required && (eligible==0 || ReportManeuverIds.Count!=Math.Min(3,eligible))) throw new InvalidOperationException(eligible>=3?"برای گزارش ۳ مانور انتخاب کنید.":"مانورهای موجود را برای گزارش انتخاب کنید.");
+            foreach(string id in ReportManeuverIds)
+            {
+                Trial t=Trials.Find(delegate(Trial item) { return item.ManeuverId==id; });
+                if(t==null) throw new InvalidDataException("شناسهٔ مانور گزارش در معاینه وجود ندارد.");
+                if(required && !ExamSummary.CanReport(t)) throw new InvalidOperationException("مانور "+t.AcquisitionSequence+": "+ManeuverAssessment.Assess(t).Problem);
+            }
+            if(required && ReportManeuverIds.Count==0) throw new InvalidOperationException("حداقل یک مانور برای گزارش انتخاب کنید.");
         }
         public void ValidateSelection(bool required)
         {
             if(string.IsNullOrEmpty(OperatorSelectedManeuverId)) { if(required) throw new InvalidOperationException("ابتدا مانور اصلی را صریحاً انتخاب کنید."); return; }
-            if(!ExamSummary.CanReport(OperatorSelectedManeuver) || (SelectionMethod!="manual" && SelectionMethod!="automatic_suggestion" && SelectionMethod!="automatic") || !SelectionTimestamp.HasValue || (SelectionWorkflowVersion<2 && string.IsNullOrWhiteSpace(SelectionOperatorName))) throw new InvalidDataException("انتخاب مانور اصلی معتبر نیست.");
+            if(OperatorSelectedManeuver==null || (SelectionMethod!="manual" && SelectionMethod!="automatic_suggestion" && SelectionMethod!="automatic") || !SelectionTimestamp.HasValue || (SelectionWorkflowVersion<2 && string.IsNullOrWhiteSpace(SelectionOperatorName))) throw new InvalidDataException("انتخاب مانور اصلی معتبر نیست.");
+            if(required && !ExamSummary.CanReport(OperatorSelectedManeuver)) throw new InvalidOperationException(ManeuverAssessment.Assess(OperatorSelectedManeuver).Problem);
         }
         public void SelectPrimary(string id,string method,string operatorName,string reason)
         {
@@ -238,7 +251,7 @@ namespace SpiroLab
             using (StreamWriter w = new StreamWriter(path, false, new UTF8Encoding(true)))
             {
                 w.WriteLine("Patient,NationalId,Age,Sex,Origin,Height_cm,Weight_kg,Trial,Source,Section,Time_s,Volume_L,Flow_Lps,Metric,Value,Unit");
-                ExamSummary best = ExamSummary.Build(e.Trials);
+                ExamSummary best = ExamSummary.Build(e.Trials,false);
                 if (best.Best != null)
                 {
                     string prefix = CsvText(e.Patient.FullName) + "," + CsvText(e.Patient.NationalId) + "," + e.Patient.Age.ToString(CultureInfo.InvariantCulture) + "," + e.Patient.Sex + "," + e.Patient.Origin + "," + e.Patient.HeightCm.ToString("R",CultureInfo.InvariantCulture) + "," + e.Patient.WeightKg.ToString("R",CultureInfo.InvariantCulture) + ",BEST," + CsvText(Source(best.BestTrial)) + ",";

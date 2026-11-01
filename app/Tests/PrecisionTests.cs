@@ -76,7 +76,7 @@ internal static class PrecisionTests
             var cases=new List<Trial>();
             foreach(object value in (object[])fixture["maneuvers"])
             {
-                var row=Obj(value); cases.Add(new Trial { Simulated=true,Result=new AnalysisResult { Valid=true,Ref=reference,Fvc=N(row["FVC"]),Fev1=N(row["FEV1"]),Fev1Fvc=N(row["ratio"]),Pef=N(row["PEF"]),Fef2575=N(row["FEF25_75"]) } });
+                var row=Obj(value); Trial numeric=Simulator.Build(p,123); numeric.Result=new AnalysisResult { Valid=true,Ref=reference,Fvc=N(row["FVC"]),Fev1=N(row["FEV1"]),Fev1Fvc=N(row["ratio"]),Pef=N(row["PEF"]),Fef2575=N(row["FEF25_75"]) }; cases.Add(numeric);
             }
             ExamSummary summary=ExamSummary.Build(cases);
             double[] selected={summary.Fvc,summary.Fev1,summary.Ratio,summary.Pef,summary.Best.Fef2575}; object[] best=(object[])fixture["best"],pct=(object[])fixture["percent"];

@@ -8,7 +8,7 @@ namespace SpiroLab
     {
         public static Reference Compute(Patient p)
         {
-            double h = p.HeightM, a = Math.Max(25, p.Age);
+            double h = p.HeightM, a = Math.Max(25, p.ReferenceAgeYears??p.Age);
             Reference r = new Reference();
             r.Applicable = p.Origin != Origin.Other && p.Age >= 18 && p.Age <= 70 &&
                 (p.Sex == Sex.Male ? p.HeightCm >= 155 && p.HeightCm <= 195 : p.HeightCm >= 145 && p.HeightCm <= 180);

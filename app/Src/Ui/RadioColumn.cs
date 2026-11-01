@@ -31,5 +31,23 @@ namespace SpiroLab.Ui
             }
         }
     }
+    public sealed class ReportColumn : DataGridViewCheckBoxColumn
+    {
+        public Action<int> ToggleRow;
+        public ReportColumn() {CellTemplate=new ReportCell();ReadOnly=true;}
+        sealed class ReportCell : DataGridViewCheckBoxCell
+        {
+            protected override AccessibleObject CreateAccessibilityInstance() {return new ReportAccess(this);}
+            sealed class ReportAccess : DataGridViewCell.DataGridViewCellAccessibleObject
+            {
+                readonly ReportCell cell;
+                public ReportAccess(ReportCell owner):base(owner) {cell=owner;}
+                public override AccessibleRole Role {get {return AccessibleRole.CheckButton;}}
+                public override AccessibleStates State {get {return (base.State & ~AccessibleStates.ReadOnly) | (cell.Value is bool && (bool)cell.Value?AccessibleStates.Checked:AccessibleStates.None) | (cell.Tag is bool && !(bool)cell.Tag?AccessibleStates.Unavailable:AccessibleStates.None);}}
+                public override string DefaultAction {get {return "تغییر نمایش در گزارش";}}
+                public override void DoDefaultAction() {var column=cell.OwningColumn as ReportColumn;if(column!=null && column.ToggleRow!=null) column.ToggleRow(cell.RowIndex);}
+            }
+        }
+    }
 }
 

@@ -35,7 +35,7 @@ namespace SpiroLab
             r.FetOk = r.PlateauOk || r.Fet >= 15;
             r.PeftOk = r.PefTime <= .150;
             r.Valid = true;
-            if (!trial.Completed) r.Warnings.Add("تست متوقف یا ناقص است؛ برای انتخاب بهترین تست استفاده نمی‌شود. " + trial.EndReason);
+            if (!trial.Completed) r.Warnings.Add(trial.OperatorStopped?"ثبت با توقف اپراتور پایان یافته است؛ اعتبار هر پارامتر جداگانه بررسی شود.":"پایان فنی ثبت تأیید نشده است؛ برای پیشنهاد خودکار استفاده نمی‌شود. " + trial.EndReason);
             if (!r.FetOk) r.Warnings.Add("فلات پایانی ۲۵ میلی‌لیتر در یک ثانیه مشاهده نشد؛ پایان بازدم را بررسی کنید.");
             if (!r.BevAvailable) r.Warnings.Add("زمان صفر از دادهٔ موجود قابل محاسبه نیست.");
             else if (!r.BevOk) r.Warnings.Add("برآورد حجم پس‌برون‌یابی بالاست؛ شروع مانور را بررسی کنید.");
