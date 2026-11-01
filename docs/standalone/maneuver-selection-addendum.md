@@ -1,3 +1,5 @@
+> Current version5.2: use [ui52-delivery.md](ui52-delivery.md) and [ui52-schema.md](ui52-schema.md). The earlier phase record below is retained as history; explicit radio/checkbox selections supersede its UI instructions.
+
 # الحاقیهٔ انتخاب مانور — SpiroLab 5.1.1
 
 این تغییر روی برنامهٔ موجود اعمال شده است. محدودیت تعداد مانور در رابط و بارگذاری فایل حذف شده؛ سقف‌های۳،۵یا۱۰۰ وجود ندارند. آزمون عملی نرم‌افزار۱۲۵مانور را ذخیره و بازگشایی و مسیر رابط را تا۱۲۹تلاش اجرا کرده است. این آزمون از دادهٔ ساختگی استفاده می‌کند و تست سخت‌افزار نیست.

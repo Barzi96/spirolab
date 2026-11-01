@@ -1,3 +1,5 @@
+> Current version5.2: use [ui52-delivery.md](ui52-delivery.md) and [ui52-schema.md](ui52-schema.md). The earlier phase record below is retained as history; explicit radio/checkbox selections supersede its UI instructions.
+
 # Validation record — SpiroLab5.1, 2026-11-01
 
 Baseline before edits: 75 regression +63 standalone checks PASS (138). Final corrected application: 75 retained +63 retained +66 new checks PASS (204). Six separate private-driver inspection checks also PASS. The old obsolete CurvesPath test causes one expected compiler warning; no test was removed to hide failure.

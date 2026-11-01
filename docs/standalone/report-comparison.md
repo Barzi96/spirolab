@@ -1,3 +1,5 @@
+> Current version5.2: use [ui52-delivery.md](ui52-delivery.md) and [ui52-schema.md](ui52-schema.md). The earlier phase record below is retained as history; explicit radio/checkbox selections supersede its UI instructions.
+
 # Report comparison — 5.0 to 5.1
 
 Both MIR photos were inspected alongside v5 JPG/JSON. Photos establish section order and numeric references, not raw signal data. Their identities/stamps are not redistributed.

@@ -1,3 +1,5 @@
+> Current version5.2: use [ui52-delivery.md](ui52-delivery.md) and [ui52-schema.md](ui52-schema.md). The earlier phase record below is retained as history; explicit radio/checkbox selections supersede its UI instructions.
+
 # Local field mapping — schemaVersion2, application5.1
 
 The supplied local spiro.htm was inspected as a visible results reference only. No login, HTTP/API client, credentials, browser automation or upload was implemented.
