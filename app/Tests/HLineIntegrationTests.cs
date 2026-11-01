@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Web.Script.Serialization;
@@ -91,7 +92,7 @@ class HLineIntegrationTests
         using(var client=new HLineClient(mock)) using(var form=new MainForm(client,null,null))
         {
             form.Show();Application.DoEvents();
-            Button login=(Button)Field(form,"btnLogin");bool opened=false,modal=false;
+            Button login=(Button)Field(form,"btnLogin");bool opened=false,modal=false,firefoxActions=false;
             using(var timer=new Timer {Interval=20})
             {
                 timer.Tick+=delegate
@@ -99,6 +100,7 @@ class HLineIntegrationTests
                     HLineLoginForm dialog=Application.OpenForms.Cast<Form>().OfType<HLineLoginForm>().FirstOrDefault();
                     if(dialog==null) return;
                     opened=true;modal=dialog.Modal;
+                    firefoxActions=dialog.Controls.Find("HLineFirefoxConnect",true).Length==1 && dialog.Controls.Find("HLineFirefoxOpen",true).Length==1 && dialog.Controls.Find("HLineSessionHint",true).Length==1;
                     TextField(dialog,"HLineUsername").Text="synthetic";TextField(dialog,"HLinePassword").Text="synthetic-password";TextField(dialog,"HLineMfa").Text="123456";
                     ((Button)dialog.Controls.Find("HLineLogin",true)[0]).PerformClick();timer.Stop();
                 };
@@ -106,6 +108,7 @@ class HLineIntegrationTests
             }
             Check(login.Text=="ورود به سامانه" && login.Visible,"toolbar login button is visible with the Persian caption");
             Check(opened && modal && client.Status==SessionStatus.Connected,"login button opens the modal login dialog and authenticates username, password and MFA");
+            Check(firefoxActions,"login dialog offers Firefox session adoption and browser launch without credentials");
             Check(((Label)Field(form,"lblStatus")).Text=="متصل به سامانه","successful login reports متصل به سامانه");
             Check(((Label)Field(form,"lblSiteConnection")).Text.Contains("متصل به سامانه"),"site indicator reflects the authenticated session");
             Shot(form,"07-login-connected");
@@ -352,7 +355,8 @@ class HLineIntegrationTests
                     {
                         var c=server.GetContext();string body;
                         if(i==0 || i==2) {c.Response.Headers.Add("Set-Cookie","synthetic_session=memory_only; Path=/; HttpOnly");body="{\"csrf\":\"local-csrf\"}";}
-                        else if(i==1) {cookieSeen=c.Request.Headers["Cookie"]!=null && c.Request.Headers["Cookie"].Contains("synthetic_session=memory_only");csrfSeen=c.Request.Headers["X-CSRF-Token"]=="local-csrf";body="{\"data\":{\"user\":{\"id\":\"TEST-U\"}}}";}
+                        else if(i==1) {csrfSeen=c.Request.Headers["X-CSRF-Token"]=="local-csrf";body="{\"data\":{\"user\":{\"id\":\"TEST-U\"}}}";}
+                        else if(i==3) {cookieSeen=c.Request.Headers["Cookie"]!=null && c.Request.Headers["Cookie"].Contains("synthetic_session=memory_only");body="{\"data\":{\"user\":{\"id\":\"TEST-U\"}}}";}
                         else if(i==4) {c.Response.StatusCode=401;body="{}";}
                         else body="{\"data\":{\"user\":{\"id\":\"TEST-U\"}}}";
                         byte[] bytes=Encoding.UTF8.GetBytes(body);c.Response.ContentType="application/json";c.Response.ContentLength64=bytes.Length;c.Response.OutputStream.Write(bytes,0,bytes.Length);c.Response.Close();
@@ -369,12 +373,127 @@ class HLineIntegrationTests
             Check(worker.Join(3000) && serverError==null,"loopback mock completed without external calls");
         }
     }
+    // ---- Firefox session sharing (synthetic profiles, no real browser) ----
+    const string CookieSchema="CREATE TABLE moz_cookies (name TEXT,value TEXT,host TEXT,path TEXT,expiry INTEGER,isSecure INTEGER,isHttpOnly INTEGER,lastAccessed INTEGER)";
+    [DllImport("winsqlite3.dll",CallingConvention=CallingConvention.StdCall)] static extern int sqlite3_open_v2([MarshalAs(UnmanagedType.LPUTF8Str)]string file,out IntPtr db,int flags,IntPtr vfs);
+    [DllImport("winsqlite3.dll",CallingConvention=CallingConvention.StdCall)] static extern int sqlite3_prepare_v2(IntPtr db,[MarshalAs(UnmanagedType.LPUTF8Str)]string sql,int bytes,out IntPtr statement,IntPtr tail);
+    [DllImport("winsqlite3.dll",CallingConvention=CallingConvention.StdCall)] static extern int sqlite3_step(IntPtr statement);
+    [DllImport("winsqlite3.dll",CallingConvention=CallingConvention.StdCall)] static extern int sqlite3_finalize(IntPtr statement);
+    [DllImport("winsqlite3.dll",CallingConvention=CallingConvention.StdCall)] static extern int sqlite3_close(IntPtr db);
+    static void Exec(IntPtr db,string sql)
+    {
+        IntPtr statement;
+        if(sqlite3_prepare_v2(db,sql,-1,out statement,IntPtr.Zero)!=0) throw new Exception("sqlite prepare failed");
+        try {if(sqlite3_step(statement)!=101) throw new Exception("sqlite step failed");}
+        finally {sqlite3_finalize(statement);}
+    }
+    static string Esc(string value) {return (value??"").Replace("'","''");}
+    static void MakeCookieDb(string path,string[][] rows)
+    {
+        IntPtr db;if(sqlite3_open_v2(path,out db,6,IntPtr.Zero)!=0) throw new Exception("sqlite open failed");
+        try
+        {
+            Exec(db,CookieSchema);
+            foreach(string[] row in rows)
+                Exec(db,"INSERT INTO moz_cookies VALUES ('"+Esc(row[0])+"','"+Esc(row[1])+"','"+Esc(row[2])+"','"+Esc(row[3])+"',"+row[4]+","+row[5]+","+row[6]+","+row[7]+")");
+        }
+        finally {sqlite3_close(db);}
+    }
+    static void FirefoxStoreTest()
+    {
+        string baseDir=Path.Combine(root,"ff-store");if(Directory.Exists(baseDir)) Directory.Delete(baseDir,true);
+        string older=Path.Combine(baseDir,"Profiles","older.default"),newer=Path.Combine(baseDir,"Profiles","newer.default-release");
+        Directory.CreateDirectory(older);Directory.CreateDirectory(newer);
+        File.WriteAllText(Path.Combine(baseDir,"profiles.ini"),
+            "[General]\r\nStartWithLastProfile=1\r\nVersion=2\r\n\r\n[Profile0]\r\nName=older\r\nIsRelative=1\r\nPath=Profiles/older.default\r\n\r\n[Profile1]\r\nName=newer\r\nIsRelative=1\r\nPath=Profiles/newer.default-release\r\nDefault=1\r\n");
+        MakeCookieDb(Path.Combine(older,"cookies.sqlite"),new string[][]
+        {
+            new string[] {"sid","older-value","hline.ssu.ac.ir","/","0","1","1","1000"}
+        });
+        MakeCookieDb(Path.Combine(newer,"cookies.sqlite"),new string[][]
+        {
+            new string[] {"sid","newer-value","hline.ssu.ac.ir","/","0","1","1","9000"},
+            new string[] {"crumb","crumb-value",".ssu.ac.ir","/","0","1","1","8000"},
+            new string[] {"other","other-value","app.samanesalamat.com","/","0","1","1","9999"},
+            new string[] {"stale","stale-value","hline.ssu.ac.ir","/","1000","0","0","7000"}
+        });
+        var profiles=FirefoxSessions.Profiles(baseDir);
+        Check(profiles.Count==2 && profiles.Exists(delegate(FirefoxProfile p) {return p.Name=="newer" && p.IsDefault;}),"firefox profiles parsed from profiles.ini with the default marker");
+        Check(FirefoxSessions.MatchesDomain("hline.ssu.ac.ir","hline.ssu.ac.ir") && FirefoxSessions.MatchesDomain(".ssu.ac.ir","hline.ssu.ac.ir"),"cookie host scoped to the site or its direct parent");
+        Check(!FirefoxSessions.MatchesDomain("app.samanesalamat.com","hline.ssu.ac.ir") && !FirefoxSessions.MatchesDomain("evil-ssu.ac.ir","hline.ssu.ac.ir") && !FirefoxSessions.MatchesDomain("ssu.ac.ir.attacker.test","hline.ssu.ac.ir"),"unrelated or look-alike cookie hosts rejected");
+        string problem;
+        var preferred=FirefoxSessions.Candidates("hline.ssu.ac.ir",older,out problem,baseDir);
+        Check(preferred.Count==2 && preferred[0].Profile.Directory==older && preferred[0].Cookies.Count==1,"configured profile wins the one-time profile setting");
+        var automatic=FirefoxSessions.Candidates("hline.ssu.ac.ir",null,out problem,baseDir);
+        Check(automatic.Count==2 && automatic[0].Profile.Name=="newer" && automatic[0].Cookies.Count==2,"newest profile with live hline cookies chosen automatically");
+        Check(!automatic[0].Cookies.Exists(delegate(SessionCookie c) {return c.Name=="other" || c.Name=="stale";}),"other-domain and expired cookies never adopted");
+        Check(automatic[0].Cookies.Exists(delegate(SessionCookie c) {return c.Name=="crumb" && c.Domain==".ssu.ac.ir";}),"parent-domain cookie keeps its original scope");
+        var otherDomain=FirefoxSessions.Candidates("app.samanesalamat.com",null,out problem,baseDir);
+        Check(otherDomain.Count==1 && otherDomain[0].Cookies.Count==1 && otherDomain[0].Cookies[0].Name=="other","cookie set is filtered per requested domain");
+        Check(FirefoxSessions.Candidates("no-such-host.test",null,out problem,baseDir).Count==0 && problem!=null,"missing session reports a concrete problem");
+    }
+    static void FirefoxAdoptionTest()
+    {
+        string baseDir=Path.Combine(root,"ff-adopt");if(Directory.Exists(baseDir)) Directory.Delete(baseDir,true);
+        string profile=Path.Combine(baseDir,"Profiles","adopt.default");
+        Directory.CreateDirectory(profile);
+        File.WriteAllText(Path.Combine(baseDir,"profiles.ini"),"[Profile0]\r\nName=adopt\r\nIsRelative=1\r\nPath=Profiles/adopt.default\r\nDefault=1\r\n");
+        MakeCookieDb(Path.Combine(profile,"cookies.sqlite"),new string[][]
+        {
+            new string[] {"sid","adopted-value","127.0.0.1","/","0","0","1","5000"}
+        });
+        TcpListener portFinder=new TcpListener(IPAddress.Loopback,0);portFinder.Start();int port=((IPEndPoint)portFinder.LocalEndpoint).Port;portFinder.Stop();
+        string url="http://127.0.0.1:"+port+"/";Exception serverError=null;int requests=0;bool singleCookie=true,noCsrf=true;
+        using(HttpListener server=new HttpListener())
+        {
+            server.Prefixes.Add(url);server.Start();
+            Thread worker=new Thread(delegate()
+            {
+                try
+                {
+                    for(int i=0;i<3;i++)
+                    {
+                        var context=server.GetContext();string header=context.Request.Headers["Cookie"]??"";
+                        if(i>0)
+                        {
+                            int occurrences=System.Text.RegularExpressions.Regex.Matches(header,"(^|; )sid=").Count;
+                            if(occurrences!=1 || !header.Contains("sid=rotated-value")) singleCookie=false;
+                            if(context.Request.Headers["X-CSRF-Token"]!=null) noCsrf=false;
+                        }
+                        if(i==0) context.Response.Headers.Add("Set-Cookie","sid=rotated-value; Path=/; HttpOnly");
+                        string body="{\"data\":{\"user\":{\"id\":\"TEST-U\"}}}";byte[] bytes=Encoding.UTF8.GetBytes(body);
+                        context.Response.ContentType="application/json";context.Response.ContentLength64=bytes.Length;context.Response.OutputStream.Write(bytes,0,bytes.Length);context.Response.Close();
+                        requests++;
+                    }
+                }
+                catch(Exception ex) {serverError=ex;}
+            }) {IsBackground=true};worker.Start();
+            var transport=(IHLineTransport)Activator.CreateInstance(typeof(HLineHttpTransport),BindingFlags.Instance|BindingFlags.NonPublic,null,new object[] {new Uri(url)},null);
+            using(HLineClient client=new HLineClient(transport))
+            {
+                string problem;
+                var sessions=FirefoxSessions.Candidates("127.0.0.1",null,out problem,baseDir);
+                Check(sessions.Count==1 && sessions[0].Cookies.Count==1,"loopback profile exposes exactly one adopted cookie");
+                Check(client.AdoptCookies(sessions[0].Cookies) && client.Status==SessionStatus.Connected,"adopted Firefox cookie validates against /me without a password login");
+                client.VerifySession();client.VerifySession();
+                Check(client.Status==SessionStatus.Connected,"session stays valid across repeated reads");
+                Check(client.StatusText=="متصل به سامانه","compact connected status text");
+            }
+            Check(worker.Join(4000) && serverError==null && requests==3,"loopback adoption completed without external calls");
+        }
+        Check(singleCookie,"rotated host-only cookie replaces the adopted copy instead of duplicating it");
+        Check(noCsrf,"read-only requests never consume a CSRF token");
+        using(HLineClient fresh=new HLineClient(new MockServer()))
+            Check(fresh.StatusText=="نیاز به ورود در فایرفاکس","compact disconnected status asks for a Firefox login");
+    }
     [STAThread] static int Main(string[] args)
     {
         try
         {
             Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);root=Path.GetFullPath(args[0]);Directory.CreateDirectory(root);
             HttpCookieTest();
+            FirefoxStoreTest();
+            FirefoxAdoptionTest();
             foreach(string code in new string[] {"missing_mfa_token","invalid_mfa_token","invalid_credentials","needs_mfa_setup"})
             {
                 var server=new MockServer {LoginError=code};using(var client=new HLineClient(server)) {bool caught=false;try {client.Login("test","secret","123456");} catch(HLineException ex) {caught=ex.Code==code && !ex.Message.Contains("secret");}Check(caught && client.Status==SessionStatus.AuthenticationError,"mock login fail-closed "+code);}

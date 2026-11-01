@@ -71,7 +71,7 @@ internal static class StandaloneTests
             foreach(Type t in typeof(MirUsb).Assembly.GetTypes()) foreach(MethodInfo m in t.GetMethods(BindingFlags.NonPublic|BindingFlags.Static))
             {
                 var import=(System.Runtime.InteropServices.DllImportAttribute)Attribute.GetCustomAttribute(m,typeof(System.Runtime.InteropServices.DllImportAttribute));
-                if(import!=null) Check(new string[] {"kernel32.dll","setupapi.dll"}.Contains(import.Value.ToLowerInvariant()),"only system native DLL: "+m.Name);
+                if(import!=null) Check(new string[] {"kernel32.dll","setupapi.dll","winsqlite3.dll"}.Contains(import.Value.ToLowerInvariant()),"only in-box Windows native DLL: "+m.Name);
             }
             Check(DeviceDiagnostics.DriverBinaryPath.Contains(Environment.Is64BitOperatingSystem && !Environment.Is64BitProcess?"Sysnative":"System32"),"native driver path accounts for WOW64 redirection");
             string sources=Path.GetFullPath("Src");

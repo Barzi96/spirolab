@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Windows.Forms;
 using System.Threading;
 using SpiroLab.Ui;
@@ -58,6 +58,7 @@ namespace SpiroLab
                     f.Shown += delegate { f.RunDemoForTest(); };
                 }
                 else if (connect) f.Shown += delegate { f.ConnectOnLaunch(); };
+                f.ProbeFirefoxSession();
                 Application.Run(f);
             }
             catch (Exception ex)

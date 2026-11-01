@@ -30,6 +30,8 @@ echo Building SpiroLab.exe ...
   Src\ExamSummary.cs ^
   Src\ManeuverAssessment.cs ^
   Src\HLine\HLineClient.cs ^
+  Src\HLine\FirefoxSession.cs ^
+  Src\HLine\Sqlite.cs ^
   Src\HLine\Submission.cs ^
   Src\ResultExport.cs ^
   Src\Ers93.cs ^

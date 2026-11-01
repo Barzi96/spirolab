@@ -40,7 +40,7 @@ namespace SpiroLab.Ui
         public MainForm(HLineClient hline,ISubmissionGateway submissionGateway,MedicalRecord designatedTestRecord)
         {
             _hline=hline;_submissionGateway=submissionGateway;_testRecord=designatedTestRecord;
-            _settings=AppSettings.Load(); _exam=Exam.CreateNew(_settings);
+            _settings=AppSettings.Load(); _exam=Exam.CreateNew(_settings); _hline.PreferredFirefoxProfile=_settings.FirefoxProfile;
             ClinicalStyle.Form(this,"اسپیرومتری طب کار — SpiroLab 5.3.1",new Size(1280,820));
             StartPosition=FormStartPosition.CenterScreen; MinimumSize=new Size(780,500);
             BuildUi(); PopulateMetadata(); _device.Line+=AppendLog;
@@ -49,6 +49,26 @@ namespace SpiroLab.Ui
             if(!string.IsNullOrEmpty(_settings.LoadWarning)) lblStatus.Text=_settings.LoadWarning;
         }
         public void SelectTab(int index) { }
+        // Interactive start only (Program calls this; tests never do): reuse the
+        // operator's already authenticated Firefox session on launch.
+        public void ProbeFirefoxSession()
+        {
+            if(_firefoxProbeStarted) return;
+            _firefoxProbeStarted=true;
+            Shown+=delegate
+            {
+                string preferred=_settings==null?null:_settings.FirefoxProfile;
+                Task.Factory.StartNew(delegate { string problem; _hline.TryAdoptFirefoxSession(preferred,out problem); })
+                    .ContinueWith(delegate(Task task)
+                    {
+                        if(IsDisposed || !IsHandleCreated) return;
+                        try { BeginInvoke((Action)delegate { UpdateControls(); }); }
+                        catch(ObjectDisposedException) { }
+                        catch(InvalidOperationException) { }
+                    });
+            };
+        }
+        bool _firefoxProbeStarted;
         public void ConnectOnLaunch() { ConnectDevice(false); }
         public void RunDemoForTest()
         {
@@ -150,7 +170,10 @@ namespace SpiroLab.Ui
             btnReport.Enabled=!_busy && _hasPatient && _exam.Trials.Count>0;
             _tips.SetToolTip(btnStart,!_hasPatient?"ابتدا مراجع جدید را ثبت کنید.":!_device.Connected && !_developerMode?"اتصال دستگاه را در تنظیمات بررسی کنید.":"ثبت یک مانور تازه");
             _tips.SetToolTip(btnReport,btnReport.Enabled?"بازبینی ارسال به سایت؛ کلیک راست برای JPG + JSON محلی":"ابتدا یک مانور ثبت کنید.");
-            lblSiteConnection.Text="سایت: "+_hline.StatusText;
+            lblSiteConnection.Text=_hline.StatusText;
+            _tips.SetToolTip(lblSiteConnection,_hline.Status==SessionStatus.Connected && !string.IsNullOrEmpty(_hline.FirefoxProfileName)
+                ?"نشست فایرفاکس ("+_hline.FirefoxProfileName+") به‌کار رفته است."
+                :"برای اتصال، «ورود به سامانه» را بزنید؛ اگر در فایرفاکس وارد شده باشید، همان نشست به‌کار می‌رود.");
             lblConnection.Text=_busy && _active!=null?"● در حال دریافت":_device.Connected?"● متصل":"● متصل نیست";
             lblConnection.ForeColor=_device.Connected?ClinicalStyle.Accent:Color.FromArgb(113,126,138);
             lblPatient.Enabled=_hasPatient && !_busy;
@@ -383,7 +406,7 @@ namespace SpiroLab.Ui
             using(SettingsForm form=new SettingsForm(_settings,ReadDiagnostics,delegate(Action done) { ConnectDevice(false,done); }))
             {
                 DialogResult result=form.ShowDialog(this);
-                if(result==DialogResult.OK) _settings=form.Value;
+                if(result==DialogResult.OK) { _settings=form.Value; _hline.PreferredFirefoxProfile=_settings.FirefoxProfile; }
                 if(form.RunDevelopmentDemo && _hasPatient && !_exam.FinalizedAt.HasValue) StartSimulation();
             }
         }
@@ -400,7 +423,8 @@ namespace SpiroLab.Ui
         void SignInSite()
         {
             if(_busy) return;
-            if(HLineLoginForm.SignIn(_hline,this)) lblStatus.Text="متصل به سامانه";
+            if(HLineLoginForm.SignIn(_hline,this,_settings==null?null:_settings.FirefoxProfile)) lblStatus.Text="متصل به سامانه";
+            else lblStatus.Text=_hline.StatusText;
             UpdateControls();
         }
         async Task SendSite()

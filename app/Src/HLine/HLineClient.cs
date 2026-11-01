@@ -17,7 +17,11 @@ namespace SpiroLab.HLine
     { public int Status; public string Body; }
     public interface IHLineTransport : IDisposable
     { HLineResponse Send(string method,string path,string body,string csrf); }
-    public sealed class HLineHttpTransport : IHLineTransport
+    // Implemented by transports that can replace their cookie jar with a session
+    // adopted from the operator's browser (no password login involved).
+    public interface IHLineCookieSink
+    { int AdoptCookies(IEnumerable<SessionCookie> cookies); }
+    public sealed class HLineHttpTransport : IHLineTransport, IHLineCookieSink
     {
         readonly Uri origin;
         CookieContainer cookies=new CookieContainer();
@@ -36,7 +40,9 @@ namespace SpiroLab.HLine
             HttpWebRequest request=(HttpWebRequest)WebRequest.Create(new Uri(origin,"api"+path));
             request.Method=method; request.CookieContainer=cookies; request.AllowAutoRedirect=false; request.Timeout=15000; request.ReadWriteTimeout=15000;
             request.Accept="application/json"; request.Referer=origin.AbsoluteUri; request.Headers["Origin"]=origin.GetLeftPart(UriPartial.Authority); request.UserAgent="SpiroLab/5.3.1";
-            if(!string.IsNullOrEmpty(csrf)) request.Headers["X-CSRF-Token"]=csrf;
+            // The site treats a consumed CSRF token as spent: send it only with
+            // the mutating login POST, never on read-only GETs.
+            if(method!="GET" && !string.IsNullOrEmpty(csrf)) request.Headers["X-CSRF-Token"]=csrf;
             try
             {
                 if(body!=null) { byte[] bytes=Encoding.UTF8.GetBytes(body); request.ContentType="application/json"; request.ContentLength=bytes.Length; using(Stream s=request.GetRequestStream()) s.Write(bytes,0,bytes.Length); }
@@ -54,6 +60,46 @@ namespace SpiroLab.HLine
                 while((n=s.Read(chunk,0,chunk.Length))>0) { if(b.Length+n>2*1024*1024) throw new HLineException("response_size","پاسخ سامانه بیش از حد بزرگ است."); b.Write(chunk,0,n); }
                 return new HLineResponse {Status=(int)response.StatusCode,Body=Encoding.UTF8.GetString(b.ToArray())};
             }
+        }
+        public int AdoptCookies(IEnumerable<SessionCookie> source)
+        {
+            if(source==null) throw new ArgumentNullException("source");
+            CookieContainer adopted=new CookieContainer(); int count=0;
+            foreach(SessionCookie item in source)
+            {
+                if(item==null || string.IsNullOrEmpty(item.Name) || !AllowedDomain(item.Domain)) continue;
+                bool hostOnly=!item.Domain.TrimStart().StartsWith(".");
+                if(hostOnly && item.Value.IndexOf(';')<0 && item.Value.IndexOf('\r')<0 && item.Value.IndexOf('\n')<0)
+                {
+                    // Host-only cookies must be added exactly as Firefox stored them,
+                    // otherwise the rotated cookie of the next response would live
+                    // beside a stale copy and both would be sent.
+                    StringBuilder header=new StringBuilder(item.Name).Append('=').Append(item.Value);
+                    header.Append("; Path=").Append(string.IsNullOrEmpty(item.Path)?"/":item.Path);
+                    if(item.Secure) header.Append("; Secure");
+                    if(item.HttpOnly) header.Append("; HttpOnly");
+                    if(item.ExpiresUtc!=DateTime.MinValue) header.Append("; Expires=").Append(item.ExpiresUtc.ToString("R",CultureInfo.InvariantCulture));
+                    try { adopted.SetCookies(origin,header.ToString()); count++; } catch(CookieException) { }
+                }
+                else
+                {
+                    Cookie cookie=new Cookie(item.Name,item.Value,string.IsNullOrEmpty(item.Path)?"/":item.Path,item.Domain);
+                    cookie.Secure=item.Secure; cookie.HttpOnly=item.HttpOnly;
+                    if(item.ExpiresUtc!=DateTime.MinValue) cookie.Expires=item.ExpiresUtc;
+                    try { adopted.Add(cookie); count++; } catch(CookieException) { }
+                }
+            }
+            if(count==0) throw new HLineException("cookies","کوکی نشست اچ‌لاین برای این سامانه پیدا نشد.");
+            cookies=adopted; return count;
+        }
+        // Only the site itself or one of its parent domains may supply cookies.
+        bool AllowedDomain(string domain)
+        {
+            string source=(domain??"").Trim().TrimStart('.').ToLowerInvariant();
+            string host=origin.Host.ToLowerInvariant();
+            if(source.Length==0) return false;
+            if(source==host) return true;
+            return host.EndsWith("."+source,StringComparison.Ordinal);
         }
         public void Dispose() { cookies=new CookieContainer(); }
     }
@@ -74,9 +120,12 @@ namespace SpiroLab.HLine
         readonly JavaScriptSerializer json=new JavaScriptSerializer {MaxJsonLength=2*1024*1024};
         string csrf,userId;
         public SessionStatus Status {get;private set;}
+        public string SessionOrigin {get;private set;}   // "firefox" | "password" (never a secret)
+        public string FirefoxProfileName {get;private set;}
+        public string PreferredFirefoxProfile {get;set;} // optional one-time setting; empty = automatic
         public HLineClient():this(new HLineHttpTransport("https://hline.ssu.ac.ir/")) { }
         public HLineClient(IHLineTransport transport) { this.transport=transport; }
-        public string StatusText {get { switch(Status) {case SessionStatus.Connected:return "متصل به سامانه";case SessionStatus.Expired:return "نشست منقضی شده";case SessionStatus.AuthenticationError:return "خطای احراز هویت";case SessionStatus.Unavailable:return "عدم دسترسی به سامانه";default:return "متصل نیست";} } }
+        public string StatusText {get { switch(Status) {case SessionStatus.Connected:return "متصل به سامانه";case SessionStatus.Expired:return "نیاز به ورود در فایرفاکس";case SessionStatus.AuthenticationError:return "خطای احراز هویت";case SessionStatus.Unavailable:return "عدم دسترسی به سامانه";default:return "نیاز به ورود در فایرفاکس";} } }
         object Request(string method,string path,object body)
         {
             HLineResponse r;
@@ -89,7 +138,7 @@ namespace SpiroLab.HLine
         }
         public void Login(string username,string password,string mfa)
         {
-            Status=SessionStatus.Disconnected; csrf=userId=null;
+            Status=SessionStatus.Disconnected; csrf=userId=null; SessionOrigin=null; FirefoxProfileName=null;
             if(string.IsNullOrWhiteSpace(username) || string.IsNullOrEmpty(password)) throw new HLineException("credentials","نام کاربری و رمز عبور را وارد کنید.");
             try
             {
@@ -106,7 +155,7 @@ namespace SpiroLab.HLine
                 if(userId.Length==0) throw new HLineException("authentication","هویت کاربر در پاسخ ورود معتبر نیست.");
                 csrf=Text(Dict(Request("GET","/auth/csrf",null)),"csrf");
                 if(csrf.Length==0) throw new HLineException("csrf","پاسخ CSRF معتبر نیست.");
-                Status=SessionStatus.Connected; VerifySession();
+                Status=SessionStatus.Connected; SessionOrigin="password"; VerifySession();
             }
             catch(HLineException e) { if(e.Code!="network") Status=SessionStatus.AuthenticationError; throw; }
         }
@@ -116,6 +165,55 @@ namespace SpiroLab.HLine
             Dictionary<string,object> me=Dict(Request("GET","/me",null)), data=OptionalDict(me,"data");
             string actual=Text(OptionalDict(me,"user"),"id");if(actual.Length==0) actual=Text(OptionalDict(data,"user"),"id");if(actual.Length==0) actual=Text(data,"id");
             if(actual.Length==0 || actual!=userId) { Status=SessionStatus.Expired; throw new HLineException("expired","هویت نشست تأیید نشد؛ دوباره وارد شوید."); }
+        }
+        // Replaces the HTTP cookie jar with the browser session and validates it
+        // against /me. A valid Firefox session means no password/MFA prompt.
+        public bool AdoptCookies(IEnumerable<SessionCookie> session)
+        {
+            IHLineCookieSink sink=transport as IHLineCookieSink;
+            if(sink==null) throw new HLineException("cookies","این مسیر ارتباطی از نشست فایرفاکس پشتیبانی نمی‌کند.");
+            sink.AdoptCookies(session);
+            Status=SessionStatus.Connected; csrf=null; userId=null;
+            try
+            {
+                // A read-only session needs no CSRF token; fetching one would only
+                // rotate the site's anti-forgery cookies for nothing.
+                Dictionary<string,object> me=Dict(Request("GET","/me",null)),data=OptionalDict(me,"data");
+                string actual=Text(OptionalDict(me,"user"),"id");
+                if(actual.Length==0) actual=Text(OptionalDict(data,"user"),"id");
+                if(actual.Length==0) actual=Text(data,"id");
+                if(actual.Length==0) throw new HLineException("expired","نشست فایرفاکس معتبر نیست؛ دوباره در فایرفاکس وارد سامانه شوید.");
+                userId=actual; Status=SessionStatus.Connected; return true;
+            }
+            catch
+            {
+                csrf=null; userId=null; Status=SessionStatus.Expired; throw;
+            }
+        }
+        // Tries every Firefox profile holding HLine cookies, newest first, and
+        // stops at the first one the server accepts. Never logs cookie values.
+        public bool TryAdoptFirefoxSession(string preferredProfile,out string problem)
+        {
+            problem=null;
+            if(!(transport is IHLineCookieSink)) { problem="این مسیر ارتباطی از نشست فایرفاکس پشتیبانی نمی‌کند."; return false; }
+            if(string.IsNullOrEmpty(preferredProfile)) preferredProfile=PreferredFirefoxProfile;
+            string readProblem;
+            List<FirefoxSession> candidates=FirefoxSessions.Candidates(FirefoxSessions.HLineDomain,preferredProfile,out readProblem);
+            if(candidates.Count==0) { problem=readProblem; return false; }
+            foreach(FirefoxSession candidate in candidates)
+            {
+                try
+                {
+                    AdoptCookies(candidate.Cookies);
+                    FirefoxProfileName=candidate.Profile.Name; SessionOrigin="firefox";
+                    return true;
+                }
+                catch(HLineException exception) { problem=exception.Message; }
+                catch { problem="اتصال به سامانه با نشست فایرفاکس انجام نشد."; }
+            }
+            Status=SessionStatus.Expired;
+            if(problem==null) problem="نشست فایرفاکس معتبر نیست؛ دوباره در فایرفاکس وارد سامانه شوید.";
+            return false;
         }
         public HLinePerson Lookup(string nationalId)
         {

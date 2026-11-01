@@ -10,6 +10,9 @@ namespace SpiroLab
         public const string DefaultCenter="شرکت سنگ آهن مرکزی ایران - بافق";
         public string CenterName=DefaultCenter;
         public string OperatorName="";
+        // Optional path of the Firefox profile to trust when several profiles
+        // hold an HLine session; empty means automatic (newest valid profile).
+        public string FirefoxProfile="";
         [XmlIgnore] public string LoadWarning="";
         public static string SettingsPath { get { return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"SpiroLab","settings.xml"); } }
         public static AppSettings Load(string path=null)
@@ -24,7 +27,7 @@ namespace SpiroLab
             catch { return new AppSettings { LoadWarning="تنظیمات خوانده نشد؛ فایل قبلی حفظ شده است." }; }
         }
         public void Validate()
-        { if(string.IsNullOrWhiteSpace(CenterName) || CenterName.Length>200 || OperatorName==null || OperatorName.Length>100) throw new ArgumentException("نام مرکز و کارشناس معتبر وارد کنید."); }
+        { if(string.IsNullOrWhiteSpace(CenterName) || CenterName.Length>200 || OperatorName==null || OperatorName.Length>100) throw new ArgumentException("نام مرکز و کارشناس معتبر وارد کنید."); if(FirefoxProfile==null || FirefoxProfile.Length>400) throw new ArgumentException("مسیر پروفایل فایرفاکس معتبر وارد کنید."); }
         public void Save(string path=null)
         {
             Validate(); path=path??SettingsPath; Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));

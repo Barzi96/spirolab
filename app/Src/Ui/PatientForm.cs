@@ -91,7 +91,7 @@ namespace SpiroLab.Ui
             if(code==boundCode && !interactive) return;
             if(hline.Status!=SessionStatus.Connected)
             {
-                if(!interactive) { error.Text=hline.Status==SessionStatus.Expired?"نشست منقضی شده؛ دوباره وارد شوید.":"برای دریافت مشخصات، «ورود به سامانه» را بزنید."; return; }
+                if(!interactive) { error.Text=hline.Status==SessionStatus.Expired?"نیاز به ورود در فایرفاکس: در فایرفاکس وارد سامانه شوید یا «دریافت از سایت» را بزنید.":"برای دریافت مشخصات، «ورود به سامانه» را بزنید."; return; }
                 error.Text="در حال ورود به سامانه…";
             }
             fetching=true;save.Enabled=false;fetch.Enabled=false;error.Text="در حال دریافت مشخصات…";
