@@ -32,6 +32,7 @@ namespace SpiroLab
         }
         public static ResultPackage SaveToDirectory(string parent,ExaminationSnapshot snapshot)
         {
+            snapshot.Data.ValidateSelection(snapshot.Data.PrimarySelectionRequired);
             string root=Path.GetFullPath(parent); Directory.CreateDirectory(root);
             string id=snapshot.SnapshotId;
             string stage=Path.Combine(root,".spiro-tmp-"+id), final=Path.Combine(root,"Examination-"+id);
@@ -44,7 +45,7 @@ namespace SpiroLab
                 if(ExportCheckpoint!=null) ExportCheckpoint("after-jpg");
                 File.WriteAllText(json,snapshot.ToJson(),new UTF8Encoding(false));
                 using(Image check=Image.FromFile(jpg)) if(check.RawFormat.Guid!=ImageFormat.Jpeg.Guid) throw new InvalidDataException("JPEG verification failed");
-                var parsed=new JavaScriptSerializer { MaxJsonLength=16000000 }.DeserializeObject(File.ReadAllText(json)) as Dictionary<string,object>;
+                var parsed=new JavaScriptSerializer { MaxJsonLength=ExaminationSnapshot.MaxJsonCharacters }.DeserializeObject(File.ReadAllText(json)) as Dictionary<string,object>;
                 if(parsed==null || (int)parsed["schemaVersion"]!=2) throw new InvalidDataException("JSON verification failed");
                 Directory.Move(stage,final); // atomically publish BOTH files on the same volume
                 return new ResultPackage { ReportPath=Path.Combine(final,"Spirometry-Report.jpg"),DataPath=Path.Combine(final,"Spirometry-Data.json"),CurvesPath=Path.Combine(final,"Spirometry-Report.jpg") };

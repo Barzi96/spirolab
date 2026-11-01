@@ -73,6 +73,10 @@ namespace SpiroLab
         public List<Device.DevicePacket> Packets = new List<Device.DevicePacket>();
         public Device.DeviceResults DeviceValues;
         public string ManeuverId = Guid.NewGuid().ToString("N");
+        public int AcquisitionSequence;
+        public bool OperatorRejected;
+        public string RejectionReason="",RejectionOperator="";
+        public DateTime? RejectionTimestamp;
         public bool Completed = true;
         public bool Imported;
         public bool OperatorAccepted;
@@ -84,7 +88,7 @@ namespace SpiroLab
         public DateTime When = DateTime.Now;
         public bool Simulated;
         [XmlIgnore] public AnalysisResult Result;
-        public AnalysisResult FinalizedResult;
+        public AnalysisResult FinalizedResult; // Saved attempt analysis; XML name retained for historical compatibility.
 
         public void Add(double flow)
         {
@@ -97,6 +101,8 @@ namespace SpiroLab
         {
             Trial t = new Trial();
             t.ManeuverId = ManeuverId;
+            t.AcquisitionSequence=AcquisitionSequence; t.OperatorRejected=OperatorRejected;
+            t.RejectionReason=RejectionReason; t.RejectionOperator=RejectionOperator; t.RejectionTimestamp=RejectionTimestamp;
             t.Flow.AddRange(Flow);
             t.Time.AddRange(Time);
             t.Volume.AddRange(Volume);

@@ -90,6 +90,7 @@ internal static class PrecisionTests
             exam.Patient=p; exam.ExaminationDate=new DateTime(2026,10,19); exam.ExaminationDateSource="operator_selected_date";
             Trial trial=Simulator.Build(p,123); trial.When=new DateTime(2026,11,1,10,30,0,DateTimeKind.Local); trial.Result=SpiroAnalysis.Analyze(trial,p); exam.Trials.Add(trial);
             exam.ReviewedVextMl=132; exam.ReviewedVextSource="reviewed external report, development test only"; exam.VextManuallyReviewed=true;
+            exam.SelectPrimary(trial.ManeuverId,"manual",exam.OperatorName,"precision test");
             exam.FinalizeExamination(); ExaminationSnapshot frozen=ExaminationSnapshot.Capture(exam);
             string saved=Path.Combine(root,"finalized.spiro"); ExamStore.Save(saved,exam);
             Exam loaded=ExamStore.Load(saved); ExaminationSnapshot reopened=ExaminationSnapshot.Capture(loaded);

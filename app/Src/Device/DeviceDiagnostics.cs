@@ -7,7 +7,7 @@ namespace SpiroLab.Device
 {
     public sealed class DeviceDiagnostics
     {
-        public string ProgramVersion="5.1.0";
+        public string ProgramVersion="5.1.1";
         public string WindowsVersion=Environment.OSVersion.VersionString;
         public string Architecture=Environment.Is64BitOperatingSystem?"x64":"x86";
         public bool Detected;

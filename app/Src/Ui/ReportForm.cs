@@ -21,6 +21,7 @@ namespace SpiroLab.Ui
         public ReportForm(Patient patient,IList<Trial> trials) : this(ExaminationSnapshot.Capture(patient,trials)) { }
         public ReportForm(ExaminationSnapshot snapshot)
         {
+            snapshot.Data.ValidateSelection(snapshot.Data.PrimarySelectionRequired);
             _snapshot=snapshot; _patient=snapshot.Data.Patient; _trials=snapshot.Data.Trials; _report=SpiroReport.Render(snapshot);
             Text="گزارش توسعه — "+_patient.FullName; Size=new Size(1000,900); StartPosition=FormStartPosition.CenterParent;
             Font=new Font("Tahoma",10); RightToLeft=RightToLeft.Yes;

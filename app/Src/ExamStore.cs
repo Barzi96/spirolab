@@ -25,11 +25,59 @@ namespace SpiroLab
         public double? ReviewedVextMl;
         public string ReviewedVextSource="";
         public bool VextManuallyReviewed;
+        public string OperatorSelectedManeuverId="",SelectionMethod="",SelectionOperatorName="",SelectionReason="";
+        public DateTime? SelectionTimestamp;
+        public bool PrimarySelectionRequired;
+        [XmlIgnore] public Trial OperatorSelectedManeuver { get { return Trials.Find(delegate(Trial t) { return t.ManeuverId==OperatorSelectedManeuverId; }); } }
+        public void EnsureManeuverIdentities()
+        {
+            HashSet<string> ids=new HashSet<string>(); int last=0;
+            foreach(Trial t in Trials)
+            {
+                if(t==null || string.IsNullOrEmpty(t.ManeuverId) || !ids.Add(t.ManeuverId)) throw new InvalidDataException("شناسهٔ مانورها تکراری یا نامعتبر است.");
+                if(t.AcquisitionSequence==0) t.AcquisitionSequence=last+1;
+                if(t.AcquisitionSequence<=last) throw new InvalidDataException("شمارهٔ اصلی مانورها نامعتبر است.");
+                last=t.AcquisitionSequence;
+            }
+        }
+        public void AddManeuver(Trial trial)
+        {
+            if(FinalizedAt.HasValue) throw new InvalidOperationException("معاینه نهایی شده است.");
+            EnsureManeuverIdentities();
+            if(trial==null || string.IsNullOrEmpty(trial.ManeuverId) || Trials.Exists(delegate(Trial t) { return t.ManeuverId==trial.ManeuverId; })) throw new ArgumentException("شناسهٔ مانور باید یکتا باشد.");
+            trial.AcquisitionSequence=Trials.Count==0?1:checked(Trials[Trials.Count-1].AcquisitionSequence+1);
+            if(trial.Result==null) trial.Result=SpiroAnalysis.Analyze(trial,Patient);
+            Trials.Add(trial);
+        }
+        public void ValidateSelection(bool required)
+        {
+            if(string.IsNullOrEmpty(OperatorSelectedManeuverId)) { if(required) throw new InvalidOperationException("ابتدا مانور اصلی را صریحاً انتخاب کنید."); return; }
+            if(!ExamSummary.CanReport(OperatorSelectedManeuver) || (SelectionMethod!="manual" && SelectionMethod!="automatic_suggestion") || !SelectionTimestamp.HasValue || string.IsNullOrWhiteSpace(SelectionOperatorName)) throw new InvalidDataException("انتخاب مانور اصلی معتبر نیست.");
+        }
+        public void SelectPrimary(string id,string method,string operatorName,string reason)
+        {
+            if(FinalizedAt.HasValue) throw new InvalidOperationException("انتخاب معاینهٔ نهایی قابل تغییر نیست.");
+            Trial trial=Trials.Find(delegate(Trial t) { return t.ManeuverId==id; });
+            if(!ExamSummary.CanReport(trial)) throw new ArgumentException("مانور اصلی باید کامل، دارای دادهٔ کافی و ردنشده باشد.");
+            if(string.IsNullOrWhiteSpace(operatorName) || operatorName.Trim().Length>100) throw new ArgumentException("نام کارشناس انتخاب‌کننده را وارد کنید.");
+            if(method!="manual" && method!="automatic_suggestion") throw new ArgumentException("روش انتخاب معتبر نیست.");
+            if(method=="automatic_suggestion" && ExamSummary.Build(Trials).BestTrial!=trial) throw new ArgumentException("این مانور پیشنهاد فعلی برنامه نیست.");
+            if((reason??"").Length>500) throw new ArgumentException("علت انتخاب طولانی است.");
+            OperatorSelectedManeuverId=id; SelectionMethod=method; SelectionOperatorName=operatorName.Trim(); SelectionReason=(reason??"").Trim(); SelectionTimestamp=DateTime.Now;
+        }
+        public void SetRejected(Trial trial,bool rejected,string operatorName,string reason)
+        {
+            if(FinalizedAt.HasValue || !Trials.Contains(trial)) throw new InvalidOperationException("تغییر وضعیت مانور مجاز نیست.");
+            if(rejected && trial.ManeuverId==OperatorSelectedManeuverId) throw new InvalidOperationException("پیش از رد مانور اصلی، یک مانور اصلی دیگر انتخاب کنید.");
+            if(string.IsNullOrWhiteSpace(operatorName) || operatorName.Trim().Length>100 || (reason??"").Length>500) throw new ArgumentException("نام کارشناس و علت معتبر وارد کنید.");
+            trial.OperatorRejected=rejected; trial.RejectionOperator=operatorName.Trim(); trial.RejectionReason=(reason??"").Trim(); trial.RejectionTimestamp=DateTime.Now;
+        }
         public static Exam CreateNew(AppSettings settings)
-        { return new Exam { CenterName=settings.CenterName,OperatorName=settings.OperatorName,ExaminationDate=DateTime.Today,ExaminationDateSource="windows_local_date" }; }
+        { return new Exam { CenterName=settings.CenterName,OperatorName=settings.OperatorName,ExaminationDate=DateTime.Today,ExaminationDateSource="windows_local_date",PrimarySelectionRequired=true }; }
         public void FinalizeExamination()
         {
             if(FinalizedAt.HasValue) return;
+            EnsureManeuverIdentities(); ValidateSelection(true);
             ExaminationSnapshot.Capture(this); // validate before freezing
             foreach(Trial t in Trials) { if(t.Result==null) t.Result=SpiroAnalysis.Analyze(t,Patient); t.FinalizedResult=t.Result.Clone(); }
             ReportSnapshotId=Guid.NewGuid().ToString("N");
@@ -40,6 +88,9 @@ namespace SpiroLab
     }
     public static class ExamStore
     {
+        // x86 XML deserialization needs substantially more working memory than the file size.
+        public const long MaxFileBytes=40L*1024*1024;
+        public const string StorageLimitMessage="سقف فنی هر فایل معاینه ۴۰ MiB است (حفاظت حافظهٔ نسخهٔ ۳۲بیتی)، نه محدودیت تعداد مانور. پروندهٔ قبلی حفظ شد؛ دادهٔ ذخیره‌نشده در برنامه باقی است.";
         public static string DataDirectory
         {
             get { string d = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SpiroLab", "exams"); Directory.CreateDirectory(d); return d; }
@@ -51,8 +102,15 @@ namespace SpiroLab
             string temp = path + ".tmp";
             try
             {
+                exam.EnsureManeuverIdentities(); exam.ValidateSelection(false);
+                foreach(Trial t in exam.Trials)
+                {
+                    if(t.Result==null) t.Result=SpiroAnalysis.Analyze(t,exam.Patient);
+                    if(!exam.FinalizedAt.HasValue || t.FinalizedResult==null) t.FinalizedResult=t.Result.Clone();
+                }
                 using (FileStream f = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
                     new XmlSerializer(typeof(Exam)).Serialize(f, exam);
+                if(new FileInfo(temp).Length>MaxFileBytes) throw new InvalidDataException(StorageLimitMessage);
                 if (File.Exists(path)) File.Replace(temp, path, path + ".bak");
                 else File.Move(temp, path);
             }
@@ -60,12 +118,12 @@ namespace SpiroLab
         }
         public static Exam Load(string path)
         {
-            if (new FileInfo(path).Length > 40 * 1024 * 1024) throw new InvalidDataException("حجم پرونده بیش از حد مجاز است.");
+            if (new FileInfo(path).Length > MaxFileBytes) throw new InvalidDataException(StorageLimitMessage);
             XmlReaderSettings settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 40 * 1024 * 1024 };
             Exam e;
             using (XmlReader reader = XmlReader.Create(path, settings)) e = (Exam)new XmlSerializer(typeof(Exam)).Deserialize(reader);
             string problem;
-            if (e == null || (e.Version != 1 && e.Version != 2) || e.Patient == null || !e.Patient.IsUsable(out problem) || e.Trials == null || e.Trials.Count > 100)
+            if (e == null || (e.Version != 1 && e.Version != 2) || e.Patient == null || !e.Patient.IsUsable(out problem) || e.Trials == null)
                 throw new InvalidDataException("پروندهٔ معتبر SpiroLab نیست.");
             if(e.Version==1) { e.LegacyRecord=true; e.Version=2; }
             foreach (Trial t in e.Trials)
@@ -79,8 +137,9 @@ namespace SpiroLab
                     if (!Finite(t.Flow[i]) || Math.Abs(t.Flow[i]) > 25 || (t.Time.Count > 0 && (!Finite(t.Time[i]) || t.Time[i] < 0 || t.Time[i] > 3600 || (i > 0 && t.Time[i] < t.Time[i - 1]))) || (t.Volume.Count > 0 && (!Finite(t.Volume[i]) || Math.Abs(t.Volume[i]) > 100)))
                         throw new InvalidDataException("نمونهٔ نامعتبر در فایل وجود دارد.");
                 }
-                t.Result = e.FinalizedAt.HasValue && t.FinalizedResult!=null ? t.FinalizedResult.Clone() : SpiroAnalysis.Analyze(t, e.Patient);
+                t.Result = t.FinalizedResult!=null ? t.FinalizedResult.Clone() : SpiroAnalysis.Analyze(t, e.Patient);
             }
+            e.EnsureManeuverIdentities(); e.ValidateSelection(false);
             if(!e.ExaminationDate.HasValue && e.Trials.Count>0) { e.ExaminationDate=e.Trials[0].When.Date; e.ExaminationDateSource="legacy_capture_date"; }
             return e;
         }
