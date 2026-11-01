@@ -34,6 +34,7 @@ echo Building SpiroLab.exe ...
   Src\ResultExport.cs ^
   Src\Ers93.cs ^
   Src\SpiroAnalysis.cs ^
+  Src\ClinicVext.cs ^
   Src\MirUsb.cs ^
   Src\Device\DeviceSession.cs ^
   Src\Device\DeviceDiagnostics.cs ^

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Collections.Generic;
 using System.Drawing.Printing;
@@ -105,6 +105,7 @@ internal static class RegressionTests
             Near(t.Flow[0],-.34,.0001,"signed MIR flow"); Near(t.Result.Fvc,4.74,.001,"inspiration excluded from FVC");
             Near(t.Result.Fev1,1.6676,.001,"unverified development replay interpolated FEV1"); Near(t.Result.Pef,1.92,.001,"unverified development replay peak flow");
             Check(t.Result.Fet>7 && t.Result.Fet<9,"irregular sample timestamps used");
+            Check(t.Result.BevAvailable && t.Result.Bev*1000>70 && t.Result.Bev*1000<76,"recorded device maneuver yields a numeric EVol near 73 mL from real samples");
             Expiration signal=Expiration.From(t); Near(signal.Volume[signal.Count-1],t.Result.Fvc,.0001,"chart and analysis share volume");
             Near(signal.VolumeAt(1),t.Result.Fev1,.0001,"chart and analysis share time origin");
             Trial timeTrial=new Trial { StepType=0x40,Step=.02 }; PacketDecoder decoder=new PacketDecoder();

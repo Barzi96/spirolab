@@ -27,6 +27,7 @@ namespace SpiroLab.HLine
         public IDictionary<string,double?> Fields {get {return new Dictionary<string,double?>(fields);} }
         public byte[] JpegBytes {get {return (byte[])jpeg.Clone();} }
         public readonly bool SimulatedOrReplay,ParameterReviewRequired;
+        public readonly VextSelection Vext;
         public SubmissionDraft(ExaminationSnapshot snapshot,ResultPackage package)
         {
             Snapshot=snapshot; Exam e=snapshot.Data; e.ValidateSelection(true); e.ValidateReportSelection(true);
@@ -35,7 +36,8 @@ namespace SpiroLab.HLine
             SimulatedOrReplay=e.Trials.Exists(delegate(Trial trial) {return trial.Simulated || trial.Imported;});
             ParameterReviewRequired=!ManeuverAssessment.Assess(t).Fev1Usable || e.Patient.SexUnconfirmed;
             fields["fvc_amount"]=r.Fvc;fields["fev1_amount"]=r.Fev1;fields["fev1_fvc_percent"]=r.Fev1Fvc;fields["fef2575_amount"]=r.Fef2575;fields["pef_amount"]=r.Pef;
-            fields["vext"]=t.VextManuallyReviewed && !string.IsNullOrWhiteSpace(t.VextReviewer) && !string.IsNullOrWhiteSpace(t.ReviewedVextSource)?t.ReviewedVextMl:null;
+            Vext=ClinicVext.Select(e.Trials);
+            fields["vext"]=Vext.Available?(double?)Vext.ValueMl:null;
             fields["fvc_percent"]=r.Ref!=null && r.Ref.Fvc>0?(double?)r.PctFvc:null;
             fields["fev1_percent"]=r.Ref!=null && r.Ref.Fev1>0?(double?)r.PctFev1:null;
             fields["pef_percent"]=r.Ref!=null && r.Ref.Pef>0?(double?)r.PctPef:null;
@@ -56,7 +58,7 @@ namespace SpiroLab.HLine
             foreach(var field in fields) if(field.Value.HasValue && (double.IsNaN(field.Value.Value) || double.IsInfinity(field.Value.Value) || field.Value<0)) throw new InvalidOperationException("مقدار عددی نامعتبر است.");
             foreach(string key in new string[] {"fvc_amount","fev1_amount","pef_amount","fef2575_amount","fev1_fvc_percent"}) if(!fields[key].HasValue || fields[key]<=0) throw new InvalidOperationException("مقدار الزامی موجود یا معتبر نیست: "+key);
             if(fields["fev1_amount"]>fields["fvc_amount"] || fields["fev1_fvc_percent"]>100 || Math.Abs(fields["fev1_fvc_percent"].Value-fields["fev1_amount"].Value/fields["fvc_amount"].Value*100)>1e-8) throw new InvalidOperationException("نسبت FEV1/FVC با مقادیر همان مانور تطبیق ندارد.");
-            if(!fields["vext"].HasValue) throw new InvalidOperationException("VEXT مانور انتخاب‌شده موجود یا بازبینی‌شده نیست.");
+            if(!Vext.Available) throw new InvalidOperationException(Vext.Problem);
         }
     }
     public sealed class RemoteSpirometry

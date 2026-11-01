@@ -94,7 +94,7 @@ internal static class ClinicalUiTests
             double reportFvc=new int[] {0,2,4}.Max(i=>reopened.Trials[i].Result.Fvc);
             Check(Convert.ToDouble(Obj(Obj(doc["bestReportedValues"])["FVC"])["value"])==reportFvc,"report aggregate uses selected report pool with existing formula");
             Check(Convert.ToDouble(Obj(measurements["FVC"])["value"])!=reportFvc,"site and report preserve legitimate numeric differences");
-            Check(Obj(measurements["VEXT"])["value"]==null,"unavailable selected-maneuver VEXT remains null");
+            Check(Obj(measurements["VEXT"])["value"]==null && Obj(doc["vextSelection"])["valueMl"]==null,"simulated-only examination yields no clinic VEXT and never zero");
             using(ExaminationDetailsForm f=new ExaminationDetailsForm(reopened,selected))
             {
                 ((TextBox)Named(f,"ManeuverVext")).Text="132"; ((TextBox)Named(f,"ManeuverVextSource")).Text="reviewed development fixture";
@@ -102,9 +102,11 @@ internal static class ClinicalUiTests
                 foreach(Control c in Descendants(f)) if(c is CheckBox) ((CheckBox)c).Checked=true;
                 Check(f.Apply(out problem),"reviewed maneuver VEXT saved in examination details");
             }
-            doc=Json(ExaminationSnapshot.Capture(reopened)); Check(Convert.ToDouble(Obj(Obj(Obj(doc["siteExport"])["measurements"])["VEXT"])["value"])==132,"reviewed VEXT belongs to site maneuver4");
+            doc=Json(ExaminationSnapshot.Capture(reopened));
+            Check(Obj(Obj(Obj(doc["siteExport"])["measurements"])["VEXT"])["value"]==null,"manual maneuver review never replaces the clinic VEXT rule");
+            Check(Convert.ToDouble(Obj(Obj(((object[])doc["maneuvers"])[3])["vextReview"])["valueMl"])==132,"manual review stays recorded locally for the operator");
             reopened.SelectSiteManeuver(reopened.Trials[0].ManeuverId);
-            Check(Obj(Obj(Obj(Json(ExaminationSnapshot.Capture(reopened))["siteExport"])["measurements"])["VEXT"])["value"]==null,"changing site maneuver never carries another maneuver VEXT");
+            Check(Obj(Obj(Obj(Json(ExaminationSnapshot.Capture(reopened))["siteExport"])["measurements"])["VEXT"])["value"]==null,"changing the site maneuver never fabricates a clinic VEXT");
             reopened.SelectSiteManeuver(selected.ManeuverId);
             DateTime date;
             Check(ExaminationDates.TryParse("۱۳۹۹/۱۲/۳۰",out date) && ExaminationDates.Jalali(date)=="1399/12/30","Jalali leap day round trip uses PersianCalendar");

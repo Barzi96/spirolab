@@ -99,7 +99,7 @@ internal static class PrecisionTests
             Near(loaded.Trials[0].Result.Bev,trial.Result.Bev,"finalized BEV persisted without recalculation");
             var doc=Obj(new JavaScriptSerializer().DeserializeObject(reopened.ToJson()));
             Check(Obj(doc["examination"])["examinationDate"].ToString()=="2026-10-19" && Obj(doc["examination"])["captureStartedAt"].ToString().Contains("2026-11-01T10:30"),"JSON authoritative date separate from acquisition");
-            var manual=Obj(Obj(doc["spirometry"])["VEXT"]); Near(N(manual["value"]),132,"manual VEXT retained in mL");
+            var manual=Obj(Obj(doc["spirometry"])["VEXT"]); Near(N(manual["value"]),132,"manual report VEXT retained in mL");
             Check(manual["verificationStatus"].ToString()=="manually_reviewed_not_device_verified" && manual["valueSource"].ToString().Contains(exam.ReviewedVextSource),"manual VEXT review provenance explicit");
             exam.VextManuallyReviewed=false; bool refused=false; try { ExaminationSnapshot.Capture(exam); } catch(ArgumentException) { refused=true; }
             Check(refused,"unreviewed VEXT cannot export"); exam.VextManuallyReviewed=true;

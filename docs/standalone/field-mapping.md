@@ -11,7 +11,8 @@ The supplied local spiro.htm was inspected as a visible results reference only. 
 | FEV1/FVC | spirometry.FEV1_FVC | percent; maxFEV1/maxFVC*100, firmware equivalence pending |
 | FEF25–75 | spirometry.FEF25_75 | L/s; largest FVC+FEV1 maneuver, not largest FEF |
 | PEF | spirometry.PEF | L/s; independent maximum; source UUID |
-| VEXT | spirometry.VEXT | null when unavailable; explicitly reviewed manual value in mL otherwise |
+| VEXT (HLine `vext`) | siteExport.measurements.VEXT | mL; highest EVol strictly below 200 mL among the real maneuvers of this examination; sourceManeuverId, selectionRule and selectedManeuverEvolMl recorded beside it |
+| VEXT (report alias) | spirometry.VEXT | mL; legacy report-aggregate manual review value or null; not the HLine field |
 | Selected date | examination.examinationDate / testedAt | Saved ISO date / ISO date at midnight; authoritative for JPG |
 | Actual acquisition | examination.captureStartedAt / maneuvers[].testedAt | Original first capture / per-maneuver timestamps |
 | Date provenance | examination.dateSource | windows_local_date, operator_selected_date, legacy_capture_date |
@@ -24,7 +25,7 @@ The supplied local spiro.htm was inspected as a visible results reference only. 
 
 Every measurement retains value, unit, predicted, percentPredicted, valueSource, verificationStatus and missingDataStatus. No intermediate numeric rounding is introduced. Display rounds volumes/flows to2 decimals, ratios1, percent predicted0 and EVol mL0. Unsupported reference range/group gives null predictions.
 
-Per-maneuver estimatedBEV is separate from VEXT. backExtrapolation records Time Zero, method, source adequacy and unverified device parity. Mathematically available BEV uses V(t0) after peak-tangent intersection. Missing/unbracketed input gives null and a reason; no zero is substituted. VEXT manual source is also reflected in JPG. No automatic maximum-EVol rule is inferred from B's132mL match.
+Per-maneuver estimatedBEV is separate from VEXT. backExtrapolation records Time Zero, method, source adequacy and unverified device parity. Mathematically available BEV uses V(t0) after peak-tangent intersection. Missing/unbracketed input gives null and a reason; no zero is substituted. The HLine VEXT field follows the clinic convention `max(0 < EVol < 200 mL)` over real maneuvers and records its source maneuver and calculation provenance in `vextSelection`; EVol timing stays reconstructed and is not paired-MIR verified. The manual VEXT review value remains a local report record and is also reflected in JPG.
 
 All maneuvers remain in acquisition order in JSON. At most three complete signal-usable maneuvers selected by FVC+FEV1 are drawn, in their original order with actual PRE indices. One maneuver is sufficient for development export. Signal usability is not clinical acceptability.
 

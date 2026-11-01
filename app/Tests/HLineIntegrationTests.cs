@@ -194,7 +194,7 @@ class HLineIntegrationTests
                 dialog.Show();Application.DoEvents();
                 TextField(dialog,"HLineUsername").Text="synthetic";TextField(dialog,"HLinePassword").Text="synthetic-password";
                 ((Button)dialog.Controls.Find("HLineLogin",true)[0]).PerformClick();
-                PumpUntil(delegate {return mfaClient.Status==SessionStatus.AuthenticationError;});
+                PumpUntil(delegate {return mfaClient.Status==SessionStatus.AuthenticationError && !(bool)Field(dialog,"working");});
                 Label mfaStatus=(Label)dialog.Controls.Find("HLineStatus",true)[0];
                 Check(dialog.Visible && mfaStatus.Text.Contains("دومرحله") && TextField(dialog,"HLinePassword").Text.Length==0,"server MFA request prompts for the code and keeps the dialog open");
                 TextField(dialog,"HLineMfa").Text="123456";
@@ -203,6 +203,45 @@ class HLineIntegrationTests
                 Check(mfaMock.Posts==2 && mfaClient.Status==SessionStatus.Connected,"MFA retry completes authentication without retyping the password");
             }
             finally { try { if(!dialog.IsDisposed) dialog.Dispose(); } catch { } }
+        }
+    }
+    static Dictionary<string,object> Json(ExaminationSnapshot s) {return (Dictionary<string,object>)new JavaScriptSerializer {MaxJsonLength=ExaminationSnapshot.MaxJsonCharacters}.DeserializeObject(s.ToJson());}
+    static Dictionary<string,object> Obj(object o) {return (Dictionary<string,object>)o;}
+    static double? N(object o) {return o==null?null:(double?)Convert.ToDouble(o);}
+    static Trial VextTrial(string id,int sequence,double? ml,bool simulated=false,bool imported=false)
+    {
+        Trial t=new Trial {ManeuverId=id,AcquisitionSequence=sequence,Simulated=simulated,Imported=imported};
+        t.Result=new AnalysisResult {BevAvailable=ml.HasValue,Bev=ml.HasValue?ml.Value/1000.0:0};
+        return t;
+    }
+    static void VextRuleTests()
+    {
+        // Clinic regression examples: highest EVol strictly below 200 mL.
+        Check(ClinicVext.SelectValue(new double?[] {110,132,105})==132,"clinic VEXT picks 132 from 110/132/105");
+        Check(ClinicVext.SelectValue(new double?[] {230,185,160})==185,"clinic VEXT ignores values above 200 mL");
+        Check(ClinicVext.SelectValue(new double?[] {240,220,199})==199,"clinic VEXT accepts 199 mL");
+        Check(ClinicVext.SelectValue(new double?[] {200,180,150})==180,"exactly 200 mL is excluded");
+        Check(ClinicVext.SelectValue(new double?[] {240,230,210})==null,"no eligible EVol returns nothing instead of zero");
+        Check(ClinicVext.SelectValue(new double?[] {null,125,90})==125,"missing EVol is skipped");
+        Check(ClinicVext.SelectValue(new double?[] {0,-5,double.NaN,double.PositiveInfinity,200})==null,"zero, negative, nonfinite and 200 mL are all rejected");
+        VextSelection chosen=ClinicVext.Select(new Trial[] {VextTrial("m1",1,110),VextTrial("m2",2,132),VextTrial("m3",3,null),VextTrial("m4",4,230)});
+        Check(chosen.Available && chosen.ValueMl==132 && chosen.ManeuverId=="m2" && chosen.AcquisitionSequence==2 && chosen.Problem.Length==0,"selection keeps value and source maneuver identity");
+        Check(!ClinicVext.Select(new Trial[] {VextTrial("sim",1,150,true,false)}).Available && !ClinicVext.Select(new Trial[] {VextTrial("rep",1,150,false,true)}).Available,"simulated and replayed maneuvers never provide the clinic VEXT");
+        Check(ClinicVext.Select(new Trial[0]).Problem==VextSelection.NoEligibleProblem,"empty examination reports the actual problem");
+    }
+    static void VextUiTests()
+    {
+        using(var client=new HLineClient(new MockServer {Mode="vitals"})) using(var form=new MainForm(client,new Gateway(),TestDestination()))
+        {
+            form.Show();Application.DoEvents();
+            Exam exam=Exam(false);foreach(Trial t in exam.Trials) {t.Result.BevAvailable=true;t.Result.Bev=.25;}
+            typeof(MainForm).GetField("_exam",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(form,exam);
+            typeof(MainForm).GetField("_path",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(form,Path.Combine(root,"vext-problem.spiro"));
+            typeof(MainForm).GetField("_hasPatient",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(form,true);
+            foreach(string method in new string[] {"PopulateMetadata","RenderTrials","RestorePrimaryPreview"}) typeof(MainForm).GetMethod(method,BindingFlags.Instance|BindingFlags.NonPublic).Invoke(form,null);
+            ((Button)Field(form,"btnReport")).PerformClick();PumpUntil(delegate {return !(bool)Field(form,"_busy");});
+            string message=((Label)Field(form,"lblStatus")).Text;
+            Check(message.Contains("هیچ مانور واقعی") && Application.OpenForms.Count==1,"missing clinic VEXT surfaces the real problem in the main window without a dialog");
         }
     }
     static void OneClickMainTests()
@@ -291,8 +330,10 @@ class HLineIntegrationTests
         e.Patient=new Patient {FirstName="مراجع",LastName="ساختگی",NationalId="0000000001",Origin=Origin.Caucasian,HeightCm=164,WeightKg=74,Age=44,HLinePersonId="TEST-P",HLineRecordId="2",HLineRecordDate="2026/11/01",HLineRecordStatus="complete",AnthropometryConfirmed=true};
         e.ExaminationDate=new DateTime(2026,10,19);
         for(int i=0;i<5;i++) {Trial t=Simulator.Build(e.Patient,100+i);t.Simulated=simulated;e.AddManeuver(t);}
+        double?[] evol={110,132,105,230,null};
+        for(int i=0;i<5;i++) {e.Trials[i].Result.BevAvailable=evol[i].HasValue;e.Trials[i].Result.Bev=evol[i].HasValue?evol[i].Value/1000.0:0;}
         Trial site=e.OperatorSelectedManeuver; site.Result.Fet=6;site.Result.Cough=false;
-        site.ReviewedVextMl=132;site.ReviewedVextSource="synthetic mock fixture";site.VextReviewer="بازبین آزمایشی";site.VextManuallyReviewed=true;
+        site.ReviewedVextMl=111;site.ReviewedVextSource="synthetic mock fixture";site.VextReviewer="بازبین آزمایشی";site.VextManuallyReviewed=true;
         e.SelectSiteManeuver(site.ManeuverId);return e;
     }
     static SubmissionDraft Draft(Exam e) {var s=ExaminationSnapshot.Capture(e);return new SubmissionDraft(s,ResultExport.SaveToDirectory(root,s));}
@@ -363,9 +404,15 @@ class HLineIntegrationTests
             }
             using(var client=new HLineClient(new MockServer())) using(var login=new HLineLoginForm(client)) Shot(login,"02-hline-login");
             LoginUiTests();
+            VextRuleTests();
+            VextUiTests();
             OneClickMainTests();
-            Exam exam=Exam(false);SubmissionDraft draft=Draft(exam);
-            Check(draft.RecordId=="2" && draft.ExaminationDate==new DateTime(2026,10,19) && draft.Fields["vext"]==132,"submission binds exact record, Gregorian examination date and same-maneuver VEXT");
+            Exam exam=Exam(false);exam.SelectSiteManeuver(exam.Trials[0].ManeuverId);SubmissionDraft draft=Draft(exam);
+            VextSelection vx=ClinicVext.Select(exam.Trials);
+            Check(draft.RecordId=="2" && draft.ExaminationDate==new DateTime(2026,10,19) && vx.Available && vx.ValueMl==132 && draft.Fields["vext"]==132 && draft.Fields["vext"]!=111 && draft.Vext.ManeuverId==vx.ManeuverId && draft.ManeuverId==exam.Trials[0].ManeuverId,"submission binds exact record, Gregorian date and clinic-selected VEXT without changing the site maneuver");
+            var doc=Json(draft.Snapshot);var siteJson=Obj(doc["siteExport"]);var vextJson=Obj(Obj(siteJson["measurements"])["VEXT"]);var selectionJson=Obj(doc["vextSelection"]);
+            Check(N(vextJson["value"])==132 && vextJson["sourceManeuverId"].ToString()==vx.ManeuverId && vextJson["selectedManeuverId"].ToString()==exam.Trials[0].ManeuverId && Math.Abs(N(vextJson["selectedManeuverEvolMl"]).Value-110)<1e-6,"local JSON keeps the clinic VEXT, its source maneuver and the site maneuver EVol separately");
+            Check(selectionJson["rule"].ToString().Contains("EVol") && selectionJson["qualityGate"].ToString().StartsWith("none") && N(selectionJson["valueMl"])==132 && selectionJson["sourceManeuverId"].ToString()==vx.ManeuverId,"clinic rule and quality separation are recorded with provenance");
             Check(draft.Fields["fvc_amount"]==exam.OperatorSelectedManeuver.Result.Fvc && draft.Fields["fev1_amount"]==exam.OperatorSelectedManeuver.Result.Fev1 && draft.Fields["fev1_fvc_percent"]==exam.OperatorSelectedManeuver.Result.Fev1Fvc && draft.Fields["fef2575_amount"]==exam.OperatorSelectedManeuver.Result.Fef2575 && draft.Fields["pef_amount"]==exam.OperatorSelectedManeuver.Result.Pef,"all five measured core fields use only radio-selected maneuver");
             byte[] image=draft.JpegBytes;image[0]=0;Check(draft.JpegBytes[0]==255,"exact JPEG bytes retained immutably");
             var other=ExaminationSnapshot.Capture(Exam(false));var otherPackage=ResultExport.SaveToDirectory(root,other);Refuses(delegate {new SubmissionDraft(draft.Snapshot,otherPackage);},"JPG from another snapshot cannot be attached to selected examination");
@@ -395,7 +442,10 @@ class HLineIntegrationTests
             wrongTest=TestDestination();wrongTest.PersonId="OTHER";Refuses(delegate {new SubmissionCoordinator(restricted,new SubmissionJournal(),delegate {},wrongTest).Submit(draft);},"test record must belong to exact designated person");
             wrongTest=TestDestination();wrongTest.NationalId="0000000002";Refuses(delegate {new SubmissionCoordinator(restricted,new SubmissionJournal(),delegate {},wrongTest).Submit(draft);},"test record must match exact designated national ID");Check(restricted.Uploads==0 && restricted.Creates==0,"test-scope rejection performs no writes");
             Refuses(delegate {Draft(Exam(true)).ValidateForSubmission();},"simulated source cannot be submitted to actual HLine");
-            exam.OperatorSelectedManeuver.ReviewedVextMl=null;Refuses(delegate {Draft(exam).ValidateForSubmission();},"missing VEXT is never fabricated");
+            foreach(Trial t in exam.Trials) {t.Result.BevAvailable=true;t.Result.Bev=.25;}
+            SubmissionDraft noVext=Draft(exam);Exception vextProblem=null;try {noVext.ValidateForSubmission();}catch(InvalidOperationException ex) {vextProblem=ex;}
+            Check(!noVext.Fields["vext"].HasValue && noVext.Vext.ValueMl==0 && noVext.Vext.ManeuverId.Length==0,"unavailable clinic VEXT stays null and is never zero-filled");
+            Check(vextProblem!=null && vextProblem.Message.Contains("هیچ مانور واقعی") && !exam.Trials.Exists(t=>t.Result.BevAvailable && t.Result.Bev*1000<200),"no eligible clinic EVol blocks with the actual problem instead of inventing a value");
             Console.WriteLine("ALL "+checks+" HLINE INTEGRATION CHECKS PASSED");return 0;
         }
         catch(Exception ex) {Console.WriteLine(ex);return 1;}

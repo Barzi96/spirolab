@@ -30,15 +30,21 @@ namespace SpiroLab.Ui
             working=true; login.Enabled=false; status.Text="در حال ورود…";
             string u=username.Text,p=password.Text.Length>0?password.Text:(pendingPassword??""),c=Fmt.NormalizeNumber(mfa.Text);
             pendingPassword=null; password.Clear(); mfa.Clear();
+            Control focus=null;
             try { await Task.Factory.StartNew(delegate { client.Login(u,p,c); }); status.Text=client.StatusText; DialogResult=DialogResult.OK; }
             catch(HLineException e)
             {
                 status.Text=e.Message;
-                if(e.Code=="missing_mfa_token" || e.Code=="invalid_mfa_token") { pendingPassword=p; mfa.Focus(); }
-                else if(e.Code=="credentials") username.Focus();
+                if(e.Code=="missing_mfa_token" || e.Code=="invalid_mfa_token") { pendingPassword=p; focus=mfa; }
+                else if(e.Code=="credentials") focus=username;
             }
             catch {status.Text="عدم دسترسی به سامانه";}
-            finally {p=c=null; working=false;login.Enabled=true;if(client.Status==SessionStatus.Connected) {pendingPassword=null;Close();}}
+            finally
+            {
+                p=c=null; working=false; login.Enabled=true;
+                if(client.Status==SessionStatus.Connected) {pendingPassword=null;Close();}
+                else if(focus!=null) focus.Focus();
+            }
         }
         // Single entry point used by both the toolbar and the patient form.
         public static bool SignIn(HLineClient client,IWin32Window owner)

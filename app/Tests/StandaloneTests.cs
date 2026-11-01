@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -36,7 +36,7 @@ internal static class StandaloneTests
             }
             Check(Obj(Obj(d["spirometry"])["FEV1_FVC"])["unit"].ToString()=="%","ratio in percentage");
             var vext=Obj(Obj(d["spirometry"])["VEXT"]);
-            Check(vext["value"]==null && vext["unit"].ToString()=="mL" && vext["missingDataStatus"].ToString()=="unavailable","VEXT not guessed from BEV");
+            Check(vext["value"]==null && vext["unit"].ToString()=="mL" && vext["missingDataStatus"].ToString()=="unavailable","report aggregate VEXT stays unavailable rather than guessed from BEV");
             var maneuvers=(object[])d["maneuvers"];
             Check(maneuvers.Length==5 && Obj(maneuvers[3])["id"].ToString()==e.Trials[3].ManeuverId && (int)Obj(maneuvers[3])["index"]==4,"maneuver identity and chronology retained");
             Check(Obj(Obj(maneuvers[0])["estimatedBEV"])["verificationStatus"].ToString()=="not_equivalent_to_validated_VEXT","estimated BEV separated");
