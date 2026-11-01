@@ -141,10 +141,10 @@ internal static class RegressionTests
                 form.Show(); Application.DoEvents(); Set(form,"_path",Path.Combine(output,"ui-demo.spiro")); form.RunDemoForTest();
                 for(int i=0;i<20 && (bool)Field(form,"_busy");i++) Call(form,"Tick",null,EventArgs.Empty);
                 Exam demo=(Exam)Field(form,"_exam"); Check(demo.Trials.Count==1 && demo.Trials[0].Simulated && demo.Trials[0].Completed,"GUI simulation completes and is labelled");
-                Check(!((TextBox)Field(form,"txtFirst")).Enabled,"patient snapshot locked after trial");
-                Check(((DataGridView)Field(form,"gridResults")).Rows.Count==11,"GUI renders all metrics");
-                Check(((ComboBox)Field(form,"cmbOrigin")).SelectedIndex==0,"GUI defaults to Caucasian");
-                Check(((Label)Field(form,"lblPrediction")).Text.Contains("FVC:"),"reference preview appears before measurement");
+                Check(form.Controls.Find("FirstName",true).Length==0 && demo.Patient.FirstName=="مراجع","patient snapshot preserved outside main screen");
+                Check(((DataGridView)Field(form,"gridTrials")).Columns.Count==8,"GUI renders core metrics and two independent choices");
+                Check(demo.Patient.Origin==Origin.Caucasian,"GUI defaults to Caucasian");
+                Check(Ers93.Compute(demo.Patient).Applicable,"reference remains available without a main-screen technical field");
                 Check(File.Exists(Path.Combine(output,"ui-demo.spiro")),"GUI autosaves completed trial");
                 Check(!((Button)Field(form,"btnStop")).Enabled,"stop disabled after completion");
 
@@ -163,7 +163,7 @@ internal static class RegressionTests
                 for(int extra=0;extra<4;extra++) { Call(form,"StartSimulation"); for(int tick=0;tick<30 && (bool)Field(form,"_busy");tick++) Call(form,"Tick",null,EventArgs.Empty); }
                 Check(ExamSummary.Build(demo.Trials).Candidates.Count==5,"one to five complete maneuvers without mandatory minimum");
                 Check(object.ReferenceEquals(Field(form,"_selected"),ExamSummary.Build(demo.Trials).BestTrial),"new maneuvers automatically update selected best");
-                Call(form,"NewExam"); Check(((Exam)Field(form,"_exam")).Trials.Count==0 && ((TextBox)Field(form,"txtFirst")).Enabled,"new patient resets session and unlocks fields");
+                Call(form,"BeginExam",new Patient { FirstName="مراجع",LastName="جدید",NationalId="0000000001",Age=30,HeightCm=175,WeightKg=70,Origin=Origin.Caucasian },false); Check(((Exam)Field(form,"_exam")).Trials.Count==0 && (bool)Field(form,"_hasPatient"),"new patient creates a separate examination session");
             }
             Console.WriteLine("ALL "+checks+" CHECKS PASSED"); return 0;
         }

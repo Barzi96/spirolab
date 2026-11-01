@@ -8,19 +8,23 @@ namespace SpiroLab.Ui
 {
     /// <summary>
     /// Draws the two curves a spirometry report needs:
-    /// flow/volume on top, volume/time underneath.
+    /// flow/volume and volume/time, stacked or side by side as space allows.
     /// </summary>
     public sealed class ChartPanel : Control
     {
         private Trial _trial;
         private AnalysisResult _result;
         private int _visible = -1;          // -1 = everything
+        private IList<Trial> _comparisonTrials=new List<Trial>();
+        private readonly List<Expiration> _comparisons=new List<Expiration>();
+        public IList<Trial> ComparisonTrials { get { return _comparisonTrials; } set { _comparisonTrials=value??new List<Trial>(); Invalidate(); } }
+        public bool SideBySide { get { return Height<340*Font.Size/9f && Width>=600*Font.Size/9f; } }
 
         private static readonly Color Ink = Color.FromArgb(60, 66, 78);
         private static readonly Color Grid = Color.FromArgb(228, 232, 238);
-        private static readonly Color Curve = Color.FromArgb(21, 101, 192);
-        private static readonly Color CurveFill = Color.FromArgb(210, 227, 245);
-        private static readonly Color Marker = Color.FromArgb(198, 40, 40);
+        private static readonly Color Curve = Color.FromArgb(19,103,119);
+        private static readonly Color CurveFill = Color.FromArgb(230,242,245);
+        private static readonly Color Marker = Color.FromArgb(94,111,123);
 
         public ChartPanel()
         {
@@ -79,6 +83,12 @@ namespace SpiroLab.Ui
             int split = area.Height * 55 / 100;
             Rectangle top = new Rectangle(area.Left + 8, area.Top + 8, area.Width - 16, split - 12);
             Rectangle bottom = new Rectangle(area.Left + 8, area.Top + split + 8, area.Width - 16, area.Height - split - 16);
+            if(SideBySide)
+            {
+                int half=(area.Width-24)/2;
+                top=new Rectangle(area.Left+8,area.Top+8,half,area.Height-16);
+                bottom=new Rectangle(area.Left+half+16,area.Top+8,half,area.Height-16);
+            }
 
             if (_trial == null || _trial.Flow.Count < 2)
             {
@@ -99,6 +109,13 @@ namespace SpiroLab.Ui
             }
             if (fvc < 0.2) fvc = 0.2;
             if (pef < 0.5) pef = 0.5;
+            _comparisons.Clear();
+            if(_visible<0) foreach(Trial t in _comparisonTrials)
+            {
+                if(t==_trial) continue; Expiration other=Expiration.From(t); if(other.Count<2) continue; _comparisons.Add(other);
+                for(int i=0;i<other.Count;i++) { fvc=Math.Max(fvc,other.Volume[i]); pef=Math.Max(pef,other.Flow[i]); }
+                fet=Math.Max(fet,other.Time[other.Count-1]);
+            }
 
             DrawFlowVolume(g, top, vol, count, fvc, pef, fif);
             DrawVolumeTime(g, bottom, vol, count, fvc, fet);
@@ -141,6 +158,7 @@ namespace SpiroLab.Ui
                 using (Brush fill = new SolidBrush(CurveFill)) g.FillPath(fill, path);
             }
 
+            DrawComparisons(g,plot,0,xMax,yMin,yMax,false);
             using (Pen pen = new Pen(Curve, 2.2f))
             {
                 pen.LineJoin = LineJoin.Round;
@@ -177,7 +195,8 @@ namespace SpiroLab.Ui
                     MapX(_signal.Time[i], plot, 0, xMax),
                     MapY(vol[i], plot, 0, yMax));
 
-            using (Pen pen = new Pen(Color.FromArgb(46, 125, 50), 2.2f))
+            DrawComparisons(g,plot,0,xMax,0,yMax,true);
+            using (Pen pen = new Pen(Curve, 2.2f))
             {
                 pen.LineJoin = LineJoin.Round;
                 g.DrawLines(pen, pts);
@@ -199,8 +218,18 @@ namespace SpiroLab.Ui
         }
 
         // ------------------------------------------------------------------
-        private static Rectangle PlotArea(Rectangle r, int left, int right, int top, int bottom)
+        private void DrawComparisons(Graphics g,Rectangle plot,double xmin,double xmax,double ymin,double ymax,bool time)
         {
+            for(int k=0;k<_comparisons.Count;k++)
+            {
+                Expiration s=_comparisons[k]; PointF[] points=new PointF[s.Count];
+                for(int i=0;i<s.Count;i++) points[i]=new PointF(MapX(time?s.Time[i]:s.Volume[i],plot,xmin,xmax),MapY(time?s.Volume[i]:s.Flow[i],plot,ymin,ymax));
+                using(Pen p=new Pen(Color.FromArgb(127,145,154),1.4f)) { p.DashStyle=k%2==0?DashStyle.Dash:DashStyle.DashDot; g.DrawLines(p,points); }
+            }
+        }
+        private Rectangle PlotArea(Rectangle r, int left, int right, int top, int bottom)
+        {
+            float scale=Font.Size/9f; left=(int)Math.Ceiling(left*scale); right=(int)Math.Ceiling(right*scale); top=(int)Math.Ceiling(top*scale); bottom=(int)Math.Ceiling(bottom*scale);
             int w = r.Width - left - right;
             int h = r.Height - top - bottom;
             if (w < 20) w = 20;
@@ -227,7 +256,7 @@ namespace SpiroLab.Ui
             using (Pen grid = new Pen(Grid, 1f))
             using (Pen axis = new Pen(Ink, 1.4f))
             using (Brush ink = new SolidBrush(Ink))
-            using (Font small = new Font("Tahoma", 7F))
+            using (Font small = new Font(Font.FontFamily,Font.Size*.8f))
             {
                 double xStep = NiceStep((xMax - xMin) / Math.Max(xTicks, 1));
                 double yStep = NiceStep((yMax - yMin) / Math.Max(yTicks, 1));
@@ -251,8 +280,8 @@ namespace SpiroLab.Ui
                 }
 
                 g.DrawRectangle(axis, plot);
-                g.DrawString(xTitle, small, ink, plot.Right - 60, plot.Bottom + 14);
-                g.DrawString(yTitle, small, ink, plot.Left + 2, plot.Top - 14);
+                using(StringFormat align=new StringFormat { Alignment=StringAlignment.Far }) g.DrawString(xTitle,small,ink,new RectangleF(plot.Left,plot.Bottom+small.Height+3,plot.Width,small.Height+3),align);
+                g.DrawString(yTitle, small, ink, plot.Left + 2, plot.Top-small.Height-2);
             }
         }
 

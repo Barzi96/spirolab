@@ -33,6 +33,7 @@ namespace SpiroLab
         public static ResultPackage SaveToDirectory(string parent,ExaminationSnapshot snapshot)
         {
             snapshot.Data.ValidateSelection(snapshot.Data.PrimarySelectionRequired);
+            snapshot.Data.ValidateReportSelection(true);
             string root=Path.GetFullPath(parent); Directory.CreateDirectory(root);
             string id=snapshot.SnapshotId;
             string stage=Path.Combine(root,".spiro-tmp-"+id), final=Path.Combine(root,"Examination-"+id);

@@ -32,7 +32,7 @@ internal static class ManeuverSelectionTests
         {
             string root=Path.GetFullPath(args[0]); Directory.CreateDirectory(root);
             Patient p=new Patient { FirstName="داده",LastName="آزمایشی",NationalId="0000000001",Age=35,HeightCm=175,WeightKg=75,Origin=Origin.Caucasian };
-            Exam exam=Exam.CreateNew(new AppSettings { OperatorName="کارشناس تست" }); exam.Patient=p;
+            Exam exam=Exam.CreateNew(new AppSettings { OperatorName="کارشناس تست" }); exam.Patient=p; exam.SelectionWorkflowVersion=1; // Retain regression coverage for the 5.1.1 explicit-selection records.
             Trial first=Blow(p,100); exam.AddManeuver(first);
             string firstId=first.ManeuverId; double[] firstFlow=first.Flow.ToArray(); DateTime firstWhen=first.When;
             Check(exam.Trials.Count==1 && first.AcquisitionSequence==1 && ExamSummary.Build(exam.Trials).BestTrial==first,"one maneuver works without a minimum of three");
@@ -105,27 +105,26 @@ internal static class ManeuverSelectionTests
                 form.Show(); Application.DoEvents(); Call(form,"LoadExam",saved);
                 Exam ui=(Exam)Field(form,"_exam");
                 Check(((DataGridView)Field(form,"gridTrials")).Rows.Count==128 && ((Trial)Field(form,"_selected")).ManeuverId==chosen.ManeuverId,"actual GUI reopen restores all history and previews saved manual primary");
-                Check(((ChartPanel)Field(form,"chart")).Trial.ManeuverId==chosen.ManeuverId && ((DataGridView)Field(form,"gridResults")).Rows[4].Cells[0].Value.ToString()=="FEF25-75 (L/s)","primary preview uses its curves and exposes all five requested core metrics");
+                Check(((ChartPanel)Field(form,"chart")).Trial.ManeuverId==chosen.ManeuverId && ((DataGridView)Field(form,"gridTrials")).Rows[chosen.AcquisitionSequence-1].Cells[5].Value.ToString()==Fmt.N(chosen.Result.Fef2575,2),"primary preview uses its curves and exposes all five requested core metrics");
                 Check((bool)Call(form,"CheckSource",true,false),"GUI sequential acquisition gate remains open beyond100");
                 Call(form,"SelectTrial",0);
                 Check(ui.OperatorSelectedManeuverId==chosen.ManeuverId && ExamStore.Load(saved).OperatorSelectedManeuverId==chosen.ManeuverId,"clicking a history row changes preview only, never the saved decision");
-                ((TextBox)Field(form,"txtSelectionReason")).Text="explicit button action";
-                ((Button)Field(form,"btnSelectPrimary")).PerformClick();
-                Check(ExamStore.Load(saved).OperatorSelectedManeuverId==firstId && ui.SelectionReason=="explicit button action","Persian explicit selection button persists the decision immediately");
-                Check(!ui.FinalizedAt.HasValue && ((Button)Field(form,"btnStart")).Enabled,"selecting primary leaves examination open for further maneuvers");
+                Call(form,"ChangeChoice",0,6);
+                Check(ExamStore.Load(saved).OperatorSelectedManeuverId==firstId && ui.SelectionMethod=="manual","radio selection persists the explicit decision immediately");
+                Check(!ui.FinalizedAt.HasValue && ((DataGridView)Field(form,"gridTrials")).Enabled,"selecting primary leaves examination open for further maneuvers");
                 // Use the actual finish/save path for another completed acquisition.
                 Trial next=Blow(p,450); typeof(MainForm).GetField("_active",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(form,next);
                 Call(form,"FinishTrial");
                 Check(ui.Trials.Count==129 && ui.OperatorSelectedManeuverId==firstId && ExamStore.Load(saved).OperatorSelectedManeuverId==firstId,"new acquisition through FinishTrial preserves and saves manual selection");
                 Check(((Trial)Field(form,"_selected")).ManeuverId==firstId,"new acquisition restores saved primary preview instead of silently selecting recommendation");
                 Call(form,"SelectTrial",125);
-                Check(!((Button)Field(form,"btnSelectPrimary")).Enabled && ((Button)Field(form,"btnWarnings")).Enabled && ((TextBox)Field(form,"txtWarnings")).Text.Contains(incomplete.EndReason),"incomplete attempt has inspectable warning and cannot be explicitly selected");
-                Call(form,"SelectTrial",127); Check(((CheckBox)Field(form,"chkRejected")).Checked,"rejected state visible in maneuver review");
+                Check(!(bool)((DataGridView)Field(form,"gridTrials")).Rows[125].Cells[6].Tag && ((DataGridView)Field(form,"gridTrials")).Rows[125].Cells[0].ToolTipText.Contains(incomplete.EndReason),"incomplete attempt has inspectable warning and cannot be explicitly selected");
+                Call(form,"SelectTrial",127); Check(((DataGridView)Field(form,"gridTrials")).Rows[127].Cells[0].Value.ToString().Contains("ردشده"),"rejected state visible in maneuver review");
                 Call(form,"SelectTrial",0);
-                ((Button)Field(form,"btnUseSuggestion")).PerformClick();
-                Check(ui.SelectionMethod=="automatic_suggestion" && ui.OperatorSelectedManeuverId==ExamSummary.Build(ui.Trials).BestTrial.ManeuverId && ExamStore.Load(saved).SelectionMethod=="automatic_suggestion","explicit suggestion button records operator acceptance, not silent selection");
+                Call(form,"ChangeChoice",ui.Trials.IndexOf(ExamSummary.Build(ui.Trials).BestTrial),6);
+                Check(ui.SelectionMethod=="manual" && ui.OperatorSelectedManeuverId==ExamSummary.Build(ui.Trials).BestTrial.ManeuverId && ExamStore.Load(saved).SelectionMethod=="manual","clicking the recommended radio still records a manual choice");
                 Call(form,"SelectTrial",ui.Trials.FindIndex(t=>t.ManeuverId==chosen.ManeuverId));
-                ((Button)Field(form,"btnSelectPrimary")).PerformClick();
+                Call(form,"ChangeChoice",ui.Trials.FindIndex(t=>t.ManeuverId==chosen.ManeuverId),6);
                 using(Bitmap image=new Bitmap(form.Width,form.Height)) { form.DrawToBitmap(image,new Rectangle(Point.Empty,form.Size)); image.Save(Path.Combine(root,"operator-selection-gui.png")); }
                 reopened=ui;
             }

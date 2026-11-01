@@ -50,5 +50,9 @@ namespace SpiroLab
             catch(ArgumentOutOfRangeException) { return false; }
         }
         public static string Format(DateTime date) { return date.ToString("yyyy-MM-dd",CultureInfo.InvariantCulture); }
+        public static string Jalali(DateTime date)
+        { PersianCalendar calendar=new PersianCalendar(); return string.Format(CultureInfo.InvariantCulture,"{0:0000}/{1:00}/{2:00}",calendar.GetYear(date),calendar.GetMonth(date),calendar.GetDayOfMonth(date)); }
+        public static string DisplayJalali(DateTime date)
+        { string value=Jalali(date); for(int i=0;i<10;i++) value=value.Replace((char)('0'+i),(char)('۰'+i)); return value; }
     }
 }

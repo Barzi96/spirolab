@@ -12,8 +12,9 @@ namespace SpiroLab
         {
             string root=Path.GetFullPath(directory); Directory.CreateDirectory(root);
             Exam e=Exam.CreateNew(new AppSettings()); e.OperatorName="کارشناس آزمایشی"; e.Patient=new Patient { FirstName="داده",LastName="آزمایشی",NationalId="TEST-0001",Age=35,HeightCm=175,WeightKg=75,Origin=Origin.Caucasian };
-            for(int i=0;i<3;i++) { Trial t=Simulator.Build(e.Patient,100+i); t.Result=SpiroAnalysis.Analyze(t,e.Patient); e.Trials.Add(t); }
-            e.SelectPrimary(e.Trials[2].ManeuverId,"manual",e.OperatorName,"Explicit development selection; aggregate values remain independent.");
+            for(int i=0;i<5;i++) e.AddManeuver(Simulator.Build(e.Patient,100+i));
+            e.SelectSiteManeuver(e.Trials[3].ManeuverId);
+            e.SetReportManeuver(e.Trials[1].ManeuverId,false); e.SetReportManeuver(e.Trials[4].ManeuverId,true);
             e.FinalizeExamination();
             string persisted=Path.Combine(root,"selftest.spiro"); ExamStore.Save(persisted,e); e=ExamStore.Load(persisted);
             ExaminationSnapshot snapshot=ExaminationSnapshot.Capture(e);

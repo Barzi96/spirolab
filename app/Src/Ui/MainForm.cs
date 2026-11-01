@@ -1,231 +1,155 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Threading;
 using System.Windows.Forms;
 using SpiroLab.Device;
-
 namespace SpiroLab.Ui
 {
     public sealed class MainForm : Form
     {
-        private static readonly Color Accent = Color.FromArgb(17,103,137), Ink = Color.FromArgb(31,49,66), Bg = Color.FromArgb(240,245,249);
-        private readonly DeviceSession _device = new DeviceSession();
-        private AppSettings _settings;
-        private Exam _exam;
-        private string _path;
-        private bool _busy, _dirty, _fast, _rendering, _simulating;
-        private volatile bool _stop;
-        private Trial _active, _selected;
-        private PacketDecoder _decoder;
-        private readonly Queue<DevicePacket> _pending = new Queue<DevicePacket>();
-        private readonly object _queueLock = new object();
-        private System.Windows.Forms.Timer _timer;
-        private int _simPos;
-        
-        private Panel _patientPanel;
-        private TextBox txtOperator,txtCenter,txtReviewed,txtExamDate,txtVext,txtVextSource;
-        private CheckBox chkVextReviewed;
-        private Button btnSettings;
-        private Button btnSelectPrimary,btnUseSuggestion,btnWarnings;
-        private TextBox txtSelectionReason;
-        private CheckBox chkRejected;
-        private bool _receivedLiveSamples;
-        private int _decodedLiveSamples;
-        private string _safeError="none";
-        private TextBox txtFirst,txtLast,txtNid,txtEmp,txtCompany,txtJob,txtAge,txtHeight,txtWeight,txtNote,txtLog,txtWarnings,lblInterpretation;
-        private ComboBox cmbSex,cmbOrigin;
-        private Label lblConnection,lblStatus,lblLive,lblSummary,lblSource,lblPrediction;
-        private Button btnStart,btnStop,btnDemo,btnConnect,btnDisconnect,btnNew,btnSave,btnOpen,btnExport,btnReport,btnImport,btnBest,btnImage;
-        private DataGridView gridResults,gridTrials;
-        private CheckBox chkAccepted;
-        private ChartPanel chart,resultChart;
+        readonly DeviceSession _device=new DeviceSession();
+        AppSettings _settings;
+        Exam _exam;
+        string _path;
+        bool _busy,_dirty,_fast,_rendering,_simulating,_hasPatient,_developerMode,_sizingLayout;
+        volatile bool _stop;
+        Trial _active,_selected;
+        PacketDecoder _decoder;
+        readonly Queue<DevicePacket> _pending=new Queue<DevicePacket>();
+        readonly object _queueLock=new object();
+        readonly ToolTip _tips=new ToolTip();
+        System.Windows.Forms.Timer _timer;
+        int _simPos,_decodedLiveSamples;
+        bool _receivedLiveSamples;
+        string _safeError="none";
+        ChartPanel chart;
+        DataGridView gridTrials;
+        TextBox txtExamDate;
+        Label lblConnection,lblStatus,lblLive,lblSummary;
+        LinkLabel lblPatient;
+        Button btnStart,btnStop,btnReport,btnSettings,btnNew,btnOpen,btnCalendar;
+        List<string> _legacyReportIds=new List<string>();
         public MainForm()
         {
             _settings=AppSettings.Load(); _exam=Exam.CreateNew(_settings);
-            Text="SpiroLab 5.1.1 — اسپیرومتری طب کار"; Font=new Font("Tahoma",9.5f); BackColor=Bg; ForeColor=Ink;
-            RightToLeft=RightToLeft.Yes; StartPosition=FormStartPosition.CenterScreen;
-            MinimumSize=new Size(1080,700); Size=new Size(1280,860);
+            ClinicalStyle.Form(this,"اسپیرومتری طب کار — SpiroLab 5.2",new Size(1280,820));
+            StartPosition=FormStartPosition.CenterScreen; MinimumSize=new Size(780,500);
             BuildUi(); PopulateMetadata(); _device.Line+=AppendLog;
             _timer=new System.Windows.Forms.Timer { Interval=50 }; _timer.Tick+=Tick;
             FormClosing+=ClosingForm; UpdateControls();
             if(!string.IsNullOrEmpty(_settings.LoadWarning)) lblStatus.Text=_settings.LoadWarning;
         }
         public void SelectTab(int index) { }
-        public void ConnectOnLaunch() { lblConnection.Text="آماده برای اتصال"; }
+        public void ConnectOnLaunch() { ConnectDevice(false); }
         public void RunDemoForTest()
         {
             _fast=Array.IndexOf(Environment.GetCommandLineArgs(),"--slow")<0;
-            txtNid.Text="0012345678"; txtFirst.Text="مراجع"; txtLast.Text="نمایشی"; txtAge.Text="34"; txtHeight.Text="178"; txtWeight.Text="82"; txtCompany.Text="شرکت نمونه";
+            if(!_hasPatient)
+            {
+                Patient p=new Patient { NationalId="0012345678",FirstName="مراجع",LastName="نمایشی",Age=34,HeightCm=178,WeightKg=82,Origin=Origin.Caucasian };
+                BeginExam(p,false);
+            }
             StartSimulation();
         }
-        private Button MakeButton(string text,EventHandler action,bool primary)
+        Button MakeButton(string text,EventHandler click,bool primary) { return ClinicalStyle.Button(text,click,primary); }
+        void BuildUi()
         {
-            Button b=new Button { Text=text, AutoSize=true, Height=36, MinimumSize=new Size(85,36), FlatStyle=FlatStyle.Flat,
-                BackColor=primary?Accent:Color.White, ForeColor=primary?Color.White:Ink, Margin=new Padding(4), Padding=new Padding(8,0,8,0), Cursor=Cursors.Hand };
-            b.FlatAppearance.BorderColor=Color.FromArgb(214,224,232); b.Click+=action; return b;
-        }
-        private Label MakeLabel(string text,float size,bool bold)
-        { return new Label { Text=text,Dock=DockStyle.Fill,RightToLeft=RightToLeft.Yes,TextAlign=ContentAlignment.MiddleLeft,Font=new Font("Tahoma",size,bold?FontStyle.Bold:FontStyle.Regular),ForeColor=Ink }; }
-        private FlowLayoutPanel Actions()
-        { return new FlowLayoutPanel { Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft,WrapContents=false,AutoScroll=true,Padding=new Padding(4) }; }
-        private void BuildUi()
-        {
-            TableLayoutPanel root=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=1,RowCount=3,Padding=new Padding(12),RightToLeft=RightToLeft.No };
-            root.RowStyles.Add(new RowStyle(SizeType.Absolute,50)); root.RowStyles.Add(new RowStyle(SizeType.Percent,100)); root.RowStyles.Add(new RowStyle(SizeType.Absolute,26)); Controls.Add(root);
-            TableLayoutPanel top=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=5 };
-            top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100)); top.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,145)); top.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,145));
-            top.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,145));
-            top.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,110));
-            btnSettings=MakeButton("تنظیمات",delegate { using(SettingsForm f=new SettingsForm(_settings)) if(f.ShowDialog(this)==DialogResult.OK) _settings=f.Value; },false); top.Controls.Add(btnSettings,4,0);
-            Button diagnostics=MakeButton("وضعیت دستگاه",delegate { using(DiagnosticsForm f=new DiagnosticsForm(DeviceDiagnostics.Read(_device.ControlResponded,_receivedLiveSamples,_device.SafeTransportError!="none"?_device.SafeTransportError:_safeError,_device.HandleOpened,_device.StartCommandSucceeded,_device.LivePacketCount,_decodedLiveSamples))) f.ShowDialog(this); },false); top.Controls.Add(diagnostics,3,0);
-            lblConnection=MakeLabel("SpiroLab",12,true); top.Controls.Add(lblConnection,0,0);
-            btnNew=MakeButton("مراجع جدید",delegate { NewExam(); },false); btnOpen=MakeButton("پرونده قبلی",delegate { OpenExam(); },false);
-            top.Controls.Add(btnOpen,1,0); top.Controls.Add(btnNew,2,0); root.Controls.Add(top,0,0);
-            // Auxiliary controls are kept outside the visible workflow.
-            btnSave=new Button(); btnExport=new Button(); btnImage=new Button(); btnBest=new Button(); btnDisconnect=new Button(); btnImport=new Button();
-            txtLog=new TextBox(); txtWarnings=new TextBox(); lblInterpretation=new TextBox(); chkAccepted=new CheckBox(); lblSource=new Label();
-            resultChart=new ChartPanel();
-            gridResults=Grid(); foreach(string c in new string[] {"شاخص","مقدار","مرجع","درصد","LLN"}) gridResults.Columns.Add(c,c);
-            gridTrials=Grid(); foreach(string c in new string[] {"مانور","منبع","FVC","FEV1","وضعیت","FEV1/FVC","PEF","FEF25-75","زمان"}) gridTrials.Columns.Add(c,c);
-            foreach(DataGridViewColumn c in gridTrials.Columns) c.SortMode=DataGridViewColumnSortMode.NotSortable;
+            TableLayoutPanel root=new TableLayoutPanel { Name="ClinicalLayout",Dock=DockStyle.Fill,ColumnCount=1,RowCount=6,Padding=new Padding(18,8,18,8),RightToLeft=RightToLeft.No };
+            root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute,52)); root.RowStyles.Add(new RowStyle(SizeType.Absolute,66));
+            root.RowStyles.Add(new RowStyle(SizeType.Percent,66)); root.RowStyles.Add(new RowStyle(SizeType.Percent,34));
+            root.RowStyles.Add(new RowStyle(SizeType.Absolute,54)); root.RowStyles.Add(new RowStyle(SizeType.Absolute,25)); Controls.Add(root);
+            TableLayoutPanel toolbar=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2,RowCount=1,RightToLeft=RightToLeft.Yes };
+            toolbar.RowStyles.Add(new RowStyle(SizeType.Percent,100));
+            toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,72)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,28));
+            FlowLayoutPanel buttons=new FlowLayoutPanel { Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft,RightToLeft=RightToLeft.No,WrapContents=false };
+            btnNew=MakeButton("مراجع جدید",delegate { NewExam(); },true); btnOpen=MakeButton("پرونده قبلی",delegate { OpenExam(); },false); btnSettings=MakeButton("تنظیمات",delegate { OpenSettings(); },false);
+            buttons.Controls.AddRange(new Control[] {btnNew,btnOpen,btnSettings}); toolbar.Controls.Add(buttons,0,0);
+            lblConnection=ClinicalStyle.Label("● متصل نیست"); lblConnection.ForeColor=Color.FromArgb(113,126,138); lblConnection.Cursor=Cursors.Hand;
+            lblConnection.Click+=delegate { if(!_busy) OpenSettings(); }; _tips.SetToolTip(lblConnection,"اتصال و جزئیات دستگاه در تنظیمات"); toolbar.Controls.Add(lblConnection,1,0); root.Controls.Add(toolbar,0,0);
+            TableLayoutPanel strip=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2,RowCount=2,RightToLeft=RightToLeft.Yes,Padding=new Padding(4,4,4,8) };
+            strip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100)); strip.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,275));
+            strip.RowStyles.Add(new RowStyle(SizeType.Percent,52)); strip.RowStyles.Add(new RowStyle(SizeType.Percent,48));
+            lblPatient=new LinkLabel { Dock=DockStyle.Fill,Font=new Font("Tahoma",11,FontStyle.Bold),LinkColor=ClinicalStyle.Ink,ActiveLinkColor=ClinicalStyle.Accent,LinkBehavior=LinkBehavior.HoverUnderline,TextAlign=ContentAlignment.MiddleLeft,RightToLeft=RightToLeft.Yes,AutoEllipsis=true };
+            lblPatient.LinkClicked+=delegate { ShowDetails(); }; _tips.SetToolTip(lblPatient,"مشاهده مشخصات و جزئیات معاینه"); strip.Controls.Add(lblPatient,0,0);
+            lblLive=ClinicalStyle.Label("برای شروع، مراجع جدید را ثبت کنید."); lblLive.ForeColor=Color.FromArgb(104,121,137); strip.Controls.Add(lblLive,0,1);
+            TableLayoutPanel date=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=3,RowCount=1,RightToLeft=RightToLeft.Yes,Padding=new Padding(4,9,0,9) };
+            date.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,40)); date.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,45)); date.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,15));
+            date.Controls.Add(ClinicalStyle.Label("تاریخ معاینه"),0,0);
+            txtExamDate=new TextBox { Name="ExaminationDate",Dock=DockStyle.Fill,RightToLeft=RightToLeft.No,TextAlign=HorizontalAlignment.Center,MaxLength=10,Margin=new Padding(2,3,2,3) };
+            txtExamDate.Validated+=delegate { if(!_rendering && _hasPatient && SyncMetadata()) { SaveExam(false); PopulateMetadata(); } };
+            btnCalendar=new Button { Text="▦",Dock=DockStyle.Fill,FlatStyle=FlatStyle.Flat,BackColor=Color.White,Margin=new Padding(2,2,2,2),AccessibleName="انتخاب تاریخ شمسی" }; btnCalendar.FlatAppearance.BorderColor=ClinicalStyle.Border;
+            btnCalendar.Click+=delegate { DateTime selected; if(!ExaminationDates.TryParse(txtExamDate.Text,out selected)) selected=DateTime.Today; using(JalaliDateForm f=new JalaliDateForm(selected)) if(f.ShowDialog(this)==DialogResult.OK) { txtExamDate.Text=ExaminationDates.Jalali(f.Value); if(SyncMetadata()) SaveExam(false); } };
+            date.Controls.Add(txtExamDate,1,0); date.Controls.Add(btnCalendar,2,0); strip.Controls.Add(date,1,0); strip.SetRowSpan(date,2); root.Controls.Add(strip,0,1);
+            chart=new ChartPanel { Name="LiveSpirometryChart",Dock=DockStyle.Fill,RightToLeft=RightToLeft.No,Margin=new Padding(0,0,0,10),Font=new Font("Tahoma",9) }; root.Controls.Add(chart,0,2);
+            Panel history=new Panel { Dock=DockStyle.Fill,Margin=new Padding(0) };
+            lblSummary=ClinicalStyle.Label("مانورها"); lblSummary.Dock=DockStyle.Top; lblSummary.Height=27; lblSummary.Font=new Font("Tahoma",9,FontStyle.Bold);
+            gridTrials=new DataGridView { Name="ManeuverHistory",Dock=DockStyle.Fill,ReadOnly=false,AllowUserToAddRows=false,AllowUserToDeleteRows=false,AllowUserToResizeRows=false,RowHeadersVisible=false,MultiSelect=false,SelectionMode=DataGridViewSelectionMode.FullRowSelect,AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill,ScrollBars=ScrollBars.Vertical,BackgroundColor=Color.White,BorderStyle=BorderStyle.None,RightToLeft=RightToLeft.Yes,EnableHeadersVisualStyles=false,ColumnHeadersHeightSizeMode=DataGridViewColumnHeadersHeightSizeMode.DisableResizing,ColumnHeadersHeight=52,AutoGenerateColumns=false };
+            string[] captions={"مانور","حجم\nFVC (L)","حجم ثانیه اول\nFEV1 (L)","نسبت\nFEV1/FVC (%)","جریان بیشینه\nPEF (L/s)","جریان میانی\nFEF25–75 (L/s)"};
+            float[] weights={9,13,14,14,13,15,11,11};
+            for(int i=0;i<captions.Length;i++) gridTrials.Columns.Add(new DataGridViewTextBoxColumn { Name="Metric"+i,HeaderText=captions[i],ReadOnly=true,FillWeight=weights[i],MinimumWidth=25,SortMode=DataGridViewColumnSortMode.NotSortable });
+            RadioColumn radio=new RadioColumn { Name="SiteSelection",HeaderText="ارسال به سامانه",FillWeight=weights[6],MinimumWidth=25 }; radio.SelectRow=delegate(int row) { ChangeChoice(row,6); }; gridTrials.Columns.Add(radio);
+            gridTrials.Columns.Add(new DataGridViewCheckBoxColumn { Name="ReportSelection",HeaderText="نمایش در گزارش",ReadOnly=true,FillWeight=weights[7],MinimumWidth=25,SortMode=DataGridViewColumnSortMode.NotSortable });
+            gridTrials.RowTemplate.Height=31;
+            gridTrials.ColumnHeadersDefaultCellStyle.BackColor=Color.FromArgb(236,242,246); gridTrials.ColumnHeadersDefaultCellStyle.ForeColor=ClinicalStyle.Ink; gridTrials.ColumnHeadersDefaultCellStyle.Alignment=DataGridViewContentAlignment.MiddleCenter; gridTrials.ColumnHeadersDefaultCellStyle.WrapMode=DataGridViewTriState.True;
+            gridTrials.DefaultCellStyle.Alignment=DataGridViewContentAlignment.MiddleCenter; gridTrials.DefaultCellStyle.SelectionBackColor=Color.FromArgb(223,239,242); gridTrials.DefaultCellStyle.SelectionForeColor=ClinicalStyle.Ink; gridTrials.GridColor=Color.FromArgb(233,238,242); gridTrials.CellBorderStyle=DataGridViewCellBorderStyle.SingleHorizontal;
             gridTrials.SelectionChanged+=delegate { if(!_rendering && gridTrials.CurrentRow!=null) SelectTrial(gridTrials.CurrentRow.Index); };
-            Panel main=new Panel { Dock=DockStyle.Fill }; root.Controls.Add(main,0,1); BuildTestTab(main);
-            lblStatus=MakeLabel("آماده",9,false); root.Controls.Add(lblStatus,0,2);
+            gridTrials.CellContentClick+=delegate(object sender,DataGridViewCellEventArgs e) { ChangeChoice(e.RowIndex,e.ColumnIndex); };
+            gridTrials.KeyDown+=delegate(object sender,KeyEventArgs e) { if(e.KeyCode==Keys.Space && gridTrials.CurrentCell!=null && gridTrials.CurrentCell.ColumnIndex>=6) { ChangeChoice(gridTrials.CurrentCell.RowIndex,gridTrials.CurrentCell.ColumnIndex); e.Handled=e.SuppressKeyPress=true; } };
+            history.Controls.Add(gridTrials); history.Controls.Add(lblSummary); root.Controls.Add(history,0,3);
+            FlowLayoutPanel actions=new FlowLayoutPanel { Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft,RightToLeft=RightToLeft.No,WrapContents=false,Padding=new Padding(0,6,0,0) };
+            btnStart=MakeButton("شروع تست",delegate { if(_developerMode) StartSimulation(); else StartTest(); },true); btnStop=MakeButton("توقف مانور",delegate { StopTest(); },false); btnReport=MakeButton("پایان و گزارش",delegate { ShowReport(); },false);
+            actions.Controls.AddRange(new Control[] {btnStart,btnStop,btnReport}); root.Controls.Add(actions,0,4);
+            lblStatus=ClinicalStyle.Label("آماده"); lblStatus.Font=new Font("Tahoma",8.5f); lblStatus.ForeColor=Color.FromArgb(104,121,137); root.Controls.Add(lblStatus,0,5);
+            root.Layout+=delegate
+            {
+                if(_sizingLayout) return; _sizingLayout=true;
+                try
+                {
+                    root.RowStyles[0].Height=btnNew.GetPreferredSize(Size.Empty).Height+btnNew.Margin.Vertical+buttons.Margin.Vertical+toolbar.Margin.Vertical+2;
+                    root.RowStyles[1].Height=Math.Max(lblPatient.Font.Height+lblLive.Font.Height+lblPatient.Margin.Vertical+lblLive.Margin.Vertical+strip.Padding.Vertical+strip.Margin.Vertical+4,txtExamDate.PreferredSize.Height+txtExamDate.Margin.Vertical+date.Padding.Vertical+date.Margin.Vertical+strip.Padding.Vertical+strip.Margin.Vertical+4);
+                    root.RowStyles[4].Height=Math.Max(btnStart.GetPreferredSize(Size.Empty).Height,btnReport.GetPreferredSize(Size.Empty).Height)+btnStart.Margin.Vertical+actions.Padding.Vertical+actions.Margin.Vertical+2;
+                    root.RowStyles[5].Height=lblStatus.Font.Height+lblStatus.Margin.Vertical+2;
+                    float available=root.ClientSize.Height-root.Padding.Vertical-root.RowStyles[0].Height-root.RowStyles[1].Height-root.RowStyles[4].Height-root.RowStyles[5].Height;
+                    root.RowStyles[3].SizeType=SizeType.Absolute;
+                    root.RowStyles[3].Height=Math.Max(gridTrials.ColumnHeadersHeight+gridTrials.RowTemplate.Height+lblSummary.Height+4,available*.34f);
+                }
+                finally { _sizingLayout=false; }
+            };
         }
-        private void BuildTestTab(Control page)
-        {
-            TableLayoutPanel layout=new TableLayoutPanel { Dock=DockStyle.Fill,ColumnCount=2,RowCount=3,RightToLeft=RightToLeft.No };
-            layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100)); layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,330));
-            layout.RowStyles.Add(new RowStyle(SizeType.Absolute,52)); layout.RowStyles.Add(new RowStyle(SizeType.Percent,100)); layout.RowStyles.Add(new RowStyle(SizeType.Absolute,58)); page.Controls.Add(layout);
-            lblSummary=MakeLabel("مانوری ثبت نشده است",10,false); Label guide=lblSummary;
-            guide.BackColor=Color.FromArgb(224,239,245); guide.Padding=new Padding(12); layout.Controls.Add(guide,0,0);
-            _patientPanel=new Panel { Dock=DockStyle.Fill,AutoScroll=true,BackColor=Color.White,Padding=new Padding(12),RightToLeft=RightToLeft.Yes,Margin=new Padding(8,0,0,0) };
-            layout.Controls.Add(_patientPanel,1,0); layout.SetRowSpan(_patientPanel,3);
-            TableLayoutPanel form=new TableLayoutPanel { Dock=DockStyle.Top,AutoSize=true,ColumnCount=2,RightToLeft=RightToLeft.Yes };
-            form.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,105)); form.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100)); _patientPanel.Controls.Add(form);
-            Label pt=MakeLabel("مشخصات مراجع",12,true); pt.ForeColor=Accent; form.Controls.Add(pt,0,0); form.SetColumnSpan(pt,2); form.RowStyles.Add(new RowStyle(SizeType.Absolute,38));
-            txtNid=Field(form,"کد ملی *",1); txtNid.MaxLength=10;
-            txtFirst=Field(form,"نام *",2); txtLast=Field(form,"نام خانوادگی *",3); txtAge=Field(form,"سن (سال) *",4);
-            txtEmp=new TextBox(); txtCompany=new TextBox(); txtJob=new TextBox();
-            cmbSex=new ComboBox { DropDownStyle=ComboBoxStyle.DropDownList,Dock=DockStyle.Fill,Margin=new Padding(2,6,2,3) }; cmbSex.Items.AddRange(new object[] { "مرد","زن" }); cmbSex.SelectedIndex=0;
-            form.Controls.Add(MakeLabel("جنسیت",9,false),0,5); form.Controls.Add(cmbSex,1,5); form.RowStyles.Add(new RowStyle(SizeType.Absolute,36));
-            cmbOrigin=new ComboBox { DropDownStyle=ComboBoxStyle.DropDownList,Dock=DockStyle.Fill,Margin=new Padding(2,6,2,3) };
-            cmbOrigin.Items.AddRange(new object[] { "Caucasian","انتخاب نشده","سایر" }); cmbOrigin.SelectedIndex=0;
-            form.Controls.Add(MakeLabel("نژاد / گروه",9,false),0,6); form.Controls.Add(cmbOrigin,1,6); form.RowStyles.Add(new RowStyle(SizeType.Absolute,36));
-            txtHeight=Field(form,"قد (cm) *",7); txtWeight=Field(form,"وزن (kg) *",8);
-            txtNote=new TextBox();
-            lblPrediction=MakeLabel("مرجع: ERS",9,false);
-            lblPrediction.BackColor=Color.FromArgb(231,242,247);
-            txtCenter=Field(form,"نام مرکز",9); txtOperator=Field(form,"کارشناس",10);
-            txtReviewed=Field(form,"تفسیر کارشناس",11); txtReviewed.Multiline=true; txtReviewed.MaxLength=250; form.RowStyles[11].Height=65;
-            txtExamDate=Field(form,"تاریخ معاینه",12); txtExamDate.RightToLeft=RightToLeft.No; txtExamDate.MaxLength=10;
-            txtVext=Field(form,"VEXT (mL)",13); txtVext.MaxLength=10;
-            txtVextSource=Field(form,"منبع VEXT",14); txtVextSource.MaxLength=200;
-            chkVextReviewed=new CheckBox { Text="VEXT را بازبینی کرده‌ام",Dock=DockStyle.Fill,AutoSize=true }; form.RowStyles.Add(new RowStyle(SizeType.Absolute,32)); form.Controls.Add(chkVextReviewed,0,15); form.SetColumnSpan(chkVextReviewed,2);
-            form.Controls.Add(lblPrediction,0,16); form.SetColumnSpan(lblPrediction,2); form.RowStyles.Add(new RowStyle(SizeType.Absolute,60));
-            foreach(TextBox metadata in new TextBox[] {txtCenter,txtOperator,txtReviewed,txtExamDate,txtVext,txtVextSource}) metadata.TextChanged+=delegate { if(!_rendering && _exam.Trials.Count>0) _dirty=true; };
-            chkVextReviewed.CheckedChanged+=delegate { if(!_rendering && _exam.Trials.Count>0) _dirty=true; };
-            txtAge.TextChanged+=delegate { RefreshPrediction(); }; txtHeight.TextChanged+=delegate { RefreshPrediction(); };
-            cmbSex.SelectedIndexChanged+=delegate { RefreshPrediction(); }; cmbOrigin.SelectedIndexChanged+=delegate { RefreshPrediction(); };
-            Panel card=new Panel { Dock=DockStyle.Fill,BackColor=Color.White,Margin=new Padding(0,6,0,0) };
-            chart=new ChartPanel { Dock=DockStyle.Fill,RightToLeft=RightToLeft.No };
-            lblLive=MakeLabel("منتظر شروع تست",10,true); lblLive.Dock=DockStyle.Bottom; lblLive.Height=34; lblLive.Padding=new Padding(8);
-            Panel tables=new Panel { Dock=DockStyle.Bottom,Height=205,Padding=new Padding(4) };
-            gridResults.Dock=DockStyle.Left; gridResults.Width=310; gridResults.Columns[4].Visible=false; gridResults.Columns[0].FillWeight=170; gridResults.Columns[1].FillWeight=85; gridResults.Columns[2].FillWeight=85; gridResults.Columns[3].FillWeight=70;
-            gridTrials.Dock=DockStyle.Fill; gridTrials.Columns[1].Visible=false;
-            gridTrials.AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.None;
-            foreach(DataGridViewColumn column in gridTrials.Columns) column.Width=78;
-            gridTrials.Columns[0].Width=55; gridTrials.Columns[4].Width=145; gridTrials.Columns[8].Width=85;
-            tables.Controls.Add(gridTrials); tables.Controls.Add(gridResults);
-            Panel review=new Panel { Dock=DockStyle.Bottom,Height=80 };
-            FlowLayoutPanel selectionActions=Actions(); selectionActions.Dock=DockStyle.Top; selectionActions.Height=44;
-            btnSelectPrimary=MakeButton("انتخاب به‌عنوان مانور اصلی",delegate { ChoosePrimary(false); },false);
-            btnUseSuggestion=MakeButton("انتخاب پیشنهاد خودکار",delegate { ChoosePrimary(true); },false);
-            btnWarnings=MakeButton("هشدارهای مانور",delegate { MessageBox.Show(this,txtWarnings.Text,"بررسی مانور",MessageBoxButtons.OK,MessageBoxIcon.Information); },false);
-            chkRejected=new CheckBox { Text="رد مانور",AutoSize=true,Margin=new Padding(7,13,7,0) };
-            chkRejected.CheckedChanged+=delegate { ChangeRejection(); };
-            selectionActions.Controls.AddRange(new Control[] {btnSelectPrimary,btnUseSuggestion,btnWarnings,chkRejected});
-            TableLayoutPanel reason=new TableLayoutPanel { Dock=DockStyle.Bottom,Height=32,ColumnCount=2,RightToLeft=RightToLeft.Yes };
-            reason.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute,190)); reason.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,100));
-            reason.Controls.Add(MakeLabel("علت انتخاب / رد (اختیاری)",9,false),0,0);
-            txtSelectionReason=new TextBox { Dock=DockStyle.Fill,MaxLength=500 }; reason.Controls.Add(txtSelectionReason,1,0);
-            review.Controls.Add(reason); review.Controls.Add(selectionActions);
-            card.Controls.Add(chart); card.Controls.Add(tables); card.Controls.Add(review); card.Controls.Add(lblLive); layout.Controls.Add(card,0,1);
-            FlowLayoutPanel actions=Actions(); layout.Controls.Add(actions,0,2);
-            btnStart=MakeButton("شروع تست",delegate { StartTest(); },true); btnStop=MakeButton("توقف مانور",delegate { StopTest(); },false);
-            btnDemo=MakeButton("تست نمایشی",delegate { StartSimulation(); },false); btnConnect=MakeButton("اتصال USB",delegate { ConnectDevice(false); },false);
-            btnReport=MakeButton("پایان و گزارش",delegate { ShowReport(); },true);
-            Button experimental=MakeButton("حالت آزمایشی",delegate { StartSimulation(); },false); experimental.Enabled=true;
-            actions.Controls.AddRange(new Control[] { btnStart,btnStop,btnReport,experimental });
-        }
-        private TextBox Field(TableLayoutPanel form,string caption,int row)
-        {
-            form.RowStyles.Add(new RowStyle(SizeType.Absolute,36)); form.Controls.Add(MakeLabel(caption,9,false),0,row);
-            TextBox t=new TextBox { Dock=DockStyle.Fill,Margin=new Padding(2,6,2,3),MaxLength=500 }; form.Controls.Add(t,1,row); return t;
-        }
-        private void RefreshPrediction()
-        {
-            double age=Fmt.Parse(txtAge.Text,double.NaN), height=Fmt.Parse(txtHeight.Text,double.NaN);
-            if(double.IsNaN(age) || age<5 || age>110 || age!=Math.Floor(age) || double.IsNaN(height))
-            { lblPrediction.Text="مرجع: ERS"; return; }
-            Reference r=Ers93.Compute(new Patient { Age=(int)age,HeightCm=height,Sex=cmbSex.SelectedIndex==1?Sex.Female:Sex.Male,Origin=(Origin)cmbOrigin.SelectedIndex });
-            lblPrediction.Text=r.Applicable?"مقادیر مرجع ERS:\nFVC: "+Fmt.N(r.Fvc,2)+" L   |   FEV1: "+Fmt.N(r.Fev1,2)+" L\nPEF: "+Fmt.N(r.Pef,2)+" L/s":"مرجع: —";
-        }
-        private DataGridView Grid()
-        {
-            DataGridView g=new DataGridView { Dock=DockStyle.Fill,ReadOnly=true,AllowUserToAddRows=false,AllowUserToDeleteRows=false,AllowUserToResizeRows=false,
-                MultiSelect=false,RowHeadersVisible=false,SelectionMode=DataGridViewSelectionMode.FullRowSelect,AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill,
-                BackgroundColor=Color.White,BorderStyle=BorderStyle.None,RightToLeft=RightToLeft.Yes,EnableHeadersVisualStyles=false,ColumnHeadersHeight=34 };
-            g.ColumnHeadersDefaultCellStyle.BackColor=Color.FromArgb(225,237,243); g.DefaultCellStyle.SelectionBackColor=Color.FromArgb(210,232,243);
-            g.DefaultCellStyle.SelectionForeColor=Ink; g.RowTemplate.Height=28; return g;
-        }
-        private void Post(Action action)
+        void Post(Action action)
         {
             if(IsDisposed || Disposing) return;
             try { if(InvokeRequired) BeginInvoke((MethodInvoker)delegate { if(!IsDisposed) action(); }); else action(); } catch(InvalidOperationException) { }
         }
-        private void AppendLog(string line) { System.Diagnostics.Debug.WriteLine(line); }
-        private void Error(string text) { MessageBox.Show(this,text,"SpiroLab",MessageBoxButtons.OK,MessageBoxIcon.Warning); }
-        private Patient ReadPatient()
+        void AppendLog(string line) { System.Diagnostics.Debug.WriteLine(line); }
+        void Error(string message) { lblStatus.Text=message; _tips.SetToolTip(lblStatus,message); }
+        Patient ReadPatient() { if(!_hasPatient) { Error("ابتدا مراجع جدید را ثبت کنید."); return null; } return _exam.Patient.Clone(); }
+        void UpdateControls()
         {
-            if(_exam.Trials.Count>0) return _exam.Patient.Clone();
-            Patient p=new Patient { FirstName=txtFirst.Text.Trim(),LastName=txtLast.Text.Trim(),NationalId=Fmt.NormalizeNumber(txtNid.Text),EmployeeCode=txtEmp.Text.Trim(),
-                Company=txtCompany.Text.Trim(),JobTitle=txtJob.Text.Trim(),Note=txtNote.Text.Trim(),Sex=cmbSex.SelectedIndex==1?Sex.Female:Sex.Male,Origin=(Origin)cmbOrigin.SelectedIndex };
-            if(p.NationalId.Length!=10 || !System.Text.RegularExpressions.Regex.IsMatch(p.NationalId,@"^[0-9]{10}$")) { Error("کد ملی ده‌رقمی را وارد کنید."); return null; }
-            double age=Fmt.Parse(txtAge.Text,double.NaN);
-            if(double.IsNaN(age) || age!=Math.Floor(age) || age<5 || age>110) { Error("سن را به صورت عدد صحیح بین ۵ تا ۱۱۰ سال وارد کنید."); return null; }
-            p.Age=(int)age; p.HeightCm=Fmt.Parse(txtHeight.Text,double.NaN); p.WeightKg=Fmt.Parse(txtWeight.Text,double.NaN);
-            string problem; if(!p.IsUsable(out problem)) { Error(problem); return null; }
-            if(p.FirstName.Length==0 || p.LastName.Length==0) { Error("نام و نام خانوادگی مراجع را وارد کنید."); return null; } return p;
-        }
-        private void Populate(Patient p)
-        {
-            txtFirst.Text=p.FirstName; txtLast.Text=p.LastName; txtNid.Text=p.NationalId; txtEmp.Text=p.EmployeeCode; txtCompany.Text=p.Company; txtJob.Text=p.JobTitle;
-            txtNote.Text=p.Note; txtAge.Text=p.Age.ToString(); txtHeight.Text=Fmt.N(p.HeightCm,1); txtWeight.Text=Fmt.N(p.WeightKg,1); cmbSex.SelectedIndex=(int)p.Sex; cmbOrigin.SelectedIndex=(int)p.Origin;
-        }
-        private void UpdateControls()
-        {
-            btnStart.Enabled=btnDemo.Enabled=!_busy && !_exam.FinalizedAt.HasValue; btnConnect.Enabled=!_busy && !_device.Connected;
-            btnSettings.Enabled=!_busy;
-            btnStop.Enabled=_busy && _active!=null; btnDisconnect.Enabled=!_busy && _device.Connected;
-            btnNew.Enabled=btnOpen.Enabled=btnImport.Enabled=!_busy;
-            btnSave.Enabled=btnExport.Enabled=!_busy && _exam.Trials.Count>0;
-            btnReport.Enabled=btnImage.Enabled=!_busy && ExamSummary.Build(_exam.Trials).Best!=null;
-            btnBest.Enabled=!_busy && _exam.Trials.Count>0;
-            chkAccepted.Enabled=!_busy && _selected!=null && _selected.Completed && _selected.Result!=null && _selected.Result.Valid;
             bool editable=!_busy && !_exam.FinalizedAt.HasValue;
-            btnSelectPrimary.Enabled=editable && ExamSummary.CanReport(_selected);
-            btnUseSuggestion.Enabled=editable && ExamSummary.Build(_exam.Trials).BestTrial!=null;
-            btnWarnings.Enabled=!_busy && _selected!=null;
-            chkRejected.Enabled=editable && _selected!=null; txtSelectionReason.Enabled=editable;
-            gridTrials.Enabled=!_busy; _patientPanel.Enabled=!_busy;
-            foreach(Control field in new Control[] {txtCenter,txtOperator,txtReviewed,txtExamDate,txtVext,txtVextSource,chkVextReviewed}) field.Enabled=!_busy && !_exam.FinalizedAt.HasValue;
-            foreach(Control field in new Control[] {txtFirst,txtLast,txtNid,txtAge,txtHeight,txtWeight,cmbSex,cmbOrigin}) field.Enabled=!_busy && _exam.Trials.Count==0;
-            lblConnection.Text=_device.Connected?(_receivedLiveSamples?"نمونه دریافت شد؛ اعتبارسنجی نشده":"پاسخ کنترل USB؛ تست تأیید نشده"):"دستگاه متصل نیست";
+            btnNew.Enabled=btnOpen.Enabled=btnSettings.Enabled=!_busy;
+            btnStart.Enabled=editable && _hasPatient && (_developerMode || _device.Connected);
+            btnStart.Text=_developerMode?"مانور نمایشی":_exam.Trials.Count>0?"تست بعدی":"شروع تست";
+            btnStop.Enabled=_busy && _active!=null; gridTrials.Enabled=!_busy;
+            txtExamDate.Enabled=btnCalendar.Enabled=editable && _hasPatient;
+            btnReport.Enabled=!_busy && _hasPatient && CanReport();
+            _tips.SetToolTip(btnStart,!_hasPatient?"ابتدا مراجع جدید را ثبت کنید.":!_device.Connected && !_developerMode?"اتصال دستگاه را در تنظیمات بررسی کنید.":"ثبت یک مانور تازه");
+            _tips.SetToolTip(btnReport,btnReport.Enabled?"نهایی‌سازی معاینه و پیش‌نمایش گزارش":"مانور قابل استفاده و تعداد لازمِ تیک گزارش را انتخاب کنید.");
+            lblConnection.Text=_busy && _active!=null?"● در حال دریافت":_device.Connected?"● متصل":"● متصل نیست";
+            lblConnection.ForeColor=_device.Connected?ClinicalStyle.Accent:Color.FromArgb(113,126,138);
+            lblPatient.Enabled=_hasPatient && !_busy;
+            foreach(DataGridViewRow row in gridTrials.Rows) { bool enabled=editable && ExamSummary.CanReport(_exam.Trials[row.Index]); row.Cells[6].Tag=enabled; row.Cells[7].Style.ForeColor=enabled?ClinicalStyle.Ink:Color.LightGray; }
         }
-        private void ConnectDevice(bool startAfter)
+        bool CanReport()
+        {
+            if(ExamSummary.Build(_exam.Trials).Best==null) return false;
+            try { _exam.ValidateSelection(_exam.PrimarySelectionRequired); _exam.ValidateReportSelection(true); return true; } catch { return false; }
+        }
+
+        private void ConnectDevice(bool startAfter,Action completed=null)
         {
             if(_busy) return; if(startAfter && ReadPatient()==null) return;
             _busy=true; UpdateControls(); lblStatus.Text="در حال اتصال به دستگاه…";
@@ -235,7 +159,7 @@ namespace SpiroLab.Ui
                 Post(delegate
                 {
                     _busy=false; UpdateControls(); lblStatus.Text=ok?"دستگاه آماده است":"اتصال برقرار نشد";
-                    if(!ok) { _safeError="device_open_or_control_failed"; Error(error); } else if(startAfter) StartTest();
+                    if(!ok) { _safeError="device_open_or_control_failed"; Error("اتصال برقرار نشد؛ تنظیمات دستگاه را بررسی کنید."); } else if(startAfter) StartTest(); if(completed!=null) completed();
                 });
             }) { IsBackground=true }; worker.Start();
         }
@@ -268,7 +192,7 @@ namespace SpiroLab.Ui
             if(_busy || !CheckSource(true,false)) return; Patient p=ReadPatient(); if(p==null) return;
             if(!SyncMetadata()) return;
             _exam.Patient=p; _active=Simulator.Build(p,Environment.TickCount); _active.Completed=false;
-            _simPos=0; _simulating=true; _busy=true; _selected=null; chart.Trial=_active; chart.Result=null; chart.VisibleSamples=0;
+            _developerMode=true; _simPos=0; _simulating=true; _busy=true; _selected=null; chart.Trial=_active; chart.Result=null; chart.VisibleSamples=0;
             lblLive.Text="نمایشی — دادهٔ ساختگی";  UpdateControls(); _timer.Start();
         }
         private void DrainPackets()
@@ -309,205 +233,163 @@ namespace SpiroLab.Ui
             _timer.Stop(); _busy=false; _simulating=false;
             Trial t=_active; _active=null; if(t==null) { UpdateControls(); return; }
             t.Result=SpiroAnalysis.Analyze(t,_exam.Patient); _exam.AddManeuver(t); _dirty=true; _selected=t;
-            chart.Trial=t; chart.Result=t.Result;
-            lblLive.Text=t.Completed?"مانور پایان یافت — "+ExamStore.Source(t):"مانور ناقص — "+t.EndReason;
             RenderTrials(); RestorePrimaryPreview(); SaveExam(false); UpdateControls();
         }
-        private void RenderTrials()
+        void RenderTrials()
         {
             _rendering=true; gridTrials.Rows.Clear();
-            Trial recommended=ExamSummary.Build(_exam.Trials).BestTrial;
             for(int i=0;i<_exam.Trials.Count;i++)
             {
-                Trial t=_exam.Trials[i]; AnalysisResult r=t.Result;
-                string state=!t.Completed?"ناقص":r==null || !r.Valid?"نامعتبر":"ثبت شد";
-                if(t.OperatorRejected) state+=" / ردشده";
-                if(t.ManeuverId==_exam.OperatorSelectedManeuverId) state+=" / اصلی";
-                if(object.ReferenceEquals(recommended,t)) state+=" / پیشنهاد";
-                gridTrials.Rows.Add(t.AcquisitionSequence,ExamStore.Source(t),r!=null && r.Valid?Fmt.N(r.Fvc,2):"—",r!=null && r.Valid?Fmt.N(r.Fev1,2):"—",state,
-                    r!=null && r.Valid?Fmt.N(r.Fev1Fvc,1):"—",r!=null && r.Valid?Fmt.N(r.Pef,2):"—",r!=null && r.Valid?Fmt.N(r.Fef2575,2):"—",t.When.ToString("HH:mm:ss"));
-                gridTrials.Rows[i].Cells[8].ToolTipText=t.When.ToString("o");
+                Trial t=_exam.Trials[i]; AnalysisResult r=t.Result; string state=t.OperatorRejected?"ردشده":!t.Completed?"ناقص":r==null || !r.Valid?"داده ناکافی":"";
+                gridTrials.Rows.Add(t.AcquisitionSequence+(state.Length>0?" · "+state:""),Metric(r,0),Metric(r,1),Metric(r,2),Metric(r,3),Metric(r,7),t.ManeuverId==_exam.OperatorSelectedManeuverId,ReportIds().Contains(t.ManeuverId));
+                string info=ExamStore.Source(t)+" | "+t.When.ToString("o")+(t.EndReason.Length>0?" | "+t.EndReason:"");
+                if(r!=null) info+=" | "+r.InvalidReason;
+                foreach(DataGridViewCell cell in gridTrials.Rows[i].Cells) cell.ToolTipText=info;
+                if(!ExamSummary.CanReport(t)) gridTrials.Rows[i].DefaultCellStyle.ForeColor=Color.FromArgb(144,113,113);
             }
-            int selected=_exam.Trials.IndexOf(_selected); if(selected>=0) gridTrials.CurrentCell=gridTrials.Rows[selected].Cells[0];
-            _rendering=false; UpdateSummary();
+            _rendering=false; UpdateSummary(); UpdateComparisons(); UpdateControls();
         }
-        private void SelectTrial(int index)
+        string Metric(AnalysisResult r,int index) { return r!=null && r.Valid?Fmt.N(SpiroReport.Value(r,index),index==2?1:2):"—"; }
+        List<string> ReportIds() { return _exam.SelectionWorkflowVersion>=2?_exam.ReportManeuverIds:_legacyReportIds; }
+        void ChangeChoice(int row,int column)
+        {
+            if(_rendering || _busy || _exam.FinalizedAt.HasValue || row<0 || row>=_exam.Trials.Count || (column!=6 && column!=7)) return;
+            Trial t=_exam.Trials[row]; if(!ExamSummary.CanReport(t)) { Error("این مانور ناقص یا غیرقابل استفاده است."); return; }
+            try
+            {
+                if(column==6) _exam.SelectSiteManeuver(t.ManeuverId);
+                else _exam.SetReportManeuver(t.ManeuverId,!_exam.ReportManeuverIds.Contains(t.ManeuverId));
+                _dirty=true; UpdateChoiceCells(); SaveExam(false);
+            }
+            catch(Exception ex) { Error(ex.Message); }
+        }
+        void UpdateChoiceCells()
+        {
+            _rendering=true;
+            for(int i=0;i<_exam.Trials.Count;i++) { gridTrials.Rows[i].Cells[6].Value=_exam.Trials[i].ManeuverId==_exam.OperatorSelectedManeuverId; gridTrials.Rows[i].Cells[7].Value=ReportIds().Contains(_exam.Trials[i].ManeuverId); }
+            _rendering=false; UpdateSummary(); UpdateComparisons(); UpdateControls();
+        }
+        void UpdateComparisons() { chart.ComparisonTrials=_exam.Trials.FindAll(delegate(Trial t) { return ReportIds().Contains(t.ManeuverId); }); }
+        void SelectTrial(int index)
         {
             if(index<0 || index>=_exam.Trials.Count) return;
-            _selected=_exam.Trials[index]; AnalysisResult r=_selected.Result;
-            chart.Trial=resultChart.Trial=_selected; chart.Result=resultChart.Result=r;
-            lblSource.Text=_exam.Patient.FullName+" | مانور "+(index+1)+" | "+ExamStore.Source(_selected)+(_selected.Completed?" | کامل":" | ناقص"); gridResults.Rows.Clear();
-            if(r!=null && r.Valid)
-            {
-                AddMetric("FVC (L)",r.Fvc,r.Ref.Fvc,r.Ref.FvcLln); AddMetric("FEV1 (L)",r.Fev1,r.Ref.Fev1,r.Ref.Fev1Lln);
-                AddMetric("FEV1/FVC (%)",r.Fev1Fvc,r.Ref.Fev1Fvc,r.Ref.RatioLln); AddMetric("PEF (L/s)",r.Pef,r.Ref.Pef,0);
-                AddMetric("FEF25-75 (L/s)",r.Fef2575,r.Ref.Fef2575,0); AddMetric("FEF25 (L/s)",r.Fef25,r.Ref.Fef25,0); AddMetric("FEF50 (L/s)",r.Fef50,r.Ref.Fef50,0); AddMetric("FEF75 (L/s)",r.Fef75,r.Ref.Fef75,0); AddMetric("FEV6 (L)",r.Fev6,0,0); AddMetric("FET (s)",r.Fet,0,0);
-                if(r.BevAvailable) AddMetric("BEV تخمینی (mL)",r.Bev*1000,0,0); else gridResults.Rows.Add("BEV تخمینی (mL)","—","—","—","—");
-            }
-            txtWarnings.Text=(_selected.Completed?"":"مانور ناقص: "+_selected.EndReason+Environment.NewLine)+(r==null?"":r.InvalidReason+Environment.NewLine+string.Join(Environment.NewLine,r.Warnings.ToArray()));
-            if(string.IsNullOrWhiteSpace(txtWarnings.Text)) txtWarnings.Text="هشدار سیگنال ثبت نشده؛ پذیرش بالینی خودکار تأیید نشده است.";
-            lblLive.Text="نمایش مانور "+_selected.AcquisitionSequence+(_selected.Completed?"":" — ناقص")+(_selected.OperatorRejected?" | ردشده":"")+(_selected.ManeuverId==_exam.OperatorSelectedManeuverId?" | مانور اصلی":"")+(_selected.Simulated?" | نمایشی":"");
-            _rendering=true; chkAccepted.Checked=_selected.OperatorAccepted; chkRejected.Checked=_selected.OperatorRejected; _rendering=false; UpdateControls();
+            _selected=_exam.Trials[index]; chart.Trial=_selected; chart.Result=_selected.Result;
+            _rendering=true; gridTrials.CurrentCell=gridTrials.Rows[index].Cells[0]; _rendering=false;
+            lblLive.Text=(_selected.Simulated?"دادهٔ آزمایشی | ":"")+"نمایش مانور "+_selected.AcquisitionSequence+(!_selected.Completed?" · ناقص":_selected.OperatorRejected?" · ردشده":_selected.Result==null || !_selected.Result.Valid?" · داده ناکافی":"");
+            UpdateControls();
         }
-        private void AddMetric(string name,double value,double predicted,double lln)
-        { gridResults.Rows.Add(name,Fmt.N(value,2),predicted>0?Fmt.N(predicted,2):"—",predicted>0?Fmt.Pct(value/predicted*100):"—",lln>0?Fmt.N(lln,2):"—"); }
-        private void SelectBest()
-        {
-            int best=_exam.Trials.IndexOf(ExamSummary.Build(_exam.Trials).BestTrial);
-            if(best<0) { Error("مانور کامل و معتبر برای انتخاب وجود ندارد."); return; }
-            _rendering=true; gridTrials.CurrentCell=gridTrials.Rows[best].Cells[0]; _rendering=false; SelectTrial(best); 
-        }
-        private void UpdateSummary()
-        {
-            ExamSummary best=ExamSummary.Build(_exam.Trials);
-            lblSummary.Text="مانورها: "+_exam.Trials.Count+" | اصلی: "+(_exam.OperatorSelectedManeuver==null?"انتخاب نشده":_exam.OperatorSelectedManeuver.AcquisitionSequence.ToString())+(best.BestTrial==null?"":" | پیشنهاد خودکار: "+best.BestTrial.AcquisitionSequence)+" | سقف فایل: ۴۰ MiB";
-            btnStart.Text=_exam.Trials.Count==0?"شروع تست":"تست بعدی";
-        }
-        private bool SaveExam(bool explicitSave)
-        {
-            if(_exam.Trials.Count==0) return true;
-            if(!SyncMetadata()) return false;
-            try
-            {
-                if(_path==null) _path=ExamStore.NewPath(); ExamStore.Save(_path,_exam); _dirty=false; lblStatus.Text="ذخیره شد";
-                if(explicitSave) MessageBox.Show(this,"پرونده ذخیره شد:\n"+_path,"ذخیره",MessageBoxButtons.OK,MessageBoxIcon.Information); return true;
-            }
-            catch(Exception ex) { lblStatus.Text="ذخیره انجام نشد: "+ex.Message; Error("ذخیرهٔ پرونده انجام نشد. داده‌ها هنوز در برنامه هستند.\n"+ex.Message); return false; }
-        }
-        private void NewExam()
-        {
-            if(_busy || (_dirty && !SaveExam(false))) return;
-            _exam=Exam.CreateNew(_settings); PopulateMetadata(); txtSelectionReason.Clear(); _dirty=false; _receivedLiveSamples=false; _safeError="none"; _selected=null; _path=null; cmbOrigin.SelectedIndex=0;
-            foreach(TextBox t in new TextBox[] { txtFirst,txtLast,txtNid,txtEmp,txtCompany,txtJob,txtAge,txtHeight,txtWeight,txtNote }) t.Clear();
-            chart.Trial=resultChart.Trial=null; chart.Result=resultChart.Result=null; gridResults.Rows.Clear(); RenderTrials(); txtWarnings.Clear();
-             lblSource.Text="هنوز تستی ثبت نشده است."; lblLive.Text="آماده"; lblStatus.Text="پروندهٔ جدید — مشخصات مراجع را وارد کنید.";
-            _rendering=true; chkAccepted.Checked=false; _rendering=false; UpdateControls();  txtFirst.Focus();
-        }
-        private void OpenExam()
-        {
-            if(_dirty && !SaveExam(false)) return;
-            using(OpenFileDialog dialog=new OpenFileDialog { Filter="پرونده SpiroLab (*.spiro)|*.spiro",InitialDirectory=ExamStore.DataDirectory })
-            {
-                if(dialog.ShowDialog(this)!=DialogResult.OK) return;
-                try
-                {
-                    LoadExam(dialog.FileName);
-                }
-                catch(Exception ex) { Error("پرونده باز نشد: "+ex.Message); }
-            }
-        }
-        private void LoadExam(string path)
-        {
-            Exam loaded=ExamStore.Load(path); _exam=loaded; _path=path; _dirty=false; _selected=null;
-            Populate(_exam.Patient); PopulateMetadata(); txtSelectionReason.Text=_exam.SelectionReason; RenderTrials();
-            if(_exam.Trials.Count>0) RestorePrimaryPreview();
-            else { gridResults.Rows.Clear(); chart.Trial=resultChart.Trial=null; chart.Result=resultChart.Result=null; txtWarnings.Clear(); lblInterpretation.Text="این پرونده تست ندارد."; }
-            UpdateControls(); lblStatus.Text="پرونده باز شد";
-        }
-        private void ExportCsv()
-        {
-            using(SaveFileDialog dialog=new SaveFileDialog { Filter="CSV UTF-8 (*.csv)|*.csv",FileName="SpiroLab-results.csv" })
-            {
-                if(dialog.ShowDialog(this)!=DialogResult.OK) return;
-                try { ExamStore.ExportCsv(dialog.FileName,_exam); lblStatus.Text="خروجی داده و شاخص‌ها: "+dialog.FileName; } catch(Exception ex) { Error(ex.Message); }
-            }
-        }
-        private void ImportCapture()
-        {
-            if(!CheckSource(false,true)) return; Patient p=ReadPatient(); if(p==null) return;
-            using(OpenFileDialog dialog=new OpenFileDialog { Filter="ضبط MIR با گام حجمی 0.030 L (*.csv)|*.csv" })
-            {
-                if(dialog.ShowDialog(this)!=DialogResult.OK) return;
-                try { Trial t=ExamStore.ImportCapture(dialog.FileName,.030); _exam.Patient=p; _active=t; FinishTrial(); }
-                catch(Exception ex) { Error("بازپخش انجام نشد: "+ex.Message); }
-            }
-        }
-        private void ExportImage()
-        {
-            using(SaveFileDialog dialog=new SaveFileDialog { Filter="گزارش کامل PNG|*.png|فقط نمودارها PNG|*.png",FileName="SpiroLab-report.png" })
-                if(dialog.ShowDialog(this)==DialogResult.OK)
-                    try
-                    {
-                        if(dialog.FilterIndex==2) using(Bitmap bitmap=SpiroReport.RenderCurves(_exam.Trials)) bitmap.Save(dialog.FileName,System.Drawing.Imaging.ImageFormat.Png);
-                        else ResultExport.Save(dialog.FileName,_exam.Patient,_exam.Trials);
-                        lblStatus.Text="تصویر ذخیره شد: "+dialog.FileName;
-                    }
-                    catch(Exception ex) { Error("تصویر ذخیره نشد: "+ex.Message); }
-        }
-        private void ShowReport()
-        {
-            if(ExamSummary.Build(_exam.Trials).Best==null) return;
-            if(!SaveExam(false)) return;
-            try
-            {
-                ExaminationSnapshot snapshot=ExaminationSnapshot.Capture(_exam);
-                if(!_exam.FinalizedAt.HasValue)
-                {
-                    _exam.FinalizeExamination();
-                    try { ExamStore.Save(_path,_exam); } catch { _exam.FinalizedAt=null; throw; }
-                    snapshot=ExaminationSnapshot.Capture(_exam); UpdateControls();
-                }
-                using(ReportForm report=new ReportForm(snapshot)) report.ShowDialog(this);
-            }
-            catch(Exception ex) { Error("گزارش آماده نشد: "+ex.Message); }
-        }
-        private void RestorePrimaryPreview()
+        void SelectBest() { Trial t=ExamSummary.Build(_exam.Trials).BestTrial; if(t!=null) SelectTrial(_exam.Trials.IndexOf(t)); }
+        void RestorePrimaryPreview()
         {
             if(_exam.OperatorSelectedManeuver!=null) SelectTrial(_exam.Trials.IndexOf(_exam.OperatorSelectedManeuver));
             else if(ExamSummary.Build(_exam.Trials).BestTrial!=null) SelectBest();
             else if(_exam.Trials.Count>0) SelectTrial(_exam.Trials.Count-1);
         }
-        private void ChoosePrimary(bool suggestion)
+        void UpdateSummary()
         {
-            if(_busy || _exam.FinalizedAt.HasValue || !SyncMetadata()) return;
-            Trial candidate=suggestion?ExamSummary.Build(_exam.Trials).BestTrial:_selected;
-            if(candidate==null) return;
-            try
-            {
-                _exam.SelectPrimary(candidate.ManeuverId,suggestion?"automatic_suggestion":"manual",txtOperator.Text,txtSelectionReason.Text);
-                _dirty=true; RenderTrials(); RestorePrimaryPreview();
-                if(SaveExam(false)) lblStatus.Text="مانور اصلی ذخیره شد؛ می‌توانید تست بعدی را انجام دهید.";
-            }
-            catch(Exception ex) { Error(ex.Message); }
+            string site=_exam.OperatorSelectedManeuver==null?"—":_exam.OperatorSelectedManeuver.AcquisitionSequence.ToString();
+            List<string> numbers=new List<string>(); foreach(Trial t in _exam.Trials) if(ReportIds().Contains(t.ManeuverId)) numbers.Add(t.AcquisitionSequence.ToString());
+            lblSummary.Text="مانورها: "+_exam.Trials.Count+"     |     سامانه: "+site+"     |     گزارش: "+(numbers.Count==0?"—":string.Join("، ",numbers.ToArray()));
         }
-        private void ChangeRejection()
+        private bool SaveExam(bool explicitSave)
         {
-            if(_rendering || _busy || _selected==null || _exam.FinalizedAt.HasValue) return;
-            try
+            if(!_hasPatient) return true; if(!SyncMetadata()) return false;
+            try { if(_path==null) _path=ExamStore.NewPath(); ExamStore.Save(_path,_exam); _dirty=false; lblStatus.Text="ذخیره شد"; return true; }
+            catch(Exception ex) { Error("ذخیره انجام نشد؛ داده‌ها در برنامه باقی‌اند. "+ex.Message); return false; }
+        }
+        bool CanLeave()
+        {
+            if(!_dirty) return true;
+            DialogResult decision=MessageBox.Show(this,"تغییرات معاینهٔ فعلی ذخیره شود؟ با انتخاب خیر، تغییرات ذخیره‌نشده کنار گذاشته می‌شوند.","معاینهٔ فعلی",MessageBoxButtons.YesNoCancel,MessageBoxIcon.Question);
+            return decision==DialogResult.No || (decision==DialogResult.Yes && SaveExam(false));
+        }
+        private void NewExam()
+        {
+            if(_busy) return;
+            using(PatientForm form=new PatientForm()) if(form.ShowDialog(this)==DialogResult.OK && CanLeave())
+                try { BeginExam(form.Value,true); } catch(Exception ex) { Error("ثبت معاینه انجام نشد؛ پروندهٔ قبلی حفظ شد. "+ex.Message); }
+        }
+        private void BeginExam(Patient patient,bool persist)
+        {
+            string problem; if(!PatientForm.ValidatePatient(patient,out problem)) throw new ArgumentException(problem);
+            Exam fresh=Exam.CreateNew(_settings); fresh.Patient=patient.Clone();
+            string path=persist?ExamStore.NewPath():_path;
+            if(persist) ExamStore.Save(path,fresh);
+            _exam=fresh; _path=path; _hasPatient=true; _selected=null; _dirty=false; _developerMode=false; _receivedLiveSamples=false; _safeError="none"; _legacyReportIds.Clear();
+            chart.Trial=null; chart.Result=null; PopulateMetadata(); RenderTrials(); lblLive.Text="آمادهٔ تست"; lblStatus.Text="مشخصات ذخیره شد";
+        }
+        private void OpenExam()
+        {
+            if(_busy) return;
+            using(OpenFileDialog dialog=new OpenFileDialog { Filter="پرونده SpiroLab (*.spiro)|*.spiro",InitialDirectory=ExamStore.DataDirectory })
+                if(dialog.ShowDialog(this)==DialogResult.OK && CanLeave()) try { LoadExam(dialog.FileName); } catch(Exception ex) { Error("پرونده باز نشد: "+ex.Message); }
+        }
+        private void LoadExam(string path)
+        {
+            Exam loaded=ExamStore.Load(path); _exam=loaded; _path=path; _hasPatient=true; _dirty=false; _selected=null; _developerMode=false; _legacyReportIds.Clear();
+            if(loaded.SelectionWorkflowVersion<2)
             {
-                _exam.SetRejected(_selected,chkRejected.Checked,txtOperator.Text,txtSelectionReason.Text);
-                _dirty=true; RenderTrials(); SelectTrial(_exam.Trials.IndexOf(_selected)); SaveExam(false);
+                if(ExamSummary.Build(loaded.Trials).Best!=null) foreach(Trial t in ExaminationSnapshot.Capture(loaded).Summary.Trials) _legacyReportIds.Add(t.ManeuverId);
+                if(!loaded.FinalizedAt.HasValue) { loaded.SelectionWorkflowVersion=2; loaded.ReportManeuverIds=new List<string>(_legacyReportIds); loaded.MaintainSelections(); _dirty=true; }
             }
-            catch(Exception ex) { _rendering=true; chkRejected.Checked=_selected.OperatorRejected; _rendering=false; Error(ex.Message); }
+            PopulateMetadata(); RenderTrials(); RestorePrimaryPreview(); lblStatus.Text="پرونده باز شد";
         }
         private void PopulateMetadata()
         {
-            _rendering=true;
-            txtCenter.Text=_exam.CenterName; txtOperator.Text=_exam.OperatorName; txtReviewed.Text=_exam.ReviewedInterpretation;
-            txtExamDate.Text=_exam.ExaminationDate.HasValue?ExaminationDates.Format(_exam.ExaminationDate.Value):"";
-            txtVext.Text=_exam.ReviewedVextMl.HasValue?Fmt.N(_exam.ReviewedVextMl.Value,2):"";
-            txtVextSource.Text=_exam.ReviewedVextSource; chkVextReviewed.Checked=_exam.VextManuallyReviewed;
+            _rendering=true; txtExamDate.Text=_exam.ExaminationDate.HasValue?ExaminationDates.DisplayJalali(_exam.ExaminationDate.Value):"";
+            if(_exam.Trials.Count>0) _hasPatient=true;
+            lblPatient.Text=_hasPatient?"مراجع: "+_exam.Patient.FullName+"    |    سن: "+_exam.Patient.Age+" سال":"مراجعی انتخاب نشده است";
             _rendering=false;
         }
         private bool SyncMetadata()
         {
-            if(_exam.FinalizedAt.HasValue) return true;
+            if(_exam.FinalizedAt.HasValue || !_hasPatient) return true;
             DateTime date;
-            if(!ExaminationDates.TryParse(txtExamDate.Text,out date)) { Error("تاریخ معتبر با قالب yyyy/MM/dd یا yyyy-MM-dd وارد کنید؛ شمسی یا میلادی."); return false; }
-            double vext=Fmt.Parse(txtVext.Text,double.NaN);
-            if(txtVext.Text.Trim().Length>0 && (double.IsNaN(vext) || vext<0 || vext>12000 || !chkVextReviewed.Checked || txtOperator.Text.Trim().Length==0 || txtVextSource.Text.Trim().Length==0))
-            { Error("برای VEXT، مقدار معتبر، نام کارشناس، منبع و تأیید بازبینی لازم است."); return false; }
-            if(!_exam.ExaminationDate.HasValue || _exam.ExaminationDate.Value.Date!=date) _exam.ExaminationDateSource="operator_selected_date";
-            _exam.ExaminationDate=date; _exam.CenterName=txtCenter.Text.Trim(); _exam.OperatorName=txtOperator.Text.Trim(); _exam.ReviewedInterpretation=txtReviewed.Text.Trim();
-            _exam.ReviewedVextMl=txtVext.Text.Trim().Length==0?(double?)null:vext;
-            _exam.ReviewedVextSource=_exam.ReviewedVextMl.HasValue?txtVextSource.Text.Trim():"";
-            _exam.VextManuallyReviewed=_exam.ReviewedVextMl.HasValue && chkVextReviewed.Checked;
+            if(!ExaminationDates.TryParse(txtExamDate.Text,out date)) { Error("تاریخ شمسی معتبر وارد کنید؛ مثال: ۱۴۰۵/۰۸/۱۰"); return false; }
+            if(!_exam.ExaminationDate.HasValue || _exam.ExaminationDate.Value.Date!=date) { _exam.ExaminationDate=date; _exam.ExaminationDateSource="operator_selected_date"; _dirty=true; }
             return true;
         }
-        private void ClosingForm(object sender,FormClosingEventArgs args)
+        void ShowDetails()
         {
-            if(_busy) { args.Cancel=true; if(_active!=null) StopTest(); lblStatus.Text="ابتدا پایان توقف یا اتصال را منتظر بمانید، سپس برنامه را ببندید."; return; }
-            if(_dirty && !SaveExam(false)) { args.Cancel=true; return; } _timer.Dispose(); _device.Dispose();
+            if(!_hasPatient || _busy) return;
+            using(ExaminationDetailsForm form=new ExaminationDetailsForm(_exam,_selected))
+                if(form.ShowDialog(this)==DialogResult.OK) { _dirty=true; SaveExam(false); PopulateMetadata(); UpdateControls(); }
+        }
+        DeviceDiagnostics ReadDiagnostics() { return DeviceDiagnostics.Read(_device.ControlResponded,_receivedLiveSamples,_device.SafeTransportError!="none"?_device.SafeTransportError:_safeError,_device.HandleOpened,_device.StartCommandSucceeded,_device.LivePacketCount,_decodedLiveSamples); }
+        void OpenSettings()
+        {
+            if(_busy) return;
+            using(SettingsForm form=new SettingsForm(_settings,ReadDiagnostics,delegate(Action done) { ConnectDevice(false,done); }))
+            {
+                DialogResult result=form.ShowDialog(this);
+                if(result==DialogResult.OK) _settings=form.Value;
+                if(form.RunDevelopmentDemo && _hasPatient && !_exam.FinalizedAt.HasValue) StartSimulation();
+            }
+        }
+        private void ShowReport()
+        {
+            if(!CanReport() || !SaveExam(false)) return;
+            try
+            {
+                if(!_exam.FinalizedAt.HasValue)
+                {
+                    _exam.FinalizeExamination();
+                    try { ExamStore.Save(_path,_exam); } catch { _exam.FinalizedAt=null; throw; }
+                }
+                ExaminationSnapshot snapshot=ExaminationSnapshot.Capture(_exam); UpdateControls();
+                using(ReportForm report=new ReportForm(snapshot)) { report.Exported+=RecordExport; report.ShowDialog(this); }
+            }
+            catch(Exception ex) { Error("گزارش آماده نشد: "+ex.Message); }
+        }
+        void RecordExport(ResultPackage package)
+        {
+            _exam.ExportReferences.Add(new ExportReference { SnapshotId=_exam.ReportSnapshotId,ReportPath=package.ReportPath,DataPath=package.DataPath,CreatedAt=DateTime.Now });
+            try { ExamStore.Save(_path,_exam); } catch(Exception ex) { _dirty=true; Error("فایل‌ها صادر شدند؛ ثبت مسیر خروجی در سابقه انجام نشد: "+ex.Message); }
+        }
+        void ClosingForm(object sender,FormClosingEventArgs args)
+        {
+            if(_busy) { args.Cancel=true; if(_active!=null) StopTest(); Error("ابتدا پایان ثبت یا توقف را منتظر بمانید."); return; }
+            if(_dirty && !SaveExam(false)) { args.Cancel=true; return; } _timer.Dispose(); _device.Dispose(); _tips.Dispose();
         }
     }
 }

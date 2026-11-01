@@ -19,6 +19,10 @@ if errorlevel 1 goto :fail
 if errorlevel 1 goto :fail
 release\ManeuverSelectionTests.exe maneuver-selection-test-output
 if errorlevel 1 goto :fail
+"C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe" /nologo /target:exe /platform:x86 /codepage:65001 /out:release\ClinicalUiTests.exe /r:release\SpiroLab.exe /r:System.dll /r:System.Core.dll /r:System.Drawing.dll /r:System.Windows.Forms.dll /r:System.Web.Extensions.dll Tests\ClinicalUiTests.cs
+if errorlevel 1 goto :fail
+release\ClinicalUiTests.exe clinical-ui-test-output
+if errorlevel 1 goto :fail
 popd
 exit /b 0
 :fail

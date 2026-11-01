@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -30,19 +30,19 @@ namespace SpiroLab.Ui
                 g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
                 Text(g,string.IsNullOrWhiteSpace(snapshot.Data.CenterName)?"SPIROMETRY REPORT":snapshot.Data.CenterName,new RectangleF(60,42,1080,50),27,true,false,true);
                 Text(g,"ERS / ECCS 1993",new RectangleF(60,95,350,30),14,false,false,false);
-                Text(g,"PRE | Primary: "+(snapshot.OperatorSelectedIndex>0?"#"+snapshot.OperatorSelectedIndex:"—"),new RectangleF(450,95,300,30),14,false,false,true);
+                Text(g,(snapshot.Data.SelectionWorkflowVersion>=2?"PRE | Site: ":"PRE | Primary: ")+(snapshot.OperatorSelectedIndex>0?"#"+snapshot.OperatorSelectedIndex:"—"),new RectangleF(450,95,300,30),14,false,false,true);
                 Text(g,"کارشناس: "+(string.IsNullOrWhiteSpace(snapshot.Data.OperatorName)?"—":snapshot.Data.OperatorName),new RectangleF(790,95,350,30),14,false,true,false);
-                Text(g,snapshot.Status+" | PRE | "+snapshot.ManeuverCount+" maneuvers",new RectangleF(60,137,1080,32),13,true,false,true);
+                Text(g,snapshot.Status+" | PRE | "+snapshot.ManeuverCount+" attempts | "+s.Trials.Count+" report curves"+(s.Trials.Count<3?" (partial)":""),new RectangleF(60,137,1080,32),13,true,false,true);
                 g.DrawLine(Pens.LightGray,60,177,1140,177);
                 Text(g,p.FullName+"    |    کد ملی: "+p.NationalId,new RectangleF(60,192,1080,33),17,true,true,false);
                 Text(g,"سن: "+p.Age+"    جنسیت: "+(p.Sex==Sex.Male?"مرد":"زن")+"    قد: "+Fmt.N(p.HeightCm,1)+" cm    وزن: "+Fmt.N(p.WeightKg,1)+" kg",new RectangleF(60,232,1080,33),14,false,true,false);
-                Text(g,"Exam date: "+ExaminationDates.Format(snapshot.TestedAt)+" ("+PersianDate.Format(snapshot.TestedAt)+")    |    Origin: "+OriginText(p.Origin)+"    |    Predicted: ERS",new RectangleF(60,276,1080,29),13,false,false,false);
+                Text(g,"Exam date: "+ExaminationDates.Format(snapshot.TestedAt)+" ("+ExaminationDates.Jalali(snapshot.TestedAt)+")    |    Origin: "+OriginText(p.Origin)+"    |    Predicted: ERS",new RectangleF(60,276,1080,29),13,false,false,false);
                 Text(g,"FLOW–VOLUME & VOLUME–TIME CURVES",new RectangleF(60,321,1080,30),16,true,false,true);
                 DrawCurves(g,new Rectangle(60,362,1080,483),s,delegate(Trial t) { return snapshot.Index(t); },snapshot.OperatorSelectedManeuverId);
                 Text(g,"BEST VALUES",new RectangleF(60,880,1080,32),18,true,false,true);
                 string[][] best=BestRows(s);
                 Table(g,60,920,1080,32,new string[] {"PARAMETER","UNIT","Pred.","Measured","%Pred."},best);
-                Text(g,"MANEUVER DETAILS — UP TO THREE, PRIMARY INCLUDED",new RectangleF(60,1133,1080,30),14,true,false,true);
+                Text(g,snapshot.Data.SelectionWorkflowVersion>=2?"MANEUVER DETAILS — SELECTED REPORT MANEUVERS":"MANEUVER DETAILS — UP TO THREE, PRIMARY INCLUDED",new RectangleF(60,1133,1080,30),14,true,false,true);
                 List<string[]> detail=new List<string[]>();
                 int[] starred={0,1,3}; double[] maxima={s.Fvc,s.Fev1,s.Pef};
                 for(int k=0;k<starred.Length;k++)
@@ -63,11 +63,11 @@ namespace SpiroLab.Ui
                 Table(g,60,1170,1080,22,new string[] {"PARAMETER","UNIT","Pred.",s.Trials.Count>0?"PRE #"+snapshot.Index(s.Trials[0]):"—","%Pred.",s.Trials.Count>1?"PRE #"+snapshot.Index(s.Trials[1]):"—",s.Trials.Count>2?"PRE #"+snapshot.Index(s.Trials[2]):"—"},detail.ToArray());
                 Text(g,"INTERPRETATION: "+snapshot.InterpretationText,new RectangleF(60,1462,1080,40),12,false,true,false);
                 Text(g,"QUALITY: "+(string.IsNullOrWhiteSpace(snapshot.Data.ReviewedQualityGrade)?"UNVALIDATED":snapshot.Data.ReviewedQualityGrade+" (manual)")+" | EVol: timing unverified | VEXT: "+(snapshot.Data.ReviewedVextMl.HasValue?Fmt.N(snapshot.Data.ReviewedVextMl.Value,2)+" mL (manual review)":"unavailable"),new RectangleF(60,1505,1080,25),11,false,false,false);
-                Text(g,"مانور اصلی: "+snapshot.PrimaryLabel+" | انتخاب‌کننده: "+(snapshot.OperatorSelectedIndex>0?snapshot.Data.SelectionOperatorName:"—")+" | روش: "+(snapshot.OperatorSelectedIndex>0?(snapshot.Data.SelectionMethod=="manual"?"دستی":"پیشنهاد پذیرفته‌شده"):"ثبت نشده"),new RectangleF(60,1532,1080,25),11,false,true,false);
+                Text(g,(snapshot.Data.SelectionWorkflowVersion>=2?"مانور سامانه: ":"مانور اصلی: ")+snapshot.PrimaryLabel+" | انتخاب‌کننده: "+(snapshot.OperatorSelectedIndex>0?snapshot.Data.SelectionOperatorName:"—")+" | روش: "+(snapshot.OperatorSelectedIndex>0?(snapshot.Data.SelectionMethod=="manual"?"دستی":"پیشنهاد پذیرفته‌شده"):"ثبت نشده"),new RectangleF(60,1532,1080,25),11,false,true,false);
                 Text(g,snapshot.Data.ReviewedQualityComment,new RectangleF(60,1558,1080,23),11,false,true,false);
                 Text(g,"REPEATABILITY (descriptive, unvalidated): "+s.Repeatability,new RectangleF(60,1582,1080,28),11,false,false,false);
-                Text(g,"Exam: "+snapshot.Data.ExaminationId+" | Recommendation: PRE #"+snapshot.BestIndex+" | Primary: "+snapshot.PrimaryLabel,new RectangleF(60,1655,1080,26),10,false,false,false);
-                Text(g,"Independent SpiroLab 5.1.1 | SN: "+(string.IsNullOrEmpty(s.BestTrial.DeviceSerial)?"not verified":s.BestTrial.DeviceSerial)+" | Not a MIR-generated report",new RectangleF(60,1620,1080,28),11,false,false,false);
+                Text(g,"Exam: "+snapshot.Data.ExaminationId+" | Report best: PRE #"+snapshot.BestIndex+" | Site: "+snapshot.PrimaryLabel,new RectangleF(60,1655,1080,26),10,false,false,false);
+                Text(g,"Independent SpiroLab 5.2 | SN: "+(string.IsNullOrEmpty(s.BestTrial.DeviceSerial)?"not verified":s.BestTrial.DeviceSerial)+" | Not a MIR-generated report",new RectangleF(60,1620,1080,28),11,false,false,false);
             }
             return image;
         }
@@ -133,7 +133,7 @@ namespace SpiroLab.Ui
             for(int k=0;k<s.Trials.Count;k++)
             {
                 using(Pen pen=new Pen(Colors[k],2)) { if(k==1) pen.DashStyle=DashStyle.Dash; if(k==2) pen.DashStyle=DashStyle.DashDot; g.DrawLine(pen,area.Left+90+k*290,legendY+10,area.Left+132+k*290,legendY+10); }
-                Text(g,"PRE #"+(identify==null?k+1:identify(s.Trials[k]))+(s.Trials[k].ManeuverId==primaryId?" [PRIMARY]":""),new RectangleF(area.Left+142+k*290,legendY-3,195,28),11,s.Trials[k].ManeuverId==primaryId,false,false);
+                Text(g,"PRE #"+(identify==null?k+1:identify(s.Trials[k]))+(s.Trials[k].ManeuverId==primaryId?" [SITE]":""),new RectangleF(area.Left+142+k*290,legendY-3,195,28),11,s.Trials[k].ManeuverId==primaryId,false,false);
             }
         }
         public static double Value(AnalysisResult r,int i)

@@ -11,6 +11,7 @@ namespace SpiroLab.Ui
 {
     public sealed class ReportForm : Form
     {
+        public event Action<ResultPackage> Exported;
         private readonly ExaminationSnapshot _snapshot;
         private readonly Patient _patient;
         private readonly IList<Trial> _trials;
@@ -22,6 +23,7 @@ namespace SpiroLab.Ui
         public ReportForm(ExaminationSnapshot snapshot)
         {
             snapshot.Data.ValidateSelection(snapshot.Data.PrimarySelectionRequired);
+            snapshot.Data.ValidateReportSelection(true);
             _snapshot=snapshot; _patient=snapshot.Data.Patient; _trials=snapshot.Data.Trials; _report=SpiroReport.Render(snapshot);
             Text="گزارش توسعه — "+_patient.FullName; Size=new Size(1000,900); StartPosition=FormStartPosition.CenterParent;
             Font=new Font("Tahoma",10); RightToLeft=RightToLeft.Yes;
@@ -53,6 +55,7 @@ namespace SpiroLab.Ui
                     try
                     {
                         ResultPackage package=ResultExport.SaveToDirectory(dialog.SelectedPath,_snapshot);
+                        if(Exported!=null) Exported(package);
                         MessageBox.Show(this,"دو فایل ذخیره شد:\n"+Path.GetDirectoryName(package.ReportPath),"خروجی");
                     }
                     catch(Exception ex) { Error(ex); }

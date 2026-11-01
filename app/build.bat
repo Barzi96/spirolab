@@ -38,6 +38,11 @@ echo Building SpiroLab.exe ...
   Src\Device\Simulator.cs ^
   Src\Ui\ChartPanel.cs ^
   Src\Ui\MainForm.cs ^
+  Src\Ui\ClinicalStyle.cs ^
+  Src\Ui\PatientForm.cs ^
+  Src\Ui\JalaliDateForm.cs ^
+  Src\Ui\RadioColumn.cs ^
+  Src\Ui\ExaminationDetailsForm.cs ^
   Src\Ui\ReportForm.cs ^
   Src\Ui\DiagnosticsForm.cs ^
   Src\Ui\SettingsForm.cs ^

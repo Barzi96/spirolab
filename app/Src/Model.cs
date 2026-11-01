@@ -77,6 +77,10 @@ namespace SpiroLab
         public bool OperatorRejected;
         public string RejectionReason="",RejectionOperator="";
         public DateTime? RejectionTimestamp;
+        public double? ReviewedVextMl;
+        public bool VextManuallyReviewed;
+        public string ReviewedVextSource="",VextReviewer="";
+        public DateTime? VextReviewedAt;
         public bool Completed = true;
         public bool Imported;
         public bool OperatorAccepted;
@@ -103,6 +107,7 @@ namespace SpiroLab
             t.ManeuverId = ManeuverId;
             t.AcquisitionSequence=AcquisitionSequence; t.OperatorRejected=OperatorRejected;
             t.RejectionReason=RejectionReason; t.RejectionOperator=RejectionOperator; t.RejectionTimestamp=RejectionTimestamp;
+            t.ReviewedVextMl=ReviewedVextMl; t.VextManuallyReviewed=VextManuallyReviewed; t.ReviewedVextSource=ReviewedVextSource; t.VextReviewer=VextReviewer; t.VextReviewedAt=VextReviewedAt;
             t.Flow.AddRange(Flow);
             t.Time.AddRange(Time);
             t.Volume.AddRange(Volume);

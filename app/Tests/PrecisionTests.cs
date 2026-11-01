@@ -111,7 +111,7 @@ internal static class PrecisionTests
                 typeof(MainForm).GetField("_exam",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(form,loaded);
                 Call(form,"PopulateMetadata"); Call(form,"UpdateControls");
                 Check(!((TextBox)Field(form,"txtExamDate")).Enabled && !((Button)Field(form,"btnStart")).Enabled,"finalized GUI locks metadata and further captures");
-                ((TextBox)Field(form,"txtCenter")).Text="changed control"; Call(form,"SyncMetadata");
+                ((AppSettings)Field(form,"_settings")).CenterName="changed default"; Call(form,"SyncMetadata");
                 Check(loaded.CenterName=="مرکز تست","finalized saved center immune to UI resynchronization");
                 using(Bitmap bitmap=new Bitmap(form.Width,form.Height)) { form.DrawToBitmap(bitmap,new Rectangle(Point.Empty,form.Size)); bitmap.Save(Path.Combine(root,"gui-5.1.png")); }
                 typeof(MainForm).GetField("_dirty",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(form,false);
