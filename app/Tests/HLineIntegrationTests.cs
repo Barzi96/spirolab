@@ -66,6 +66,7 @@ class HLineIntegrationTests
         patient=client.LoadLatestPatient("0000000001");Check(double.IsNaN(patient.HeightCm) && double.IsNaN(patient.WeightKg),"ambiguous anthropometry remains empty and editable");
         mock.VitalsOverride="{\"data\":[{\"medical_record_id\":\"2\",\"height\":999,\"weight\":-1}]}";
         patient=client.LoadLatestPatient("0000000001");Check(double.IsNaN(patient.HeightCm) && double.IsNaN(patient.WeightKg),"unusable anthropometry is not presented as valid data");mock.VitalsOverride=null;
+        mock.VitalsOverride="{\"data\":null}";patient=client.LoadLatestPatient("0000000001");Check(patient.HLineRecordId=="2" && double.IsNaN(patient.HeightCm) && double.IsNaN(patient.WeightKg),"empty vitals response still loads identity and leaves measurements blank");mock.VitalsOverride=null;
     }
     static void OneClickMainTests()
     {

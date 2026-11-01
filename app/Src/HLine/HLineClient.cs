@@ -185,7 +185,9 @@ namespace SpiroLab.HLine
         {
             VerifyRecord(record,person.Patient.HLinePersonId,person.Patient.NationalId);
             Patient p=person.Patient.Clone(); p.HLineRecordId=record.Id; p.HLineRecordDate=record.DateText; p.HLineRecordStatus=record.Status;
-            List<Dictionary<string,object>> vitals=Rows(Request("GET","/medical-records/"+Segment(record.Id)+"/vitals/history",null));
+            object history=Request("GET","/medical-records/"+Segment(record.Id)+"/vitals/history",null);
+            var envelope=history as Dictionary<string,object>;object data;
+            List<Dictionary<string,object>> vitals=envelope!=null && envelope.TryGetValue("data",out data) && data==null?new List<Dictionary<string,object>>():Rows(history);
             var same=vitals.FindAll(delegate(Dictionary<string,object> r) {return Text(r,"medical_record_id")==record.Id;});
             Dictionary<string,object> selected=same.Count==1?same[0]:null;
             if(same.Count>1)
