@@ -70,7 +70,7 @@ namespace SpiroLab
         public string PrimaryLabel { get { return OperatorSelectedIndex>0?"PRE #"+OperatorSelectedIndex:"unavailable (legacy / not selected)"; } }
         public int ManeuverCount { get { return Data.Trials.Count; } }
         internal int Index(Trial t) { return t.AcquisitionSequence; }
-        internal string InterpretationText { get { return string.IsNullOrWhiteSpace(Data.ReviewedInterpretation)?"Algorithmic / UNVALIDATED: "+Summary.Interpretation:"Clinician-entered: "+Data.ReviewedInterpretation; } }
+        internal string InterpretationText { get { return string.IsNullOrWhiteSpace(Data.ReviewedInterpretation)?Summary.Interpretation:Data.ReviewedInterpretation; } }
         private object Measurement(double? value,string unit,double? predicted,string source,string verification,string missing)
         { return new { value=value,unit=unit,predicted=predicted,percentPredicted=value.HasValue && predicted.HasValue && predicted.Value>0?(double?)(value.Value/predicted.Value*100):null,valueSource=source,verificationStatus=verification,missingDataStatus=missing }; }
         private object Measure(AnalysisResult r,int i,double value,string source)

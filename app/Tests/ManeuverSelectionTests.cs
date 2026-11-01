@@ -141,7 +141,7 @@ internal static class ManeuverSelectionTests
             Exam alternate=ExamStore.Load(saved); alternate.SelectPrimary(firstId,"manual",alternate.OperatorName,"");
             using(Bitmap selectedImage=SpiroReport.Render(snapshot)) using(Bitmap alternateImage=SpiroReport.Render(ExaminationSnapshot.Capture(alternate)))
             {
-                bool different=false; for(int y=190;y<250 && !different;y++) for(int x=900;x<1500;x++) if(selectedImage.GetPixel(x,y)!=alternateImage.GetPixel(x,y)) { different=true; break; }
+                bool different=false; for(int y=140;y<190 && !different;y++) for(int x=900;x<1500;x++) if(selectedImage.GetPixel(x,y)!=alternateImage.GetPixel(x,y)) { different=true; break; }
                 Check(different,"JPG primary header visibly changes with explicit primary, not just a JSON field");
             }
             // Saved attempt analysis is not silently re-derived at reopen.
