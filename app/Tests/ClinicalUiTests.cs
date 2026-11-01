@@ -111,6 +111,7 @@ internal static class ClinicalUiTests
             string uiPath=Path.Combine(root,"ui-session.spiro");
             using(MainForm form=new MainForm())
             {
+                Set(form,"_settings",new AppSettings { OperatorName="کارشناس آزمایشی" });
                 form.Size=new Size(1280,800); form.Show(); Application.DoEvents(); Shot(form,"01-main-empty");
                 Check(!((Button)Field(form,"btnStart")).Enabled && form.Controls.Find("FirstName",true).Length==0 && form.Controls.Find("ManeuverVext",true).Length==0,"empty clinical UI has no sidebar or advanced inputs and cannot start");
                 Console.WriteLine("LAYOUT connection "+((Control)Field(form,"lblConnection")).Bounds+" parent "+((Control)Field(form,"lblConnection")).Parent.Bounds);
@@ -154,6 +155,7 @@ internal static class ClinicalUiTests
                 foreach(float scale in new float[] {1,1.25f,1.5f})
                     using(MainForm form=new MainForm())
                     {
+                        Set(form,"_settings",new AppSettings { OperatorName="کارشناس آزمایشی" });
                         form.AutoScaleMode=AutoScaleMode.None; if(scale!=1) ApplyScale(form,scale);
                         form.Show(); form.Size=size; Call(form,"BeginExam",Patient(),false);
                         Exam e=(Exam)Field(form,"_exam"); for(int i=0;i<5;i++) { e.AddManeuver(Simulator.Build(e.Patient,100+i)); }
