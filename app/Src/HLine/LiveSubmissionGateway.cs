@@ -140,6 +140,9 @@ namespace SpiroLab.HLine
             result=null;other=null;
             if(string.IsNullOrWhiteSpace(text)) return;
             string value=text.Trim();
+            // A previously recorded "Not recorded" interpretation must stay unset;
+            // do not turn it into Normal or Other.
+            if(string.Equals(value,"Not recorded",StringComparison.OrdinalIgnoreCase) || string.Equals(value,"Not Recorded",StringComparison.OrdinalIgnoreCase)) return;
             string[] known=new string[] {"Normal","Probably Normal","Obstructive Pattern","Restrictive Pattern","Mixed","Small Airway Obstruction","Not Acceptable/Reproducible","Other"};
             foreach(string item in known) if(string.Equals(value,item,StringComparison.OrdinalIgnoreCase)) {result=item;return;}
             if(string.Equals(value,"Normal Spirometry",StringComparison.OrdinalIgnoreCase)) {result="Normal";return;}

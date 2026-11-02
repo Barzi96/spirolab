@@ -20,7 +20,7 @@ Persian README and phase evidence live in [README.md](README.md) and [docs/stand
 
 ## Guardrails
 
-- Never present hardware, clean-PC, BTPS or live-HLine validation as done: they are documented as PENDING.
-- A live clinical HTTP writer exists behind `LiveSubmissionGateway`. It is disabled by default: `MainForm` refuses writes unless a designated test scope (`--hline-test=<NID>:<RECORD>`) or an explicit owner-approved production flag (`--hline-write=all`) is present. Never enable production writes or perform a live write without the owner's explicit approval and a verified dedicated test record. Live-HLine write validation remains PENDING.
+- Never present hardware, clean-PC, BTPS or production HLine validation as done: hardware/clean-PC are PENDING. One owner-authorized live restore write to a designated historical test record passed; this does not establish production or general clinical validation.
+- A live clinical HTTP writer exists behind `LiveSubmissionGateway`. It is disabled by default: `MainForm` refuses writes unless a designated test scope (`--hline-test=<NID>:<RECORD>`) or an explicit owner-approved production flag (`--hline-write=all`) is present. Never enable production writes or perform a live write outside the owner-approved designated test record. Production HLine write validation remains PENDING.
 - Never add patient data, driver binaries, credentials or tokens to Git; only synthetic fixtures are allowed.
 - Version strings and some docs are partly stale (5.2 vs 5.3.1). Keep any edit consistent with the version being released.

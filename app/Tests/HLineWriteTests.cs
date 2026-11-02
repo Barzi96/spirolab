@@ -137,6 +137,10 @@ class HLineWriteTests
                     MethodInfo build=typeof(LiveSubmissionGateway).GetMethod("BuildPayload",BindingFlags.Instance|BindingFlags.NonPublic);
                     Dictionary<string,object> payload=(Dictionary<string,object>)build.Invoke(gateway,new object[] {draft,id});
                     Check(Convert.ToString(payload["result"])=="Other" && Convert.ToString(payload["result_other"])=="متن بازپزشک برای آزمون","free-text interpretation is preserved as Other without inventing a category");
+                    Exam unrecorded=Exam();unrecorded.ReviewedInterpretation="Not recorded";SubmissionDraft ud=Draft(unrecorded);
+                    gateway.VerifyDestination(ud);string uid=gateway.UploadJpeg(ud,"test");
+                    Dictionary<string,object> upayload=(Dictionary<string,object>)build.Invoke(gateway,new object[] {ud,uid});
+                    Check(upayload["result"]==null && upayload["result_other"]==null,"not-recorded interpretation stays unset instead of inventing Normal or Other");
                 }
             }
             Console.WriteLine("ALL "+checks+" HLINE WRITE CHECKS PASSED");return 0;
