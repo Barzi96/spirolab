@@ -21,10 +21,14 @@ namespace SpiroLab.Ui
             ClinicalStyle.Row(table,exam.Patient.FullName,patient,48);
             center=ClinicalStyle.TextField("ExamCenter",exam.CenterName); center.MaxLength=200;
             op=ClinicalStyle.TextField("ExamOperator",exam.OperatorName); op.MaxLength=100;
-            interpretation=ClinicalStyle.TextField("Interpretation",exam.ReviewedInterpretation); interpretation.Multiline=true; interpretation.MaxLength=250;
+            // Workflow 4: the physician records the final interpretation in HLine, so the
+            // normal operator screen no longer offers an expert-interpretation box.
+            // Older records keep the field (and its historical value) untouched.
+            if(exam.SelectionWorkflowVersion<4) { interpretation=ClinicalStyle.TextField("Interpretation",exam.ReviewedInterpretation); interpretation.Multiline=true; interpretation.MaxLength=250; }
             grade=ClinicalStyle.TextField("ManualGrade",exam.ReviewedQualityGrade); comment=ClinicalStyle.TextField("QualityComment",exam.ReviewedQualityComment);
             ClinicalStyle.Row(table,"مرکز این معاینه",center,44); ClinicalStyle.Row(table,"کارشناس این معاینه",op,44);
-            ClinicalStyle.Row(table,"تفسیر کارشناس",interpretation,68); ClinicalStyle.Row(table,"درجهٔ کیفیت (دستی)",grade,44); ClinicalStyle.Row(table,"یادداشت کیفیت",comment,44);
+            if(interpretation!=null) ClinicalStyle.Row(table,"تفسیر کارشناس",interpretation,68);
+            ClinicalStyle.Row(table,"درجهٔ کیفیت (دستی)",grade,44); ClinicalStyle.Row(table,"یادداشت کیفیت",comment,44);
             vext=ClinicalStyle.TextField("ManeuverVext",maneuver!=null && maneuver.ReviewedVextMl.HasValue?Fmt.N(maneuver.ReviewedVextMl.Value,2):"");
             source=ClinicalStyle.TextField("ManeuverVextSource",maneuver==null?"":maneuver.ReviewedVextSource);
             reviewed=new CheckBox { Text="مقدار و منبع را بازبینی کرده‌ام",Checked=maneuver!=null && maneuver.VextManuallyReviewed };
@@ -34,7 +38,7 @@ namespace SpiroLab.Ui
             TextBox info=new TextBox { Multiline=true,ReadOnly=true,ScrollBars=ScrollBars.Vertical,Text="مرجع: ERS / ECCS 1993 — مقادیر بازسازی‌شده اعتبارسنجی نشده‌اند."+Environment.NewLine+(shown==null || shown.Result==null?"":shown.Result.InvalidReason+Environment.NewLine+string.Join(Environment.NewLine,shown.Result.Warnings.ToArray())) };
             ClinicalStyle.Row(table,"مرجع و وضعیت مانور",info,110);
             if(exam.ReviewedVextMl.HasValue) ClinicalStyle.Row(table,"مقدار قدیمی معاینه",new Label { Text=Fmt.N(exam.ReviewedVextMl.Value,2)+" mL؛ بدون انتساب تأییدشده به مانور",AutoSize=true },50);
-            foreach(Control c in new Control[] {center,op,interpretation,grade,comment,vext,source,reviewed}) c.Enabled=!exam.FinalizedAt.HasValue;
+            foreach(Control c in new Control[] {center,op,interpretation,grade,comment,vext,source,reviewed}) if(c!=null) c.Enabled=!exam.FinalizedAt.HasValue;
             if(maneuver==null) vext.Enabled=source.Enabled=reviewed.Enabled=false;
             error=new Label { Dock=DockStyle.Bottom,Height=32,ForeColor=Color.Firebrick,Padding=new Padding(16,0,16,0) }; Controls.Add(error);
             FlowLayoutPanel actions=new FlowLayoutPanel { Dock=DockStyle.Bottom,Height=58,FlowDirection=FlowDirection.RightToLeft,RightToLeft=RightToLeft.No,Padding=new Padding(12,4,12,4) };
@@ -47,7 +51,11 @@ namespace SpiroLab.Ui
             if(string.IsNullOrWhiteSpace(center.Text)) { problem="نام مرکز را وارد کنید."; return false; }
             double amount=Fmt.Parse(vext.Text,double.NaN); bool has=vext.Text.Trim().Length>0;
             if(has && (maneuver==null || double.IsNaN(amount) || amount<0 || amount>12000 || !reviewed.Checked || string.IsNullOrWhiteSpace(op.Text) || string.IsNullOrWhiteSpace(source.Text))) { problem="VEXT به مقدار معتبر، منبع، نام بازبین و تأیید نیاز دارد."; return false; }
-            exam.CenterName=center.Text.Trim(); exam.OperatorName=op.Text.Trim(); exam.ReviewedInterpretation=interpretation.Text.Trim(); exam.ReviewedQualityGrade=grade.Text.Trim(); exam.ReviewedQualityComment=comment.Text.Trim();
+            exam.CenterName=center.Text.Trim(); exam.OperatorName=op.Text.Trim();
+            // Workflow 4 has no interpretation control; an existing historical value is
+            // left exactly as stored rather than being cleared by saving the form.
+            if(interpretation!=null) exam.ReviewedInterpretation=interpretation.Text.Trim();
+            exam.ReviewedQualityGrade=grade.Text.Trim(); exam.ReviewedQualityComment=comment.Text.Trim();
             if(maneuver!=null)
             {
                 bool changed=maneuver.ReviewedVextMl!=(has?(double?)amount:null) || maneuver.ReviewedVextSource!=source.Text.Trim() || maneuver.VextReviewer!=op.Text.Trim() || maneuver.VextManuallyReviewed!=has;

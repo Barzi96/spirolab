@@ -17,20 +17,36 @@ namespace SpiroLab.Ui
     public static class SpiroReport
     {
         public const string ProductVersion="5.4.0";
+        // Logical canvas shared by every output. Pixel outputs are drawn directly
+        // at a scale of this canvas, never enlarged and then shrunk again.
         public const int Width=1200, Height=1697;
+        // Portable JPG target: 1800 x 2546 (past A4 at 300 DPI reduced to the size
+        // the clinic actually shares). 3394*1800/2400 = 2545.5 -> 2546 keeps the
+        // exact same aspect ratio as the print render.
+        public const int JpegWidth=1800, JpegHeight=2546;
+        // The wording printed when no clinician has recorded an interpretation in
+        // this application. Kept Latin so the Persian font fallback never has to
+        // run inside the otherwise Latin sheet.
+        public const string PendingInterpretation="Final interpretation by physician in HLine";
         private static readonly Color[] Colors={Color.Black,Color.Black,Color.Black};
         private const string StampFileName="stamp.png";
         public static string OriginText(Origin origin)
         { return origin==Origin.Caucasian?"Caucasian":origin==Origin.Unspecified?"No group selected":"Other (no correction)"; }
         public static Bitmap Render(Patient p,IList<Trial> trials) { return Render(ExaminationSnapshot.Capture(p,trials)); }
-        public static Bitmap Render(ExaminationSnapshot snapshot)
+        // A4 print/preview render: the readability authority, drawn at 2x.
+        public static Bitmap Render(ExaminationSnapshot snapshot) { return Compose(snapshot,Width*2,Height*2,2f); }
+        // Portable JPG render: the same logical geometry rasterised directly at
+        // 1.5x. No large image is produced first, so labels and curves are drawn
+        // once at their final size instead of being resampled downwards.
+        public static Bitmap RenderForJpeg(ExaminationSnapshot snapshot) { return Compose(snapshot,JpegWidth,JpegHeight,JpegWidth/(float)Width); }
+        private static Bitmap Compose(ExaminationSnapshot snapshot,int pixelWidth,int pixelHeight,float scale)
         {
             Patient p=snapshot.Data.Patient; ExamSummary s=snapshot.Summary;
             if(s.Best==null) throw new InvalidOperationException("برای گزارش، حداقل یک مانور کامل و معتبر ثبت کنید.");
-            Bitmap image=new Bitmap(Width*2,Height*2); image.SetResolution(300,300);
+            Bitmap image=new Bitmap(pixelWidth,pixelHeight); image.SetResolution(300,300);
             using(Graphics g=Graphics.FromImage(image))
             {
-                g.Clear(Color.White); g.ScaleTransform(2,2); g.SmoothingMode=SmoothingMode.AntiAlias;
+                g.Clear(Color.White); g.ScaleTransform(scale,scale); g.SmoothingMode=SmoothingMode.AntiAlias;
                 g.TextRenderingHint=System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
                 int left=55, right=1145, content=right-left;
                 string session=string.IsNullOrWhiteSpace(snapshot.Data.SessionType)?"PRE":snapshot.Data.SessionType;
@@ -59,10 +75,8 @@ namespace SpiroLab.Ui
                 Table(g,left,1110,content,22,headers,detail.ToArray(),new int[] {30,13,13,12,14,14},14);
 
                 Text(g,"INTERPRETATION:",new RectangleF(left,1432,content,22),15,false,false,false);
-                string interpretation=Interpretation(snapshot);
-                string interpretationLabel=string.IsNullOrWhiteSpace(snapshot.Data.ReviewedInterpretation)?"PRELIMINARY AUTOMATED: ":"CLINICIAN-REVIEWED: ";
-                string interpretationText=interpretationLabel+interpretation;
-                Text(g,interpretationText,new RectangleF(left,1456,content,22),15,false,Persian(interpretation),false);
+                string interpretationLine=InterpretationLine(snapshot);
+                Text(g,interpretationLine,new RectangleF(left,1456,content,22),15,false,Persian(interpretationLine),false);
                 Text(g,"QUALITY CONTROL GRADE: "+(string.IsNullOrWhiteSpace(snapshot.Data.ReviewedQualityGrade)?"—":snapshot.Data.ReviewedQualityGrade),new RectangleF(left,1482,content,22),15,false,false,false);
                 Text(g,"EXHALE ALL air in the lungs",new RectangleF(left,1504,content,22),15,false,false,false);
                 Text(g,"REPEATABILITY: FVC, FEV1",new RectangleF(left,1526,content,22),15,false,false,false);
@@ -74,8 +88,16 @@ namespace SpiroLab.Ui
             }
             return image;
         }
-        // Optional clinic stamp: %APPDATA%\SpiroLab\stamp.png. When absent the
-        // area stays blank without moving any other block.
+        // What the sheet is allowed to state about interpretation.
+        // Workflow 4 never prints an automatic diagnosis: the physician records the
+        // final interpretation in HLine. A clinician's own recorded text and the
+        // historical workflow-3 automated line are printed exactly as before.
+        internal static string InterpretationLine(ExaminationSnapshot snapshot)
+        {
+            if(!string.IsNullOrWhiteSpace(snapshot.Data.ReviewedInterpretation)) return "CLINICIAN-REVIEWED: "+snapshot.Data.ReviewedInterpretation;
+            if(snapshot.Data.SelectionWorkflowVersion>=4) return PendingInterpretation;
+            return "PRELIMINARY AUTOMATED: "+Interpretation(snapshot);
+        }
         // Short print-style wording on the sheet; a clinician's reviewed text is
         // printed exactly as entered.
         internal static string Interpretation(ExaminationSnapshot snapshot)
@@ -89,6 +111,8 @@ namespace SpiroLab.Ui
             if(fvcLow) return "Restrictive pattern";
             return "Normal Spirometry";
         }
+        // Optional clinic stamp: %APPDATA%\SpiroLab\stamp.png. When absent the
+        // area stays blank without moving any other block.
         private static void DrawStamp(Graphics g,int right,int bottom)
         {
             try

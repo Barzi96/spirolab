@@ -625,7 +625,12 @@ namespace SpiroLab.Ui
             try
             {
                 ExaminationSnapshot snapshot=ExaminationSnapshot.Capture(submitting);
-                ResultPackage package=ResultExport.SaveToDirectory(Path.Combine(Path.GetDirectoryName(submittingPath),"exports"),snapshot);
+                // The JPG+JSON are produced off the UI thread so the window keeps
+                // painting during the one-click send. The snapshot is an immutable deep
+                // copy, so the bytes are identical to a synchronous export; no network
+                // work or submission logic moves here.
+                string exportRoot=Path.Combine(Path.GetDirectoryName(submittingPath),"exports");
+                ResultPackage package=await Task.Factory.StartNew(delegate { return ResultExport.SaveToDirectory(exportRoot,snapshot); },CancellationToken.None,TaskCreationOptions.DenyChildAttach,TaskScheduler.Default);
                 StoreExport(package,submitting,submittingPath);
                 SubmissionDraft draft=new SubmissionDraft(snapshot,package);
                 draft.ValidateForSubmission();
