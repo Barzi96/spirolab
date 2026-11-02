@@ -14,13 +14,13 @@ Persian README and phase evidence live in [README.md](README.md) and [docs/stand
 ## Build, test, package
 
 - `app\build.bat` — compiles `app\release\SpiroLab.exe` with the in-box `csc.exe` (no SDK needed).
-- `app\test.bat` — builds, then runs all seven check suites (they open real WinForms windows).
+- `app\test.bat` — builds, then runs all eight check suites (they open real WinForms windows).
 - `tools\package-release.ps1` — portable package + self-test + SHA256 into `dist\`.
 - Suite logs land in `app\*-test-output\` and are ignored by Git; do not commit them.
 
 ## Guardrails
 
 - Never present hardware, clean-PC, BTPS or live-HLine validation as done: they are documented as PENDING.
-- No live clinical HTTP writer exists on purpose. `HLineHttpTransport` allows `GET` plus `/auth/login` only.
+- A live clinical HTTP writer exists behind `LiveSubmissionGateway`. It is disabled by default: `MainForm` refuses writes unless a designated test scope (`--hline-test=<NID>:<RECORD>`) or an explicit owner-approved production flag (`--hline-write=all`) is present. Never enable production writes or perform a live write without the owner's explicit approval and a verified dedicated test record. Live-HLine write validation remains PENDING.
 - Never add patient data, driver binaries, credentials or tokens to Git; only synthetic fixtures are allowed.
 - Version strings and some docs are partly stale (5.2 vs 5.3.1). Keep any edit consistent with the version being released.

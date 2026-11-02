@@ -2,6 +2,7 @@ using System;
 using System.Windows.Forms;
 using System.Threading;
 using SpiroLab.Ui;
+using SpiroLab.HLine;
 
 namespace SpiroLab
 {
@@ -34,6 +35,8 @@ namespace SpiroLab
 
             bool demo = false;
             bool connect = false;
+            bool allowProductionWrites = false;
+            string testNationalId = "", testRecordId = "";
             int tab = -1;
             if (args != null)
             {
@@ -41,6 +44,13 @@ namespace SpiroLab
                 {
                     if (string.Equals(a, "--demo", StringComparison.OrdinalIgnoreCase)) demo = true;
                     if (string.Equals(a, "--connect", StringComparison.OrdinalIgnoreCase)) connect = true;
+                    if (string.Equals(a, "--hline-write=all", StringComparison.OrdinalIgnoreCase)) allowProductionWrites = true;
+                    if (a.StartsWith("--hline-test=", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string value = a.Substring("--hline-test=".Length);
+                        int colon = value.IndexOf(':');
+                        if (colon > 0) { testNationalId = value.Substring(0, colon).Trim(); testRecordId = value.Substring(colon + 1).Trim(); }
+                    }
                     if (a.StartsWith("--tab=", StringComparison.OrdinalIgnoreCase))
                     {
                         int v;
@@ -51,7 +61,11 @@ namespace SpiroLab
 
             try
             {
-                MainForm f = new MainForm();
+                MainForm f = allowProductionWrites
+                    ? new MainForm(new HLineClient(), testNationalId, testRecordId, true)
+                    : testNationalId.Length > 0 && testRecordId.Length > 0
+                    ? new MainForm(new HLineClient(), testNationalId, testRecordId, false)
+                    : new MainForm();
                 if (tab >= 0) f.Shown += delegate { f.SelectTab(tab); };
                 if (demo)
                 {

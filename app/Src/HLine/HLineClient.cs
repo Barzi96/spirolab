@@ -21,7 +21,15 @@ namespace SpiroLab.HLine
     // adopted from the operator's browser (no password login involved).
     public interface IHLineCookieSink
     { int AdoptCookies(IEnumerable<SessionCookie> cookies); }
-    public sealed class HLineHttpTransport : IHLineTransport, IHLineCookieSink
+    // Clinical writes are a separate, explicitly named surface. The ordinary
+    // IHLineTransport.Send guard remains read-only.
+    internal interface IHLineWriteChannel
+    {
+        HLineResponse SendWriteJson(string method,string path,string body,string csrf);
+        HLineResponse SendWriteMultipart(string path,string moduleId,byte[] jpeg,string filename,string description,string csrf);
+        byte[] ReadFileBytes(string path,out int status);
+    }
+    public sealed class HLineHttpTransport : IHLineTransport, IHLineCookieSink, IHLineWriteChannel
     {
         readonly Uri origin;
         CookieContainer cookies=new CookieContainer();
@@ -51,6 +59,83 @@ namespace SpiroLab.HLine
             }
             catch(HLineException) { throw; }
             catch { throw new HLineException("network","عدم دسترسی به سامانه"); }
+        }
+        static readonly Regex JsonWritePath=new Regex(@"^/medical-records/[A-Za-z0-9_-]{1,100}/spirometry$",RegexOptions.CultureInvariant);
+        static readonly Regex MultipartWritePath=new Regex(@"^/medical-records/[A-Za-z0-9_-]{1,100}/files$",RegexOptions.CultureInvariant);
+        static readonly Regex FileReadPath=new Regex(@"^/medical-records/[A-Za-z0-9_-]{1,100}/files/[A-Za-z0-9_-]{1,100}/dl\?inline=1$",RegexOptions.CultureInvariant);
+        static void RequireWrite(string method,string path,bool multipart)
+        {
+            if(!path.StartsWith("/") || path.StartsWith("//") || path.Contains("\\") || path.Contains(":")) throw new InvalidOperationException("مسیر نوشتن مجاز نیست.");
+            bool ok=multipart?method=="POST"&&MultipartWritePath.IsMatch(path):(method=="POST"||method=="PATCH")&&JsonWritePath.IsMatch(path);
+            if(!ok) throw new InvalidOperationException("عملیات نوشتن مجاز نیست.");
+        }
+        HLineResponse SendRaw(string method,string path,byte[] body,string csrf,string contentType,int timeout)
+        {
+            HttpWebRequest request=(HttpWebRequest)WebRequest.Create(new Uri(origin,"api"+path));
+            request.Method=method; request.CookieContainer=cookies; request.AllowAutoRedirect=false; request.Timeout=timeout; request.ReadWriteTimeout=timeout;
+            request.Accept="application/json"; request.Referer=origin.AbsoluteUri; request.Headers["Origin"]=origin.GetLeftPart(UriPartial.Authority); request.UserAgent="SpiroLab/5.3.1";
+            request.ServicePoint.Expect100Continue=false;
+            if(!string.IsNullOrEmpty(csrf)) request.Headers["X-CSRF-Token"]=csrf;
+            if(body!=null) { request.ContentType=contentType; request.ContentLength=body.Length; using(Stream s=request.GetRequestStream()) s.Write(body,0,body.Length); }
+            try
+            {
+                try { using(HttpWebResponse r=(HttpWebResponse)request.GetResponse()) return Read(r); }
+                catch(WebException e) { if(e.Response==null) throw new HLineException("network","عدم دسترسی به سامانه"); using(HttpWebResponse r=(HttpWebResponse)e.Response) return Read(r); }
+            }
+            catch(HLineException) { throw; }
+            catch { throw new HLineException("network","عدم دسترسی به سامانه"); }
+        }
+        public HLineResponse SendWriteJson(string method,string path,string body,string csrf)
+        {
+            RequireWrite(method,path,false);
+            return SendRaw(method,path,body==null?null:Encoding.UTF8.GetBytes(body),csrf,"application/json; charset=utf-8",30000);
+        }
+        public HLineResponse SendWriteMultipart(string path,string moduleId,byte[] jpeg,string filename,string description,string csrf)
+        {
+            RequireWrite("POST",path,true);
+            if(jpeg==null || jpeg.Length==0) throw new ArgumentException("فایل تصویر خالی است.");
+            string boundary="----SpiroLab"+Guid.NewGuid().ToString("N");
+            using(MemoryStream payload=new MemoryStream())
+            {
+                WritePart(payload,"--"+boundary+"\r\nContent-Disposition: form-data; name=\"module_id\"\r\n\r\n"+moduleId+"\r\n");
+                WritePart(payload,"--"+boundary+"\r\nContent-Disposition: form-data; name=\"medical_record_file\"; filename=\""+SafeFilename(filename)+"\"\r\nContent-Type: image/jpeg\r\n\r\n");
+                payload.Write(jpeg,0,jpeg.Length); WritePart(payload,"\r\n");
+                if(!string.IsNullOrEmpty(description)) WritePart(payload,"--"+boundary+"\r\nContent-Disposition: form-data; name=\"desc\"\r\n\r\n"+description+"\r\n");
+                WritePart(payload,"--"+boundary+"--\r\n");
+                return SendRaw("POST",path,payload.ToArray(),csrf,"multipart/form-data; boundary="+boundary,60000);
+            }
+        }
+        public byte[] ReadFileBytes(string path,out int status)
+        {
+            if(!FileReadPath.IsMatch(path)) throw new InvalidOperationException("مسیر دریافت فایل مجاز نیست.");
+            HttpWebRequest request=(HttpWebRequest)WebRequest.Create(new Uri(origin,"api"+path));
+            request.Method="GET"; request.CookieContainer=cookies; request.AllowAutoRedirect=false; request.Timeout=30000; request.ReadWriteTimeout=30000;
+            request.Accept="*/*"; request.Referer=origin.AbsoluteUri; request.UserAgent="SpiroLab/5.3.1";
+            try
+            {
+                try { using(HttpWebResponse r=(HttpWebResponse)request.GetResponse()) return ReadBytes(r,out status); }
+                catch(WebException e) { if(e.Response==null) throw new HLineException("network","عدم دسترسی به سامانه"); using(HttpWebResponse r=(HttpWebResponse)e.Response) return ReadBytes(r,out status); }
+            }
+            catch(HLineException) { throw; }
+            catch { throw new HLineException("network","عدم دسترسی به سامانه"); }
+        }
+        static byte[] ReadBytes(HttpWebResponse response,out int status)
+        {
+            status=(int)response.StatusCode;
+            using(Stream s=response.GetResponseStream()) using(MemoryStream b=new MemoryStream())
+            {
+                byte[] chunk=new byte[8192]; int n;
+                while((n=s.Read(chunk,0,chunk.Length))>0) { if(b.Length+n>6*1024*1024) throw new HLineException("response_size","فایل پاسخ بیش از حد بزرگ است."); b.Write(chunk,0,n); }
+                return b.ToArray();
+            }
+        }
+        static void WritePart(Stream target,string text) { byte[] data=Encoding.UTF8.GetBytes(text); target.Write(data,0,data.Length); }
+        static string SafeFilename(string name)
+        {
+            string value=string.IsNullOrEmpty(name)?"Spirometry-Report.jpg":Path.GetFileName(name);
+            value=value.Replace("\"","").Replace("\\","").Replace("\r","").Replace("\n","");
+            if(!value.EndsWith(".jpg",StringComparison.OrdinalIgnoreCase)) value="Spirometry-Report.jpg";
+            return value;
         }
         static HLineResponse Read(HttpWebResponse response)
         {
@@ -118,7 +203,8 @@ namespace SpiroLab.HLine
     {
         readonly IHLineTransport transport;
         readonly JavaScriptSerializer json=new JavaScriptSerializer {MaxJsonLength=2*1024*1024};
-        string csrf,userId;
+        string csrf,userId,centerId;
+        readonly HashSet<string> scopes=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         public SessionStatus Status {get;private set;}
         public string SessionOrigin {get;private set;}   // "firefox" | "password" (never a secret)
         public string FirefoxProfileName {get;private set;}
@@ -126,6 +212,96 @@ namespace SpiroLab.HLine
         public HLineClient():this(new HLineHttpTransport("https://hline.ssu.ac.ir/")) { }
         public HLineClient(IHLineTransport transport) { this.transport=transport; }
         public string StatusText {get { switch(Status) {case SessionStatus.Connected:return "متصل به سامانه";case SessionStatus.Expired:return "نیاز به ورود در فایرفاکس";case SessionStatus.AuthenticationError:return "خطای احراز هویت";case SessionStatus.Unavailable:return "عدم دسترسی به سامانه";default:return "نیاز به ورود در فایرفاکس";} } }
+        internal bool CanWrite {get {return transport is IHLineWriteChannel;}}
+        internal string CurrentUserId {get {return userId??"";}}
+        internal string CurrentMedicalCenterId {get {return centerId??"";}}
+        internal bool HasScope(string code)
+        {
+            if(scopes.Count==0) VerifySession();
+            return !string.IsNullOrEmpty(code) && scopes.Contains(code);
+        }
+        void CaptureMe(Dictionary<string,object> me)
+        {
+            Dictionary<string,object> data=OptionalDict(me,"data"), user=OptionalDict(data,"user");
+            string id=Text(user,"id"); if(id.Length==0) id=Text(data,"id"); if(id.Length==0) id=Text(me,"id");
+            if(id.Length>0) userId=id;
+            string center=Text(data,"medical_center_id"); if(center.Length==0) center=Text(user,"medical_center_id"); if(center.Length==0) center=Text(me,"medical_center_id");
+            centerId=center;
+            scopes.Clear();
+            CaptureScopes(data); CaptureScopes(user); CaptureScopes(me);
+        }
+        void CaptureScopes(Dictionary<string,object> source)
+        {
+            object raw; if(!source.TryGetValue("scopes",out raw) || !(raw is object[])) return;
+            foreach(object item in (object[])raw) { string code=Convert.ToString(item,CultureInfo.InvariantCulture); if(!string.IsNullOrEmpty(code)) scopes.Add(code); }
+        }
+        internal string EnsureCsrf()
+        {
+            if(!string.IsNullOrEmpty(csrf)) return csrf;
+            csrf=Text(Dict(Request("GET","/auth/csrf",null)),"csrf");
+            if(string.IsNullOrEmpty(csrf)) throw new HLineException("csrf","پاسخ CSRF معتبر نیست.");
+            return csrf;
+        }
+        internal HLineResponse WriteJson(string method,string path,object body)
+        {
+            IHLineWriteChannel channel=transport as IHLineWriteChannel;
+            if(channel==null) throw new HLineException("readonly","این مسیر ارتباطی از ارسال پشتیبانی نمی‌کند.");
+            string token=EnsureCsrf(), payload=json.Serialize(body);
+            HLineResponse response=channel.SendWriteJson(method,path,payload,token);
+            if(response.Status==419) { csrf=null; token=EnsureCsrf(); response=channel.SendWriteJson(method,path,payload,token); }
+            if(response.Status==401) { Status=SessionStatus.Expired; throw new HLineException("expired","نشست منقضی شده؛ دوباره وارد شوید."); }
+            if(response.Status==403) throw new HLineException("forbidden","مجوز ثبت اسپیرومتری برای این حساب وجود ندارد.");
+            return response;
+        }
+        internal HLineResponse WriteFile(string recordId,byte[] jpeg,string filename,string description)
+        {
+            IHLineWriteChannel channel=transport as IHLineWriteChannel;
+            if(channel==null) throw new HLineException("readonly","این مسیر ارتباطی از ارسال پشتیبانی نمی‌کند.");
+            string path="/medical-records/"+Segment(recordId)+"/files", token=EnsureCsrf();
+            HLineResponse response=channel.SendWriteMultipart(path,"spirometry",jpeg,filename,description,token);
+            if(response.Status==419) { csrf=null; token=EnsureCsrf(); response=channel.SendWriteMultipart(path,"spirometry",jpeg,filename,description,token); }
+            if(response.Status==401) { Status=SessionStatus.Expired; throw new HLineException("expired","نشست منقضی شده؛ دوباره وارد شوید."); }
+            if(response.Status==403) throw new HLineException("forbidden","مجوز بارگذاری فایل برای این حساب وجود ندارد.");
+            return response;
+        }
+        internal Dictionary<string,object> RecordDetail(string recordId) { return DataObject(Request("GET","/medical-records/"+Segment(recordId),null)); }
+        internal Dictionary<string,object> FindSpirometry(string recordId)
+        {
+            try
+            {
+                object value=Request("GET","/medical-records/"+Segment(recordId)+"/spirometry",null);
+                Dictionary<string,object> data=OptionalDataObject(value);
+                return data.Count==0?null:data;
+            }
+            catch(HLineException ex) { if(ex.Code=="not_found") return null; throw; }
+        }
+        internal List<Dictionary<string,object>> Files(string recordId)
+        { return Rows(Request("GET","/medical-records/"+Segment(recordId)+"/files/spirometry",null)); }
+        internal byte[] FileBytes(string recordId,string fileId,out int status)
+        {
+            RequireId(fileId);
+            IHLineWriteChannel channel=transport as IHLineWriteChannel;
+            if(channel==null) throw new HLineException("readonly","این مسیر ارتباطی از دریافت فایل پشتیبانی نمی‌کند.");
+            byte[] data=channel.ReadFileBytes("/medical-records/"+Segment(recordId)+"/files/"+Segment(fileId)+"/dl?inline=1",out status);
+            if(status==401) { Status=SessionStatus.Expired; throw new HLineException("expired","نشست منقضی شده؛ دوباره وارد شوید."); }
+            return data;
+        }
+        internal bool VerifySubmissionDestination(SubmissionDraft draft) { return VerifySubmission(draft,true); }
+        // The designated test record may be historical. Its exact identity is still
+        // verified, but the latest-record rule is relaxed only for that opt-in scope.
+        internal bool VerifySubmissionRecord(SubmissionDraft draft) { return VerifySubmission(draft,false); }
+        bool VerifySubmission(SubmissionDraft draft,bool requireLatest)
+        {
+            VerifySession();
+            if(requireLatest) VerifyLatestRecord(draft.Snapshot.Data.Patient);
+            else VerifyRecord(new MedicalRecord {Id=draft.RecordId,PersonId=draft.PersonId,NationalId=draft.NationalId,DateText=draft.RecordDate,Status=draft.RecordStatus},draft.PersonId,draft.NationalId);
+            Dictionary<string,object> record=RecordDetail(draft.RecordId);
+            if(Text(record,"id")!=draft.RecordId || Text(record,"person_id")!=draft.PersonId || Fmt.NormalizeNumber(Text(record,"person_id_no"))!=draft.NationalId || Text(record,"admission_date")!=draft.RecordDate || Text(record,"status")!=draft.RecordStatus) throw new HLineException("destination_changed","مشخصات پرونده در سامانه تغییر کرده است؛ ارسال متوقف شد.");
+            string recordCenter=Text(record,"medical_center_id");
+            if(!string.IsNullOrEmpty(recordCenter) && !string.IsNullOrEmpty(centerId) && recordCenter!=centerId) throw new HLineException("center","پرونده به مرکز درمانی این حساب تعلق ندارد.");
+            if(!HasScope("mrsp_u") || !HasScope("mrsp_p") || !HasScope("mrsp_nf")) throw new HLineException("forbidden","مجوز ثبت نتیجه، انجام‌دهنده یا فایل اسپیرومتری برای این حساب کامل نیست.");
+            return true;
+        }
         object Request(string method,string path,object body)
         {
             HLineResponse r;
@@ -133,6 +309,7 @@ namespace SpiroLab.HLine
             catch { Status=SessionStatus.Unavailable; throw new HLineException("network","عدم دسترسی به سامانه"); }
             if((r.Status==401 && path!="/auth/login") || r.Status==419 || (r.Status>=300 && r.Status<400)) { Status=SessionStatus.Expired; throw new HLineException("expired","نشست منقضی شده؛ دوباره وارد شوید."); }
             if(r.Status==403) throw new HLineException("forbidden","مجوز دسترسی به این بخش وجود ندارد.");
+            if(r.Status==404) throw new HLineException("not_found","مورد درخواستی در سامانه پیدا نشد.");
             if((r.Status<200 || r.Status>=300) && !(path=="/auth/login" && (r.Status==400 || r.Status==401 || r.Status==422))) throw new HLineException("server","پاسخ ناموفق سامانه؛ اطلاعات محلی حفظ شد.");
             try { return json.DeserializeObject(r.Body); } catch { throw new HLineException("malformed","ساختار پاسخ سامانه معتبر نیست."); }
         }
@@ -165,6 +342,7 @@ namespace SpiroLab.HLine
             Dictionary<string,object> me=Dict(Request("GET","/me",null)), data=OptionalDict(me,"data");
             string actual=Text(OptionalDict(me,"user"),"id");if(actual.Length==0) actual=Text(OptionalDict(data,"user"),"id");if(actual.Length==0) actual=Text(data,"id");
             if(actual.Length==0 || actual!=userId) { Status=SessionStatus.Expired; throw new HLineException("expired","هویت نشست تأیید نشد؛ دوباره وارد شوید."); }
+            CaptureMe(me);
         }
         // Replaces the HTTP cookie jar with the browser session and validates it
         // against /me. A valid Firefox session means no password/MFA prompt.
@@ -179,7 +357,9 @@ namespace SpiroLab.HLine
                 // A read-only session needs no CSRF token; fetching one would only
                 // rotate the site's anti-forgery cookies for nothing.
                 Dictionary<string,object> me=Dict(Request("GET","/me",null)),data=OptionalDict(me,"data");
-                string actual=Text(OptionalDict(me,"user"),"id");
+                CaptureMe(me);
+                string actual=userId??"";
+                if(actual.Length==0) actual=Text(OptionalDict(me,"user"),"id");
                 if(actual.Length==0) actual=Text(OptionalDict(data,"user"),"id");
                 if(actual.Length==0) actual=Text(data,"id");
                 if(actual.Length==0) throw new HLineException("expired","نشست فایرفاکس معتبر نیست؛ دوباره در فایرفاکس وارد سامانه شوید.");
@@ -337,6 +517,17 @@ namespace SpiroLab.HLine
         internal static string Text(Dictionary<string,object> d,string key) {object v;return d.TryGetValue(key,out v) && v!=null && !(v is IDictionary) && !(v is object[])?Convert.ToString(v,CultureInfo.InvariantCulture):"";}
         static Dictionary<string,object> OptionalDict(Dictionary<string,object> d,string key) {object v;return d.TryGetValue(key,out v) && v is Dictionary<string,object>?(Dictionary<string,object>)v:new Dictionary<string,object>();}
         static Dictionary<string,object> DataObject(object value) {var d=Dict(value);object v;return d.TryGetValue("data",out v)?Dict(v):d;}
+        static Dictionary<string,object> OptionalDataObject(object value)
+        {
+            try
+            {
+                var d=Dict(value);object v;
+                if(!d.TryGetValue("data",out v) || v==null) return new Dictionary<string,object>();
+                var data=v as Dictionary<string,object>;
+                return data??new Dictionary<string,object>();
+            }
+            catch(HLineException) { return new Dictionary<string,object>(); }
+        }
         static double Number(Dictionary<string,object> d,string key) {return Fmt.Parse(Text(d,key),double.NaN);}
         static int FullCount(List<Dictionary<string,object>> rows) {return rows.Count==0?0:(int)Fmt.Parse(Text(rows[0],"full_count"),rows.Count);}
         static List<Dictionary<string,object>> Rows(object value)

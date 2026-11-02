@@ -15,6 +15,8 @@ namespace SpiroLab.Ui
         readonly HLineClient _hline;
         readonly ISubmissionGateway _submissionGateway;
         readonly MedicalRecord _testRecord;
+        readonly string _testNationalId,_testRecordId;
+        readonly bool _allowProductionWrites;
         AppSettings _settings;
         Exam _exam;
         string _path;
@@ -37,9 +39,15 @@ namespace SpiroLab.Ui
         Button btnStart,btnStop,btnReport,btnSettings,btnNew,btnOpen,btnLogin,btnCalendar;
         List<string> _legacyReportIds=new List<string>();
         public MainForm():this(new HLineClient(),null,null) { }
+        public MainForm(HLineClient hline,string testNationalId,string testRecordId,bool allowProductionWrites):this(hline,null,null)
+        {
+            _testNationalId=testNationalId==null?"":testNationalId.Trim();
+            _testRecordId=testRecordId==null?"":testRecordId.Trim();
+            _allowProductionWrites=allowProductionWrites;
+        }
         public MainForm(HLineClient hline,ISubmissionGateway submissionGateway,MedicalRecord designatedTestRecord)
         {
-            _hline=hline;_submissionGateway=submissionGateway;_testRecord=designatedTestRecord;
+            _hline=hline;_submissionGateway=submissionGateway??(hline.CanWrite?new LiveSubmissionGateway(hline):null);_testRecord=designatedTestRecord;
             _settings=AppSettings.Load(); _exam=Exam.CreateNew(_settings); _hline.PreferredFirefoxProfile=_settings.FirefoxProfile;
             ClinicalStyle.Form(this,"اسپیرومتری طب کار — SpiroLab 5.3.1",new Size(1280,820));
             StartPosition=FormStartPosition.CenterScreen; MinimumSize=new Size(780,500);
@@ -440,19 +448,34 @@ namespace SpiroLab.Ui
                 ResultPackage package=ResultExport.SaveToDirectory(Path.Combine(Path.GetDirectoryName(_path),"exports"),snapshot);RecordExport(package);
                 SubmissionDraft draft=new SubmissionDraft(snapshot,package);
                 draft.ValidateForSubmission();
-                await Task.Factory.StartNew(delegate
+                bool already=await Task.Factory.StartNew(delegate
                 {
-                    _hline.VerifyLatestRecord(_exam.Patient);
-                    MedicalRecord record=new MedicalRecord {Id=draft.RecordId};
-                    if(_hline.HasSpirometry(record)) throw new HLineException("existing_result","این پرونده نتیجهٔ اسپیرومتری دارد؛ ارسال دوباره انجام نشد.");
-                    new SubmissionCoordinator(_submissionGateway,_exam.Submission,delegate {ExamStore.Save(_path,_exam);},_testRecord).Submit(draft);
+                    if(_submissionGateway==null) throw new InvalidOperationException("ارسال به سایت روی این نسخه فعال نیست.");
+                    bool designatedTest=_testRecord!=null || (!_allowProductionWrites && !string.IsNullOrEmpty(_testNationalId));
+                    LiveSubmissionGateway live=_submissionGateway as LiveSubmissionGateway;
+                    if(live!=null) live.AllowHistoricalRecord=designatedTest;
+                    if(live==null || !designatedTest) _hline.VerifyLatestRecord(_exam.Patient);
+                    MedicalRecord allowed=SubmissionDestination(draft);
+                    SubmissionCoordinator coordinator=new SubmissionCoordinator(_submissionGateway,_exam.Submission,delegate {ExamStore.Save(_path,_exam);},allowed);
+                    coordinator.Submit(draft);
+                    return coordinator.AlreadyPresent;
                 });
-                lblStatus.Text="نتیجه و تصویر در سایت ثبت و بررسی شد.";
+                lblStatus.Text=already?"این نتیجه قبلاً در پرونده ثبت شده بود؛ ارسال دوباره انجام نشد.":"نتیجه و تصویر در سایت ثبت و بررسی شد.";
             }
             catch(HLineException ex) {Error(ex.Message);}
             catch(InvalidOperationException ex) {Error(ex.Message);}
             catch {Error(_exam.Submission.WriteAttempted?"نتیجهٔ ارسال نامطمئن است؛ وضعیت سایت باید بازخوانی شود.":"ارسال انجام نشد؛ پروندهٔ محلی محفوظ است.");}
             finally {_busy=false;UpdateControls();}
+        }
+        MedicalRecord SubmissionDestination(SubmissionDraft draft)
+        {
+            if(_testRecord!=null) return _testRecord;
+            if(!_allowProductionWrites)
+            {
+                if(string.IsNullOrEmpty(_testNationalId) || string.IsNullOrEmpty(_testRecordId)) throw new InvalidOperationException("ارسال بالینی هنوز فعال نشده است؛ فقط پروندهٔ تست تعیین‌شده مجاز است.");
+                if(draft.NationalId!=_testNationalId || draft.RecordId!=_testRecordId) throw new InvalidOperationException("در مرحلهٔ تست، ارسال فقط به پروندهٔ تست تعیین‌شده مجاز است.");
+            }
+            return new MedicalRecord {Id=draft.RecordId,PersonId=draft.PersonId,NationalId=draft.NationalId,DateText=draft.RecordDate,Status=draft.RecordStatus};
         }
         void RecordExport(ResultPackage package)
         {

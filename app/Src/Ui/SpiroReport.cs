@@ -74,7 +74,7 @@ namespace SpiroLab.Ui
         // area stays blank without moving any other block.
         // Short print-style wording on the sheet; a clinician's reviewed text is
         // printed exactly as entered.
-        private static string Interpretation(ExaminationSnapshot snapshot)
+        internal static string Interpretation(ExaminationSnapshot snapshot)
         {
             if(!string.IsNullOrWhiteSpace(snapshot.Data.ReviewedInterpretation)) return snapshot.Data.ReviewedInterpretation;
             ExamSummary s=snapshot.Summary;

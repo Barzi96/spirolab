@@ -56,7 +56,7 @@ namespace SpiroLab.Ui
             string u=username.Text,p=password.Text.Length>0?password.Text:(pendingPassword??""),c=Fmt.NormalizeNumber(mfa.Text);
             pendingPassword=null; password.Clear(); mfa.Clear();
             Control focus=null;
-            try { await Task.Factory.StartNew(delegate { client.Login(u,p,c); }); status.Text=client.StatusText; DialogResult=DialogResult.OK; }
+            try { await Task.Factory.StartNew(delegate { client.Login(u,p,c); }); status.Text=client.StatusText; }
             catch(HLineException e)
             {
                 status.Text=e.Message;
@@ -66,8 +66,8 @@ namespace SpiroLab.Ui
             catch {status.Text="عدم دسترسی به سامانه";}
             finally
             {
-                p=c=null; working=false; SetActions(true);
-                if(client.Status==SessionStatus.Connected) {pendingPassword=null;Close();}
+                p=c=null; SetActions(true); working=false;
+                if(client.Status==SessionStatus.Connected) {pendingPassword=null;DialogResult=DialogResult.OK;Close();}
                 else if(focus!=null) focus.Focus();
             }
         }
@@ -86,7 +86,7 @@ namespace SpiroLab.Ui
                 });
             }
             catch(Exception) { problem="خواندن نشست فایرفاکس ممکن نشد."; }
-            working=false; SetActions(true);
+            SetActions(true); working=false;
             if(ok) { poll.Stop(); status.Text="متصل به سامانه"; DialogResult=DialogResult.OK; Close(); }
             else if(problem!=null) status.Text=problem;
         }

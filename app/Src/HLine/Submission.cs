@@ -77,6 +77,11 @@ namespace SpiroLab.HLine
         string UploadJpeg(SubmissionDraft draft,string localReference);
         void Create(SubmissionDraft draft,string fileId,string localReference);
     }
+    // Explicit correction path; never used by the one-click submission button.
+    public interface ISubmissionUpdateGateway
+    {
+        void Update(SubmissionDraft draft,string fileId,string localReference);
+    }
     public sealed class SubmissionCoordinator
     {
         readonly ISubmissionGateway gateway;
@@ -85,6 +90,7 @@ namespace SpiroLab.HLine
         readonly MedicalRecord testRecord;
         int active;
         public SubmissionState State {get {return journal.State;} }
+        public bool AlreadyPresent {get;private set;}
         public SubmissionCoordinator(ISubmissionGateway gateway,SubmissionJournal journal,Action persist,MedicalRecord designatedTestRecord)
         {
             this.gateway=gateway;this.journal=journal;this.persist=persist;
@@ -102,10 +108,29 @@ namespace SpiroLab.HLine
             bool attempted=false;
             try
             {
-                if(journal.WriteAttempted) throw new InvalidOperationException("ارسال قبلی باید از سرور بازخوانی شود؛ ارسال دوباره مجاز نیست.");
+                AlreadyPresent=false;
                 draft.ValidateForSubmission();VerifyTestDestination(draft);
                 if(gateway==null || !gateway.ContractVerified) throw new InvalidOperationException("قرارداد ارسال هنوز تأیید نشده است.");
-                gateway.VerifyDestination(draft);if(gateway.Read(draft)!=null) throw new InvalidOperationException("نتیجهٔ قبلی یافت شد؛ ارسال متوقف شد.");
+                if(journal.WriteAttempted)
+                {
+                    // A previous non-idempotent attempt may have committed. Reconcile
+                    // read-only; never send the write again automatically.
+                    gateway.VerifyDestination(draft);
+                    RemoteSpirometry pending=gateway.Read(draft);
+                    if(pending!=null && SameResult(draft,pending))
+                    {
+                        if(!string.IsNullOrEmpty(journal.FileId) && pending.FileId!=journal.FileId) throw new InvalidOperationException("فایل مرجع در سرور با فایل ارسالی هم‌خوان نیست؛ بازخوانی دستی لازم است.");
+                        journal.FileId=pending.FileId;journal.Problem="";journal.State=SubmissionState.Confirmed;AlreadyPresent=true;persist();return;
+                    }
+                    throw new InvalidOperationException("ارسال قبلی باید از سرور بازخوانی شود؛ ارسال دوباره مجاز نیست.");
+                }
+                gateway.VerifyDestination(draft);
+                RemoteSpirometry existing=gateway.Read(draft);
+                if(existing!=null)
+                {
+                    if(!SameResult(draft,existing)) throw new InvalidOperationException("نتیجهٔ متفاوتی در این پرونده ثبت شده است؛ ارسال متوقف شد و چیزی بازنویسی نشد.");
+                    journal.State=SubmissionState.Confirmed;AlreadyPresent=true;persist();return;
+                }
                 Move(SubmissionState.ValidationPassed);
                 attempted=journal.WriteAttempted=true;Move(SubmissionState.Uploading); // Durable before the first non-idempotent request.
                 journal.FileId=gateway.UploadJpeg(draft,journal.Reference);persist();
@@ -114,6 +139,25 @@ namespace SpiroLab.HLine
                 Move(SubmissionState.Verifying);
                 if(!Matches(draft,gateway.Read(draft))) throw new InvalidOperationException("تطبیق اعداد، پرونده یا تصویر در سرور تأیید نشد.");
                 Move(SubmissionState.Confirmed);
+            }
+            catch(HLineException ex)
+            {
+                if(attempted && ex.Code=="duplicate_record")
+                {
+                    RemoteSpirometry remote=gateway.Read(draft);
+                    if(remote!=null && SameResult(draft,remote))
+                    {
+                        journal.FileId=remote.FileId;journal.Problem="";Move(SubmissionState.Confirmed);return;
+                    }
+                    journal.Problem="سامانه اعلام کرد نتیجه قبلاً ثبت شده، اما تطبیق آن تأیید نشد.";
+                    Move(SubmissionState.FailedOrUncertain);throw;
+                }
+                if(attempted)
+                {
+                    journal.Problem="ارسال نامطمئن یا ناقص است؛ بدون ارسال مجدد، نتیجه و فایل از سرور بررسی شود.";
+                    Move(SubmissionState.FailedOrUncertain);
+                }
+                throw;
             }
             catch
             {
@@ -126,16 +170,72 @@ namespace SpiroLab.HLine
             }
             finally {Interlocked.Exchange(ref active,0);}
         }
+        // Never called by the normal one-click button. It exists for a separately
+        // authorized correction and still requires an explicit caller.
+        public void SubmitUpdate(SubmissionDraft draft)
+        {
+            if(Interlocked.CompareExchange(ref active,1,0)!=0) throw new InvalidOperationException("ارسال در حال انجام است.");
+            bool attempted=false;
+            try
+            {
+                AlreadyPresent=false;
+                draft.ValidateForSubmission();VerifyTestDestination(draft);
+                ISubmissionUpdateGateway update=gateway as ISubmissionUpdateGateway;
+                if(gateway==null || !gateway.ContractVerified || update==null) throw new InvalidOperationException("قرارداد به‌روزرسانی تأیید نشده است.");
+                gateway.VerifyDestination(draft);
+                RemoteSpirometry existing=gateway.Read(draft);
+                if(existing==null) throw new InvalidOperationException("نتیجهٔ قبلی برای به‌روزرسانی پیدا نشد.");
+                if(SameResult(draft,existing)) {journal.State=SubmissionState.Confirmed;AlreadyPresent=true;persist();return;}
+                Move(SubmissionState.ValidationPassed);
+                attempted=journal.WriteAttempted=true;Move(SubmissionState.Uploading);
+                journal.FileId=gateway.UploadJpeg(draft,journal.Reference);persist();
+                if(string.IsNullOrWhiteSpace(journal.FileId)) throw new InvalidOperationException("شناسهٔ فایل برگشت داده نشد.");
+                update.Update(draft,journal.FileId,journal.Reference);
+                Move(SubmissionState.Verifying);
+                if(!Matches(draft,gateway.Read(draft))) throw new InvalidOperationException("تطبیق اعداد، پرونده یا تصویر در سرور تأیید نشد.");
+                Move(SubmissionState.Confirmed);
+            }
+            catch
+            {
+                if(attempted) {journal.Problem="به‌روزرسانی نامطمئن یا ناقص است؛ بدون ارسال مجدد، نتیجه از سرور بررسی شود.";Move(SubmissionState.FailedOrUncertain);}
+                throw;
+            }
+            finally {Interlocked.Exchange(ref active,0);}
+        }
         public bool Recheck(SubmissionDraft draft)
         {
             if(Interlocked.CompareExchange(ref active,1,0)!=0) throw new InvalidOperationException("ارسال در حال انجام است.");
-            try {VerifyTestDestination(draft);gateway.VerifyDestination(draft);if(!journal.WriteAttempted || !Matches(draft,gateway.Read(draft))) return false;Move(SubmissionState.Confirmed);return true;}
+            try
+            {
+                VerifyTestDestination(draft);gateway.VerifyDestination(draft);
+                if(!journal.WriteAttempted) return false;
+                RemoteSpirometry remote=gateway.Read(draft);
+                if(remote==null || !SameResult(draft,remote)) return false;
+                if(!string.IsNullOrEmpty(journal.FileId) && remote.FileId!=journal.FileId) return false;
+                if(string.IsNullOrEmpty(journal.FileId)) journal.FileId=remote.FileId;
+                Move(SubmissionState.Confirmed);return true;
+            }
             finally {Interlocked.Exchange(ref active,0);}
+        }
+        bool SameResult(SubmissionDraft d,RemoteSpirometry remote)
+        {
+            if(remote==null || remote.PersonId!=d.PersonId || remote.NationalId!=d.NationalId || remote.RecordId!=d.RecordId || remote.RecordDate!=d.RecordDate || remote.RecordStatus!=d.RecordStatus || remote.ExaminationDate!=d.ExaminationDate || remote.Fields==null || remote.Jpeg==null) return false;
+            foreach(var field in d.Fields) {double? v;if(!remote.Fields.TryGetValue(field.Key,out v) || !SameValue(field.Key,field.Value,v)) return false;}
+            byte[] expected=d.JpegBytes;if(remote.Jpeg.Length!=expected.Length) return false;
+            for(int i=0;i<expected.Length;i++) if(remote.Jpeg[i]!=expected[i]) return false;
+            return true;
+        }
+        static bool SameValue(string key,double? expected,double? actual)
+        {
+            if(!expected.HasValue || !actual.HasValue) return expected.HasValue==actual.HasValue;
+            // HLine stores amounts at its own display precision and derives FEV1/FVC.
+            if(key=="fev1_fvc_percent") return Math.Abs(expected.Value-actual.Value)<=0.5;
+            return Math.Round(expected.Value,2,MidpointRounding.AwayFromZero)==Math.Round(actual.Value,2,MidpointRounding.AwayFromZero);
         }
         bool Matches(SubmissionDraft d,RemoteSpirometry remote)
         {
             if(remote==null || remote.PersonId!=d.PersonId || remote.NationalId!=d.NationalId || remote.RecordId!=d.RecordId || remote.RecordDate!=d.RecordDate || remote.RecordStatus!=d.RecordStatus || remote.ExaminationDate!=d.ExaminationDate || string.IsNullOrEmpty(journal.FileId) || remote.FileId!=journal.FileId || remote.Fields==null || remote.Jpeg==null) return false;
-            foreach(var field in d.Fields) {double? v;if(!remote.Fields.TryGetValue(field.Key,out v) || v!=field.Value) return false;}
+            foreach(var field in d.Fields) {double? v;if(!remote.Fields.TryGetValue(field.Key,out v) || !SameValue(field.Key,field.Value,v)) return false;}
             byte[] expected=d.JpegBytes;if(remote.Jpeg.Length!=expected.Length) return false;
             for(int i=0;i<expected.Length;i++) if(remote.Jpeg[i]!=expected[i]) return false;
             return true;
