@@ -60,6 +60,11 @@ namespace SpiroLab.HLine
             foreach(string key in new string[] {"fvc_amount","fev1_amount","pef_amount","fef2575_amount","fev1_fvc_percent"}) if(!fields[key].HasValue || fields[key]<=0) throw new InvalidOperationException("مقدار الزامی موجود یا معتبر نیست: "+key);
             if(fields["fev1_amount"]>fields["fvc_amount"] || fields["fev1_fvc_percent"]>100 || Math.Abs(fields["fev1_fvc_percent"].Value-fields["fev1_amount"].Value/fields["fvc_amount"].Value*100)>1e-8) throw new InvalidOperationException("نسبت FEV1/FVC با مقادیر همان مانور تطبیق ندارد.");
             if(!Vext.Available) throw new InvalidOperationException(Vext.Problem);
+            // Independent provenance gate: identity/number checks above can be
+            // satisfied by software values, so every new HLine write also needs
+            // consistent raw device evidence for its clinical sources.
+            DeviceProvenanceResult provenance=DeviceProvenanceValidator.Validate(Snapshot);
+            if(!provenance.Allowed) throw new DeviceProvenanceException(provenance);
         }
     }
     public sealed class RemoteSpirometry
@@ -141,7 +146,10 @@ namespace SpiroLab.HLine
             try
             {
                 AlreadyPresent=false;
-                Timed("draft_validate",delegate { draft.ValidateForSubmission(); });
+                // A journal that already attempted the non-idempotent write is
+                // reconciled read-only. Provenance failures must not make a
+                // previously committed result unreadable.
+                if(!journal.WriteAttempted) Timed("draft_validate",delegate { draft.ValidateForSubmission(); });
                 // A designated test record is optional now: normal production submission
                 // is bound to the destination that the live gateway has just re-verified.
                 if(testRecord!=null) Timed("designated_record_verify",delegate { VerifyTestDestination(draft); });

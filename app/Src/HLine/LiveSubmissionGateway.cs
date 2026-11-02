@@ -109,6 +109,7 @@ namespace SpiroLab.HLine
 
         public string UploadJpeg(SubmissionDraft draft,string localReference)
         {
+            RequireProvenance(draft);
             HashSet<string> before;
             if(!knownFiles.TryGetValue(draft.RecordId,out before)) {before=new HashSet<string>(StringComparer.Ordinal);CaptureKnownFiles(draft.RecordId);knownFiles.TryGetValue(draft.RecordId,out before);}
             try
@@ -143,6 +144,7 @@ namespace SpiroLab.HLine
 
         public void Create(SubmissionDraft draft,string fileId,string localReference)
         {
+            RequireProvenance(draft);
             Dictionary<string,object> payload=BuildPayload(draft,fileId);
 #if SPIROLAB_TEST
             HLineResponse response=Timing==null?client.WriteJson("POST","/medical-records/"+Uri.EscapeDataString(draft.RecordId)+"/spirometry",payload):Timing.Measure("create_post_request",delegate { return client.WriteJson("POST","/medical-records/"+Uri.EscapeDataString(draft.RecordId)+"/spirometry",payload); });
@@ -156,9 +158,17 @@ namespace SpiroLab.HLine
         // The normal one-click button never calls this while a different result exists.
         public void Update(SubmissionDraft draft,string fileId,string localReference)
         {
+            RequireProvenance(draft);
             Dictionary<string,object> payload=BuildPayload(draft,fileId);
             HLineResponse response=client.WriteJson("PATCH","/medical-records/"+Uri.EscapeDataString(draft.RecordId)+"/spirometry",payload);
             if(response.Status!=200 && response.Status!=204) throw Failure(response,"به‌روزرسانی اطلاعات اسپیرومتری");
+        }
+
+        static void RequireProvenance(SubmissionDraft draft)
+        {
+            if(draft==null) throw new ArgumentNullException("draft");
+            DeviceProvenanceResult result=DeviceProvenanceValidator.Validate(draft.Snapshot);
+            if(!result.Allowed) throw new DeviceProvenanceException(result);
         }
 
         internal Dictionary<string,object> BuildPayload(SubmissionDraft draft,string fileId)

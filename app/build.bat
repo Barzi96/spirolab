@@ -33,6 +33,7 @@ echo Building %OUTDIR%\%OUTNAME% ...
   Src\AssemblyInfo.cs ^
   Src\Model.cs ^
   Src\BestValues.cs ^
+  Src\DeviceProvenance.cs ^
   Src\SessionBestValues.cs ^
   Src\AppSettings.cs ^
   Src\DeploymentSelfTest.cs ^

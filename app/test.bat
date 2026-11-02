@@ -34,7 +34,7 @@ set "FAILEDSUITES="
 
 echo.
 echo === SpiroLab test suites ===
-for %%S in (RegressionTests StandaloneTests PrecisionTests ManeuverSelectionTests ClinicalUiTests MirBestValuesTests RefinementTests HLinePhaseTests HLineIntegrationTests HLineWriteTests) do call :runsuite %%S
+for %%S in (RegressionTests StandaloneTests PrecisionTests ManeuverSelectionTests ClinicalUiTests MirBestValuesTests RefinementTests HLinePhaseTests HLineIntegrationTests HLineWriteTests DeviceProvenanceTests) do call :runsuite %%S
 goto :summary
 
 :runsuite
@@ -50,6 +50,7 @@ if /I "%SUITE%"=="RefinementTests" set "OUT=%~dp0refinement-test-output"
 if /I "%SUITE%"=="HLinePhaseTests" set "OUT=%~dp0hline-test-output\HLinePhaseTests"
 if /I "%SUITE%"=="HLineIntegrationTests" set "OUT=%~dp0hline-test-output\HLineIntegrationTests"
 if /I "%SUITE%"=="HLineWriteTests" set "OUT=%~dp0hline-test-output\HLineWriteTests"
+if /I "%SUITE%"=="DeviceProvenanceTests" set "OUT=%~dp0device-provenance-test-output"
 
 set "LOG=%LOGDIR%\%SUITE%.log"
 "%CSC%" /nologo /target:exe /platform:x86 /codepage:65001 /out:release\%SUITE%.exe %REFS% Tests\%SUITE%.cs >"%LOGDIR%\%SUITE%.build.log" 2>&1

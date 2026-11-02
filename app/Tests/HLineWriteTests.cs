@@ -34,7 +34,7 @@ class HLineWriteTests
         Exam e=SpiroLab.Exam.CreateNew(new AppSettings {OperatorName="آزمون ساختگی"});
         e.Patient=new Patient {FirstName="مراجع",LastName="ساختگی",NationalId="0000000001",Origin=Origin.Caucasian,HeightCm=170,WeightKg=70,Age=44,HLinePersonId="P-1",HLineRecordId="R-1",HLineRecordDate="2026/11/01",HLineRecordStatus="complete",AnthropometryConfirmed=true};
         e.ExaminationDate=new DateTime(2026,10,19);
-        for(int i=0;i<3;i++) {Trial t=Simulator.Build(e.Patient,100+i);t.Simulated=false;e.AddManeuver(t);t.Result.BevAvailable=t.Result.BevOk=true;t.Result.Bev=0.132;t.Result.Cough=false;}
+        for(int i=0;i<3;i++) {Trial t=Simulator.Build(e.Patient,100+i);t.Result=SpiroAnalysis.Analyze(t,e.Patient);SyntheticDeviceEvidence.Attach(t,t.Result.Fvc,t.Result.Fev1,t.Result.Pef,t.Result.Fet,SyntheticDeviceEvidence.FixtureSerial,i+1);e.AddManeuver(t);t.Result.BevAvailable=t.Result.BevOk=true;t.Result.Bev=0.132;t.Result.Cough=false;}
         Trial site=e.Trials[0];site.Result.Fet=6;site.ReviewedVextMl=132;site.ReviewedVextSource="synthetic write test";site.VextReviewer="آزمون ساختگی";site.VextManuallyReviewed=true;
         e.SelectSiteManeuver(site.ManeuverId);return e;
     }

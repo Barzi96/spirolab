@@ -334,7 +334,7 @@ class HLineIntegrationTests
         Exam e=SpiroLab.Exam.CreateNew(new AppSettings {OperatorName="بازبین آزمایشی"});
         e.Patient=new Patient {FirstName="مراجع",LastName="ساختگی",NationalId="0000000001",Origin=Origin.Caucasian,HeightCm=164,WeightKg=74,Age=44,HLinePersonId="TEST-P",HLineRecordId="2",HLineRecordDate="2026/11/01",HLineRecordStatus="complete",AnthropometryConfirmed=true};
         e.ExaminationDate=new DateTime(2026,10,19);
-        for(int i=0;i<5;i++) {Trial t=Simulator.Build(e.Patient,100+i);t.Simulated=simulated;e.AddManeuver(t);}
+        for(int i=0;i<5;i++) {Trial t=Simulator.Build(e.Patient,100+i);t.Result=SpiroAnalysis.Analyze(t,e.Patient);if(!simulated) SyntheticDeviceEvidence.Attach(t,t.Result.Fvc,t.Result.Fev1,t.Result.Pef,t.Result.Fet,SyntheticDeviceEvidence.FixtureSerial,i+1);else t.Simulated=true;e.AddManeuver(t);}
         double?[] evol={110,132,105,230,null};
         for(int i=0;i<5;i++) {e.Trials[i].Result.BevAvailable=evol[i].HasValue;e.Trials[i].Result.Bev=evol[i].HasValue?evol[i].Value/1000.0:0;}
         Trial site=ExamSummary.Build(e.Trials).BestTrial; site.Result.Fet=6;site.Result.Cough=false;

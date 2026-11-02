@@ -30,6 +30,15 @@ namespace SpiroLab.Device
 
         public double Fev1Fvc { get { return Fvc > 0 ? Fev1 / Fvc * 100.0 : 0; } }
 
+        // Snapshot ownership: the raw vendor block must not remain shared with the
+        // mutable examination object after Capture().
+        public DeviceResults Clone()
+        {
+            DeviceResults copy = (DeviceResults)MemberwiseClone();
+            copy.Raw = Raw == null ? null : (byte[])Raw.Clone();
+            return copy;
+        }
+
         public override string ToString()
         {
             if (!Present) return "(no verified device result"+(InvalidReason.Length>0?": "+InvalidReason:"")+")";

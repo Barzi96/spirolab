@@ -633,7 +633,9 @@ namespace SpiroLab.Ui
                 ResultPackage package=await Task.Factory.StartNew(delegate { return ResultExport.SaveToDirectory(exportRoot,snapshot); },CancellationToken.None,TaskCreationOptions.DenyChildAttach,TaskScheduler.Default);
                 StoreExport(package,submitting,submittingPath);
                 SubmissionDraft draft=new SubmissionDraft(snapshot,package);
-                draft.ValidateForSubmission();
+                // An already attempted write is reconciled read-only by the
+                // coordinator, so do not let a provenance failure hide it.
+                if(!submitting.Submission.WriteAttempted) draft.ValidateForSubmission();
                 bool already=await Task.Factory.StartNew(delegate
                 {
                     if(_submissionGateway==null) throw new InvalidOperationException("ارسال به سایت روی این نسخه فعال نیست.");
@@ -649,6 +651,7 @@ namespace SpiroLab.Ui
                 lock(_uiSync) { if(!_closing && !IsDisposed && !Disposing && _tips!=null) lblStatus.Text=already?"این نتیجه قبلاً در پرونده ثبت شده بود؛ ارسال دوباره انجام نشد.":"نتیجه و تصویر در سایت ثبت و بررسی شد."; }
             }
             catch(HLineException ex) {Error(ex.Message);}
+            catch(DeviceProvenanceException ex) {AppendLog(ex.Result.TechnicalSummary);Error(ex.Message);}
             catch(InvalidOperationException ex) {Error(ex.Message);}
             catch {Error(submitting.Submission.WriteAttempted?"نتیجهٔ ارسال نامطمئن است؛ وضعیت سایت باید بازخوانی شود.":"ارسال انجام نشد؛ پروندهٔ محلی محفوظ است.");}
             finally {_busy=false;UpdateControls();}

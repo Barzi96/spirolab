@@ -146,7 +146,7 @@ namespace SpiroLab
             t.SelectedWhenDiscarded=SelectedWhenDiscarded;
             foreach(Device.DevicePacket packet in Packets) t.Packets.Add(new Device.DevicePacket { Seconds=packet.Seconds,Type=packet.Type,Raw=packet.Raw });
             t.EndReason = EndReason;
-            t.DeviceValues = DeviceValues; // raw vendor block is retained locally, never a validated export source
+            t.DeviceValues = DeviceValues == null ? null : DeviceValues.Clone(); // snapshot owns a deep copy of the raw vendor block
             t.Dt = Dt;
             t.When = When;
             t.Simulated = Simulated;
