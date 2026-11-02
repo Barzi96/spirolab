@@ -12,6 +12,7 @@
 | ساخت Core + WinForms | PASS | ۳ مرحله |
 | آزمون خودکار Core | **PASS** | **۲۹۸ بررسی، ۰ شکست** |
 | UI smoke (پنجره واقعی WinForms) | **PASS** | **۹ بررسی، ۰ شکست** |
+| Clean clone از `test` | **PASS** | build + ۲۹۸ آزمون + UI smoke |
 | اجرای واقعی `MIRParityLab.exe` | PASS | پنجره پایدار، عنوان `MIR Parity Lab` |
 | آزمون سخت‌افزار/USB | انجام نشده | ۰ |
 | آزمون MIR رسمی/SDK | انجام نشده | ۰ |
@@ -163,6 +164,20 @@ HasExited  : False
 Title      : MIR Parity Lab
 Handle     : non-zero
 ```
+
+## ۶.۵. Clean clone
+
+برای اثبات اینکه build به فایل‌های ignored یا وضعیت محلی وابسته نیست، یک clone تازه از شاخه `test` ساخته شد و از پوشه `mir-parity-lab` اجرا شد:
+
+```text
+[1/3] Building ParityLab.Core.dll ...
+[2/3] Building MIRParityLab.exe ...
+[3/3] Build OK.
+RESULT: 298 PASS, 0 FAIL
+UI SMOKE RESULT: PASS
+```
+
+clone موقت پس از آزمون حذف شد و در مخزن باقی نمانده است.
 
 ## ۷. نقص‌های پیدا‌شده و اصلاح‌شده در همین فاز
 
