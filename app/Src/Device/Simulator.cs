@@ -1,4 +1,5 @@
-﻿using System;
+#if SPIROLAB_TEST
+using System;
 using System.Collections.Generic;
 
 namespace SpiroLab.Device
@@ -71,3 +72,4 @@ namespace SpiroLab.Device
         }
     }
 }
+#endif

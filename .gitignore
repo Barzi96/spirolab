@@ -19,6 +19,7 @@
 !/docs/analysis.md
 !/docs/site-integration.md
 !/docs/standalone/
+!/docs/operator/
 !/docs/parity/
 /docs/standalone/*.txt
 /docs/standalone/*.json

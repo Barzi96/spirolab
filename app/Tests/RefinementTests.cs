@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Linq;
@@ -17,6 +18,7 @@ internal static class RefinementTests
     static string root;
     static void Check(bool ok,string name) { if(!ok) throw new Exception(name); checks++; Console.WriteLine("PASS "+name); }
     static void Refuses(Action work,string name) { bool refused=false; try { work(); } catch(ArgumentException) { refused=true; } catch(InvalidOperationException) { refused=true; } Check(refused,name); }
+    static void Rejects(Action work,string name) { bool refused=false; try { work(); } catch(InvalidDataException) { refused=true; } Check(refused,name); }
     static object Field(object o,string name) { return o.GetType().GetField(name,BindingFlags.Instance|BindingFlags.NonPublic).GetValue(o); }
     static object Call(object o,string name,params object[] args) { return o.GetType().GetMethod(name,BindingFlags.Instance|BindingFlags.NonPublic).Invoke(o,args); }
     static void Set(object o,string name,object value) { o.GetType().GetField(name,BindingFlags.Instance|BindingFlags.NonPublic).SetValue(o,value); }
@@ -116,6 +118,39 @@ internal static class RefinementTests
             Check(ClinicVext.Select(vexam.Trials).ValueMl==110,"deleted VEXT source is excluded without refusing the remaining real maneuvers");
             vexam.RestoreLastDiscarded();
             Check(ClinicVext.Select(vexam.Trials).ValueMl==132,"undo restores the deleted VEXT source");
+
+            Exam seqExam=Exam.CreateNew(new AppSettings {OperatorName="sequence operator"}); seqExam.Patient=p;
+            Trial s1=Blow(p,400,3.0,2.0),s2=Blow(p,401,3.4,2.3),s3=Blow(p,402,3.8,2.6);
+            foreach(Trial item in new Trial[] {s1,s2,s3}) seqExam.AddManeuver(item);
+            seqExam.DiscardManeuver(s3.ManeuverId);
+            Trial s4=Blow(p,403,4.0,2.8); seqExam.AddManeuver(s4);
+            Check(seqExam.Trials.Select(x=>x.AcquisitionSequence).SequenceEqual(new int[] {1,2,4}) && seqExam.DiscardedTrials[0].AcquisitionSequence==3,"new acquisition never reuses a discarded maneuver number");
+            seqExam.RestoreLastDiscarded();
+            Check(seqExam.Trials.Select(x=>x.AcquisitionSequence).SequenceEqual(new int[] {1,2,3,4}) && seqExam.Trials.Select(x=>x.ManeuverId).Distinct().Count()==4,"restored maneuver is inserted by original number without collision");
+            Check(seqExam.ReportManeuverIds.Contains(s3.ManeuverId) && seqExam.ReportManeuverIds.Count==3,"restored formerly selected maneuver does not silently become unselected");
+            string seqPath=Path.Combine(root,"sequence.spiro"); ExamStore.Save(seqPath,seqExam);
+            Exam seqLoaded=ExamStore.Load(seqPath);
+            Check(seqLoaded.Trials.Select(x=>x.AcquisitionSequence).SequenceEqual(new int[] {1,2,3,4}) && seqLoaded.Trials.Select(x=>x.ManeuverId).Distinct().Count()==4 && seqLoaded.ReportManeuverIds.Count==3,"unique numbers and selected three survive save and reload");
+
+            string middle=seqLoaded.Trials[1].ManeuverId; seqLoaded.DiscardManeuver(middle);
+            Trial s5=Blow(p,404,4.2,3.0); seqLoaded.AddManeuver(s5);
+            Check(seqLoaded.Trials.Select(x=>x.AcquisitionSequence).SequenceEqual(new int[] {1,3,4,5}) && seqLoaded.DiscardedTrials.Last().AcquisitionSequence==2,"middle deletion followed by acquisition keeps a monotonic number");
+            seqLoaded.RestoreLastDiscarded();
+            Check(seqLoaded.Trials.Select(x=>x.AcquisitionSequence).SequenceEqual(new int[] {1,2,3,4,5}) && seqLoaded.ReportManeuverIds.Contains(middle) && seqLoaded.ReportManeuverIds.Count==3,"middle restore is ordered, selected and still capped at three");
+            ExamStore.Save(seqPath,seqLoaded);
+            Check(ExamStore.Load(seqPath).Trials.Select(x=>x.AcquisitionSequence).SequenceEqual(new int[] {1,2,3,4,5}),"middle delete/acquire/restore stays unique after restart");
+
+            Exam atomic=Exam.CreateNew(new AppSettings {OperatorName="sequence operator"}); atomic.Patient=p;
+            Trial a1=Blow(p,410,3.0,2.0),a2=Blow(p,411,3.5,2.4),a3=Blow(p,412,4.0,2.7);
+            foreach(Trial item in new Trial[] {a1,a2,a3}) atomic.AddManeuver(item);
+            atomic.DiscardManeuver(a3.ManeuverId); Trial a4=Blow(p,413,4.1,2.9); atomic.AddManeuver(a4);
+            atomic.DiscardedTrials[0].AcquisitionSequence=4;
+            string[] activeBefore=atomic.Trials.Select(x=>x.ManeuverId).ToArray(); string[] selectedBefore=atomic.ReportManeuverIds.ToArray();
+            Rejects(delegate { atomic.RestoreLastDiscarded(); },"duplicate restoration number is refused");
+            Check(atomic.Trials.Select(x=>x.ManeuverId).SequenceEqual(activeBefore) && atomic.DiscardedTrials.Count==1 && atomic.ReportManeuverIds.SequenceEqual(selectedBefore),"refused restore leaves active set, archive and selection untouched");
+            atomic.DiscardedTrials[0].AcquisitionSequence=3; atomic.RestoreLastDiscarded();
+            Check(atomic.Trials.Select(x=>x.AcquisitionSequence).SequenceEqual(new int[] {1,2,3,4}),"corrected archive restores atomically after refusal");
+
             using(MainForm form=new MainForm())
             {
                 form.Size=new Size(1280,800); form.Show(); Application.DoEvents(); Call(form,"BeginExam",p,true);
@@ -131,6 +166,13 @@ internal static class RefinementTests
                 Set(form,"_active",bad); Call(form,"FinishTrial");
                 Check(ui.Trials.Count==active && ui.FailedCaptures.Count==1 && ((Label)Field(form,"lblStatus")).Text=="نتیجه مانور از دستگاه دریافت نشد؛ لطفاً مانور را تکرار کنید.","failed real finish shows the exact Persian retry message and does not append a row");
             }
+            string productPath=Path.GetFullPath(Path.Combine("release","SpiroLab.exe"));
+            Assembly product=Assembly.LoadFile(productPath);
+            Type mainType=product.GetType("SpiroLab.Ui.MainForm");
+            Check(mainType!=null && product.GetType("SpiroLab.Device.Simulator")==null && product.GetType("SpiroLab.DeploymentSelfTest")==null && product.GetType("SpiroLab.HLine.SubmissionTiming")==null,"production executable has no simulator, self-test or timing subsystem");
+            Check(mainType.GetMethod("RunDemoForTest",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)==null && mainType.GetMethod("StartSimulation",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)==null,"production executable has no simulated acquisition entry point");
+            Check(product.GetType("SpiroLab.Ui.SettingsForm").GetProperty("RunDevelopmentDemo")==null,"production settings has no development switch");
+            Check(FileVersionInfo.GetVersionInfo(productPath).FileVersion.StartsWith("5.4.0",StringComparison.Ordinal),"production executable carries the release version 5.4.0");
             Console.WriteLine("ALL "+checks+" REFINEMENT CHECKS PASSED"); return 0;
         }
         catch(Exception ex) { Console.WriteLine(ex); return 1; }

@@ -20,7 +20,10 @@ namespace SpiroLab.Ui
         AppSettings _settings;
         Exam _exam;
         string _path;
-        bool _busy,_dirty,_fast,_rendering,_simulating,_hasPatient,_developerMode,_sizingLayout;
+        bool _busy,_dirty,_rendering,_hasPatient,_sizingLayout;
+#if SPIROLAB_TEST
+        bool _fast,_simulating,_developerMode;
+#endif
         volatile bool _stop;
         Trial _active,_selected;
         PacketDecoder _decoder;
@@ -30,7 +33,10 @@ namespace SpiroLab.Ui
         readonly object _uiSync=new object();
         volatile bool _closing;
         System.Windows.Forms.Timer _timer;
-        int _simPos,_decodedLiveSamples;
+        int _decodedLiveSamples;
+#if SPIROLAB_TEST
+        int _simPos;
+#endif
         bool _receivedLiveSamples;
         string _safeError="none";
         ChartPanel chart;
@@ -53,7 +59,7 @@ namespace SpiroLab.Ui
             _hline=hline;_submissionGateway=submissionGateway??(hline.CanWrite?new LiveSubmissionGateway(hline):null);_testRecord=designatedTestRecord;
             _allowProductionWrites=designatedTestRecord==null;
             _settings=AppSettings.Load(); _exam=Exam.CreateNew(_settings); _hline.PreferredFirefoxProfile=_settings.FirefoxProfile;
-            ClinicalStyle.Form(this,"اسپیرومتری طب کار — SpiroLab 5.3.1",new Size(1280,820));
+            ClinicalStyle.Form(this,"اسپیرومتری طب کار — SpiroLab "+SpiroReport.ProductVersion,new Size(1280,820));
             StartPosition=FormStartPosition.CenterScreen; MinimumSize=new Size(780,500);
             BuildUi(); PopulateMetadata(); _device.Line+=AppendLog;
             _timer=new System.Windows.Forms.Timer { Interval=50 }; _timer.Tick+=Tick;
@@ -82,6 +88,7 @@ namespace SpiroLab.Ui
         }
         bool _firefoxProbeStarted;
         public void ConnectOnLaunch() { ConnectDevice(false); }
+#if SPIROLAB_TEST
         public void RunDemoForTest()
         {
             _fast=Array.IndexOf(Environment.GetCommandLineArgs(),"--slow")<0;
@@ -92,6 +99,7 @@ namespace SpiroLab.Ui
             }
             StartSimulation();
         }
+#endif
         Button MakeButton(string text,EventHandler click,bool primary) { return ClinicalStyle.Button(text,click,primary); }
         void BuildUi()
         {
@@ -164,7 +172,12 @@ namespace SpiroLab.Ui
             gridTrials.ContextMenuStrip=historyMenu;
             history.Controls.Add(gridTrials); history.Controls.Add(lblSummary); root.Controls.Add(history,0,3);
             FlowLayoutPanel actions=new FlowLayoutPanel { Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft,RightToLeft=RightToLeft.No,WrapContents=false,Padding=new Padding(0,6,0,0) };
-            btnStart=MakeButton("شروع تست",delegate { if(_developerMode) StartSimulation(); else StartTest(); },true); btnStop=MakeButton("توقف مانور",delegate { StopTest(); },false); btnReport=MakeButton("ارسال به سایت",async delegate { await SendSite(); },false);
+#if SPIROLAB_TEST
+            btnStart=MakeButton("شروع تست",delegate { if(_developerMode) StartSimulation(); else StartTest(); },true);
+#else
+            btnStart=MakeButton("شروع تست",delegate { StartTest(); },true);
+#endif
+            btnStop=MakeButton("توقف مانور",delegate { StopTest(); },false); btnReport=MakeButton("ارسال به سایت",async delegate { await SendSite(); },false);
             ContextMenuStrip localMenu=new ContextMenuStrip();localMenu.Items.Add("ذخیره JPG + JSON",null,delegate {ShowReport();});btnReport.ContextMenuStrip=localMenu; _tips.SetToolTip(btnReport,"بازبینی ارسال؛ کلیک راست برای خروجی محلی JPG + JSON");
             actions.Controls.AddRange(new Control[] {btnStart,btnStop,btnReport}); root.Controls.Add(actions,0,4);
             lblStatus=ClinicalStyle.Label("آماده"); lblStatus.Font=new Font("Tahoma",8.5f); lblStatus.ForeColor=Color.FromArgb(104,121,137); root.Controls.Add(lblStatus,0,5);
@@ -206,12 +219,21 @@ namespace SpiroLab.Ui
             if(_closing || IsDisposed || Disposing || _tips==null) return;
             bool editable=!_busy && !_exam.FinalizedAt.HasValue;
             btnNew.Enabled=btnOpen.Enabled=btnSettings.Enabled=btnLogin.Enabled=!_busy;
+#if SPIROLAB_TEST
             btnStart.Enabled=editable && _hasPatient && (_developerMode || _device.Connected);
             btnStart.Text=_developerMode?"مانور نمایشی":_exam.Trials.Count>0?"تست بعدی":"شروع تست";
+#else
+            btnStart.Enabled=editable && _hasPatient && _device.Connected;
+            btnStart.Text=_exam.Trials.Count>0?"تست بعدی":"شروع تست";
+#endif
             btnStop.Enabled=_busy && _active!=null; gridTrials.Enabled=true;
             txtExamDate.Enabled=btnCalendar.Enabled=editable && _hasPatient;
             btnReport.Enabled=!_busy && _hasPatient && _exam.Trials.Count>0;
+#if SPIROLAB_TEST
             _tips.SetToolTip(btnStart,!_hasPatient?"ابتدا مراجع جدید را ثبت کنید.":!_device.Connected && !_developerMode?"اتصال دستگاه را در تنظیمات بررسی کنید.":"ثبت یک مانور تازه");
+#else
+            _tips.SetToolTip(btnStart,!_hasPatient?"ابتدا مراجع جدید را ثبت کنید.":!_device.Connected?"اتصال دستگاه را در تنظیمات بررسی کنید.":"ثبت یک مانور تازه");
+#endif
             _tips.SetToolTip(btnReport,btnReport.Enabled?"بازبینی ارسال به سایت؛ کلیک راست برای JPG + JSON محلی":"ابتدا یک مانور ثبت کنید.");
             lblSiteConnection.Text=_hline.StatusText;
             _tips.SetToolTip(lblSiteConnection,_hline.Status==SessionStatus.Connected && !string.IsNullOrEmpty(_hline.FirefoxProfileName)
@@ -272,6 +294,7 @@ namespace SpiroLab.Ui
                 Post(delegate { DrainPackets(); _decodedLiveSamples=capturing.Flow.Count; _receivedLiveSamples=_decodedLiveSamples>0; _safeError=_receivedLiveSamples?"none":"no_valid_live_samples"; capturing.Completed=outcome.Completed && capturing.CaptureError.Length==0; capturing.OperatorStopped=!outcome.Completed && outcome.Reason=="توقف توسط کاربر"; if(!outcome.Completed && !capturing.OperatorStopped) capturing.CaptureError=outcome.Reason??"capture_failed"; capturing.EndReason=outcome.Reason??capturing.EndReason; capturing.DeviceValues=outcome.Results; FinishTrial(); });
             }) { IsBackground=true }; worker.Start();
         }
+#if SPIROLAB_TEST
         private void StartSimulation()
         {
             if(_busy || !CheckSource(true,false)) return; Patient p=ReadPatient(); if(p==null) return;
@@ -280,6 +303,7 @@ namespace SpiroLab.Ui
             _developerMode=true; _simPos=0; _simulating=true; _busy=true; _selected=null; chart.Trial=_active; chart.Result=null; chart.VisibleSamples=0;
             lblLive.Text="نمایشی — دادهٔ ساختگی";  UpdateControls(); _timer.Start();
         }
+#endif
         private void DrainPackets()
         {
             if(_active==null) return;
@@ -289,12 +313,14 @@ namespace SpiroLab.Ui
         private void Tick(object sender,EventArgs args)
         {
             if(_active==null) return;
+#if SPIROLAB_TEST
             if(_simulating)
             {
                 _simPos=Math.Min(_active.Flow.Count,_simPos+(_fast?80:5)); chart.VisibleSamples=_simPos;
                 lblLive.Text="نمایشی / ساختگی — "+Fmt.N(_simPos*_active.Dt,1)+" ثانیه";
                 if(_simPos==_active.Flow.Count) { _active.Completed=true; FinishTrial(); } return;
             }
+#endif
             DrainPackets(); chart.Invalidate();
             if(_active.Flow.Count>0)
             {
@@ -306,16 +332,21 @@ namespace SpiroLab.Ui
         private void StopTest()
         {
             if(!_busy || _active==null) return;
+#if SPIROLAB_TEST
             if(_simulating)
             {
                 if(_simPos<_active.Flow.Count) _active.Flow.RemoveRange(_simPos,_active.Flow.Count-_simPos);
                 _active.EndReason="توقف نمایش توسط کاربر"; FinishTrial(); return;
             }
+#endif
             _stop=true; btnStop.Enabled=false; lblLive.Text="در حال توقف و ذخیرهٔ داده‌های ناقص…";
         }
         private void FinishTrial()
         {
-            _timer.Stop(); _busy=false; _simulating=false;
+            _timer.Stop(); _busy=false;
+#if SPIROLAB_TEST
+            _simulating=false;
+#endif
             Trial t=_active; _active=null; if(t==null) { UpdateControls(); return; }
             t.Result=SpiroAnalysis.Analyze(t,_exam.Patient);
             if(!t.Simulated && !t.Imported && !DeviceCoreAccepted(t))
@@ -497,7 +528,10 @@ namespace SpiroLab.Ui
             Exam fresh=Exam.CreateNew(_settings); fresh.Patient=patient.Clone();fresh.Patient.SetAgeAt(fresh.ExaminationDate.Value);
             string path=persist?ExamStore.NewPath():_path;
             if(persist) ExamStore.Save(path,fresh);
-            _exam=fresh; _path=path; _hasPatient=true; _selected=null; _dirty=false; _developerMode=false; _receivedLiveSamples=false; _safeError="none"; _legacyReportIds.Clear();
+            _exam=fresh; _path=path; _hasPatient=true; _selected=null; _dirty=false; _receivedLiveSamples=false; _safeError="none"; _legacyReportIds.Clear();
+#if SPIROLAB_TEST
+            _developerMode=false;
+#endif
             chart.Trial=null; chart.Result=null; PopulateMetadata(); RenderTrials(); lblLive.Text="آمادهٔ تست"; lblStatus.Text="مشخصات ذخیره شد";
         }
         private void OpenExam()
@@ -508,7 +542,10 @@ namespace SpiroLab.Ui
         }
         private void LoadExam(string path)
         {
-            Exam loaded=ExamStore.Load(path); _exam=loaded; _path=path; _hasPatient=true; _dirty=false; _selected=null; _developerMode=false; _legacyReportIds.Clear();
+            Exam loaded=ExamStore.Load(path); _exam=loaded; _path=path; _hasPatient=true; _dirty=false; _selected=null; _legacyReportIds.Clear();
+#if SPIROLAB_TEST
+            _developerMode=false;
+#endif
             if(loaded.SelectionWorkflowVersion<2)
             {
                 if(ExamSummary.Build(loaded.Trials).Best!=null) foreach(Trial t in ExaminationSnapshot.Capture(loaded).Summary.Trials) _legacyReportIds.Add(t.ManeuverId);
@@ -558,7 +595,6 @@ namespace SpiroLab.Ui
             {
                 DialogResult result=form.ShowDialog(this);
                 if(result==DialogResult.OK) { _settings=form.Value; _hline.PreferredFirefoxProfile=_settings.FirefoxProfile; }
-                if(form.RunDevelopmentDemo && _hasPatient && !_exam.FinalizedAt.HasValue) StartSimulation();
             }
         }
         private void ShowReport()
@@ -586,33 +622,31 @@ namespace SpiroLab.Ui
             if(!SaveExam(false)) return;
             _busy=true;UpdateControls();
             Exam submitting=_exam;string submittingPath=_path;
-            SubmissionTiming timing=new SubmissionTiming("send");
             try
             {
-                ExaminationSnapshot snapshot=timing.Measure("snapshot_build",delegate { return ExaminationSnapshot.Capture(submitting); });
-                ResultPackage package=timing.Measure("local_export",delegate { return ResultExport.SaveToDirectory(Path.Combine(Path.GetDirectoryName(submittingPath),"exports"),snapshot); });
-                timing.Measure("local_persist",delegate { StoreExport(package,submitting,submittingPath); });
-                SubmissionDraft draft=timing.Measure("draft_build",delegate { return new SubmissionDraft(snapshot,package); });
-                timing.Measure("draft_validate",delegate { draft.ValidateForSubmission(); });
+                ExaminationSnapshot snapshot=ExaminationSnapshot.Capture(submitting);
+                ResultPackage package=ResultExport.SaveToDirectory(Path.Combine(Path.GetDirectoryName(submittingPath),"exports"),snapshot);
+                StoreExport(package,submitting,submittingPath);
+                SubmissionDraft draft=new SubmissionDraft(snapshot,package);
+                draft.ValidateForSubmission();
                 bool already=await Task.Factory.StartNew(delegate
                 {
                     if(_submissionGateway==null) throw new InvalidOperationException("ارسال به سایت روی این نسخه فعال نیست.");
                     bool designatedTest=_testRecord!=null || (!_allowProductionWrites && !string.IsNullOrEmpty(_testNationalId));
                     LiveSubmissionGateway live=_submissionGateway as LiveSubmissionGateway;
-                    if(live!=null) { live.AllowHistoricalRecord=designatedTest; live.Timing=timing; }
+                    if(live!=null) live.AllowHistoricalRecord=designatedTest;
                     if(live==null || !designatedTest) _hline.VerifyLatestRecord(submitting.Patient);
                     MedicalRecord allowed=SubmissionDestination(draft);
-                    SubmissionCoordinator coordinator=new SubmissionCoordinator(_submissionGateway,submitting.Submission,delegate {ExamStore.Save(submittingPath,submitting);},allowed,timing);
+                    SubmissionCoordinator coordinator=new SubmissionCoordinator(_submissionGateway,submitting.Submission,delegate {ExamStore.Save(submittingPath,submitting);},allowed);
                     coordinator.Submit(draft);
                     return coordinator.AlreadyPresent;
                 });
                 lock(_uiSync) { if(!_closing && !IsDisposed && !Disposing && _tips!=null) lblStatus.Text=already?"این نتیجه قبلاً در پرونده ثبت شده بود؛ ارسال دوباره انجام نشد.":"نتیجه و تصویر در سایت ثبت و بررسی شد."; }
-                timing.Complete(already?"already_present":"confirmed");
             }
-            catch(HLineException ex) {timing.Complete("hline_error");Error(ex.Message);}
-            catch(InvalidOperationException ex) {timing.Complete("validation_error");Error(ex.Message);}
-            catch {timing.Complete("uncertain_or_failed");Error(submitting.Submission.WriteAttempted?"نتیجهٔ ارسال نامطمئن است؛ وضعیت سایت باید بازخوانی شود.":"ارسال انجام نشد؛ پروندهٔ محلی محفوظ است.");}
-            finally {timing.Complete("completed");_busy=false;UpdateControls();}
+            catch(HLineException ex) {Error(ex.Message);}
+            catch(InvalidOperationException ex) {Error(ex.Message);}
+            catch {Error(submitting.Submission.WriteAttempted?"نتیجهٔ ارسال نامطمئن است؛ وضعیت سایت باید بازخوانی شود.":"ارسال انجام نشد؛ پروندهٔ محلی محفوظ است.");}
+            finally {_busy=false;UpdateControls();}
         }
         MedicalRecord SubmissionDestination(SubmissionDraft draft)
         {

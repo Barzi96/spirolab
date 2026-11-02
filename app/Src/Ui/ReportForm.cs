@@ -26,7 +26,7 @@ namespace SpiroLab.Ui
             snapshot.Data.ValidateSelection(workflow>0 && workflow<3);
             snapshot.Data.ValidateReportSelection(true);
             _snapshot=snapshot; _patient=snapshot.Data.Patient; _trials=snapshot.Data.Trials; _report=SpiroReport.Render(snapshot);
-            Text="گزارش توسعه — "+_patient.FullName; Size=new Size(1000,900); StartPosition=FormStartPosition.CenterParent;
+            Text="پیش‌نمایش گزارش اسپیرومتری — "+_patient.FullName; Size=new Size(1000,900); StartPosition=FormStartPosition.CenterParent;
             Font=new Font("Tahoma",10); RightToLeft=RightToLeft.Yes;
             _document=new PrintDocument { DocumentName="SpiroLab report" };
             _document.DefaultPageSettings.PaperSize=new PaperSize("A4",827,1169);
@@ -35,9 +35,6 @@ namespace SpiroLab.Ui
             _preview=new PictureBox { Dock=DockStyle.Fill,Image=_report,SizeMode=PictureBoxSizeMode.Zoom,BackColor=Color.FromArgb(237,241,245) };
             FlowLayoutPanel toolbar=new FlowLayoutPanel { Dock=DockStyle.Top,Height=49,FlowDirection=FlowDirection.RightToLeft };
             AddButton(toolbar,"ذخیره JPG + JSON",delegate { SaveImage(false); });
-            toolbar.Controls.Add(new Label { Text="کیفیت JPEG",AutoSize=true,Margin=new Padding(8,12,0,0) });
-            NumericUpDown quality=new NumericUpDown { Minimum=80,Maximum=100,Value=97,Width=55,Margin=new Padding(4,9,4,0) };
-            quality.ValueChanged+=delegate { ResultExport.JpegQuality=(int)quality.Value; }; toolbar.Controls.Add(quality);
             AddButton(toolbar,"چاپ / PDF",delegate
             {
                 using(PrintDialog dialog=new PrintDialog { Document=_document,UseEXDialog=true })

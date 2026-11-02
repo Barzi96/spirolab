@@ -10,12 +10,14 @@ namespace SpiroLab
         [STAThread]
         private static void Main(string[] args)
         {
+#if SPIROLAB_TEST
             if(args.Length>=2 && args[0]=="--self-test")
             {
                 try { DeploymentSelfTest.Run(args[1]); Environment.ExitCode=0; }
                 catch(Exception ex) { System.IO.Directory.CreateDirectory(args[1]); System.IO.File.WriteAllText(System.IO.Path.Combine(args[1],"selftest-failed.txt"),ex.ToString()); Environment.ExitCode=1; }
                 return;
             }
+#endif
             if(args.Length>=2 && args[0]=="--diagnostics")
             { System.IO.File.WriteAllText(args[1],Device.DeviceDiagnostics.Read().SafeText(),System.Text.Encoding.UTF8); return; }
             bool created;
@@ -32,32 +34,15 @@ namespace SpiroLab
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
 
-            bool demo = false;
             bool connect = false;
-            int tab = -1;
             if (args != null)
-            {
                 foreach (string a in args)
-                {
-                    if (string.Equals(a, "--demo", StringComparison.OrdinalIgnoreCase)) demo = true;
                     if (string.Equals(a, "--connect", StringComparison.OrdinalIgnoreCase)) connect = true;
-                    if (a.StartsWith("--tab=", StringComparison.OrdinalIgnoreCase))
-                    {
-                        int v;
-                        if (int.TryParse(a.Substring(6), out v)) tab = v;
-                    }
-                }
-            }
 
             try
             {
                 MainForm f = new MainForm();
-                if (tab >= 0) f.Shown += delegate { f.SelectTab(tab); };
-                if (demo)
-                {
-                    f.Shown += delegate { f.RunDemoForTest(); };
-                }
-                else if (connect) f.Shown += delegate { f.ConnectOnLaunch(); };
+                if (connect) f.Shown += delegate { f.ConnectOnLaunch(); };
                 f.ProbeFirefoxSession();
                 Application.Run(f);
             }

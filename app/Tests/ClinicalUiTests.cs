@@ -146,14 +146,23 @@ internal static class ClinicalUiTests
                 Check(ui.ExaminationDate==new DateTime(2026,10,19),"historical chosen date does not become today on reopen");
                 ui.FinalizeExamination(); ExamStore.Save(uiPath,ui); ExaminationSnapshot snapshot=ExaminationSnapshot.Capture(ui);
                 ResultPackage output=ResultExport.SaveToDirectory(root,snapshot);
-                using(ReportForm report=new ReportForm(snapshot)) { report.Show(); Application.DoEvents(); Shot(report,"06-report-preview"); }
+                using(ReportForm report=new ReportForm(snapshot))
+                {
+                    report.Show(); Application.DoEvents(); Shot(report,"06-report-preview");
+                    Check(report.Text.StartsWith("پیش‌نمایش گزارش اسپیرومتری") && !Descendants(report).OfType<NumericUpDown>().Any() && !Descendants(report).OfType<Label>().Any(c=>c.Text.Contains("کیفیت JPEG")),"report preview is an operator screen with no JPEG quality control");
+                }
                 Check(snapshot.TestedAt.Date==ui.ExaminationDate && Obj(Json(snapshot)["examination"])["examinationDate"].ToString()=="2026-10-19","JPG snapshot and JSON share chosen historical date");
                 Call(form,"RecordExport",output); Check(ExamStore.Load(uiPath).ExportReferences.Count==1 && ExamStore.Load(uiPath).ExportReferences[0].DataPath==output.DataPath,"generated output references are stored without altering frozen clinical data");
                 string previous=ui.ExaminationId; Call(form,"BeginExam",Patient(),true); Check(((Exam)Field(form,"_exam")).ExaminationId!=previous && ExamStore.Load(uiPath).ExaminationId==previous,"same patient can start another session without overwriting previous exam");
                 Set(form,"_developerMode",true); Call(form,"BeginExam",Patient(),false);
                 Check(!(bool)Field(form,"_developerMode") && !((Button)Field(form,"btnStart")).Enabled,"new clinical examination never inherits simulation mode");
             }
-            using(SettingsForm settings=new SettingsForm(new AppSettings(),delegate { return DeviceDiagnostics.Read(); })) { settings.Show(); Shot(settings,"05-settings"); Check(Named(settings,"DeviceDiagnostics")!=null && Named(settings,"DefaultCenter").Text==AppSettings.DefaultCenter,"settings exposes global defaults and retained device diagnostics"); }
+            using(SettingsForm settings=new SettingsForm(new AppSettings(),delegate { return DeviceDiagnostics.Read(); }))
+            {
+                settings.Show(); Shot(settings,"05-settings");
+                Check(Named(settings,"DeviceDiagnostics")!=null && Named(settings,"DefaultCenter").Text==AppSettings.DefaultCenter,"settings exposes global defaults and retained device diagnostics");
+                Check(!Descendants(settings).OfType<LinkLabel>().Any(c=>c.Text.Contains("توسعه") || c.Text.Contains("آزمون")) && !Descendants(settings).OfType<ToolStripItem>().Any(),"settings has no development or simulated-maneuver control");
+            }
             // Physical OS scaling is unchanged: exercise equivalent 100/125/150% control/font layout stress.
             foreach(Size size in new Size[] {new Size(1280,800),new Size(1366,768),new Size(1600,900),new Size(1920,1080)})
                 foreach(float scale in new float[] {1,1.25f,1.5f})

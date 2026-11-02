@@ -91,20 +91,44 @@ namespace SpiroLab.HLine
         readonly SubmissionJournal journal;
         readonly Action persist;
         readonly MedicalRecord testRecord;
+#if SPIROLAB_TEST
         readonly SubmissionTiming timing;
+#endif
         int active;
         public SubmissionState State {get {return journal.State;} }
         public bool AlreadyPresent {get;private set;}
+#if SPIROLAB_TEST
         public SubmissionCoordinator(ISubmissionGateway gateway,SubmissionJournal journal,Action persist,MedicalRecord designatedTestRecord) : this(gateway,journal,persist,designatedTestRecord,null) { }
         public SubmissionCoordinator(ISubmissionGateway gateway,SubmissionJournal journal,Action persist,MedicalRecord designatedTestRecord,SubmissionTiming timing)
         {
             this.gateway=gateway;this.journal=journal;this.persist=persist;this.timing=timing;
             if(designatedTestRecord!=null) testRecord=new MedicalRecord {Id=designatedTestRecord.Id,PersonId=designatedTestRecord.PersonId,NationalId=designatedTestRecord.NationalId,DateText=designatedTestRecord.DateText,Status=designatedTestRecord.Status};
         }
+#else
+        public SubmissionCoordinator(ISubmissionGateway gateway,SubmissionJournal journal,Action persist,MedicalRecord designatedTestRecord)
+        {
+            this.gateway=gateway;this.journal=journal;this.persist=persist;
+            if(designatedTestRecord!=null) testRecord=new MedicalRecord {Id=designatedTestRecord.Id,PersonId=designatedTestRecord.PersonId,NationalId=designatedTestRecord.NationalId,DateText=designatedTestRecord.DateText,Status=designatedTestRecord.Status};
+        }
+#endif
         void Move(SubmissionState state) {journal.State=state;persist();}
         void MoveTimed(SubmissionState state) { Timed("journal_persist",delegate { Move(state); }); }
-        void Timed(string stage,Action work) { if(timing==null) work(); else timing.Measure(stage,work); }
-        T Timed<T>(string stage,Func<T> work) { return timing==null?work():timing.Measure(stage,work); }
+        void Timed(string stage,Action work)
+        {
+#if SPIROLAB_TEST
+            if(timing==null) work(); else timing.Measure(stage,work);
+#else
+            work();
+#endif
+        }
+        T Timed<T>(string stage,Func<T> work)
+        {
+#if SPIROLAB_TEST
+            return timing==null?work():timing.Measure(stage,work);
+#else
+            return work();
+#endif
+        }
         void VerifyTestDestination(SubmissionDraft draft)
         {
             if(testRecord==null) throw new InvalidOperationException("ارسال فعال نیست؛ پروندهٔ تست اختصاصی هنوز معرفی نشده است.");

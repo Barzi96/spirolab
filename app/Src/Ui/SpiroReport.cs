@@ -16,6 +16,7 @@ namespace SpiroLab.Ui
     // BEST VALUES, the per-maneuver table and a short interpretation/footer.
     public static class SpiroReport
     {
+        public const string ProductVersion="5.4.0";
         public const int Width=1200, Height=1697;
         private static readonly Color[] Colors={Color.Black,Color.Black,Color.Black};
         private const string StampFileName="stamp.png";
@@ -40,7 +41,7 @@ namespace SpiroLab.Ui
                 g.DrawLine(new Pen(Color.FromArgb(120,120,120),.7f),left,100,right,100);
 
                 // Patient block: the same order and labels as the printed sheet.
-                Text(g,"Test Date   "+ExaminationDates.Format(snapshot.TestedAt)+"        BIPS 1.092        ATS/ERS",new RectangleF(left,112,content,22),15,false,false,false);
+                Text(g,"Test Date   "+ExaminationDates.Format(snapshot.TestedAt)+"        BTPS: not independently verified",new RectangleF(left,112,content,22),15,false,false,false);
                 Text(g,"Name   "+p.FullName,new RectangleF(left,138,content,24),17,false,false,false);
                 Text(g,"Birth Date   "+(p.BirthDate.HasValue?ExaminationDates.Format(p.BirthDate.Value):"—")+"          #ID   "+p.NationalId,new RectangleF(left,164,content,22),15,false,false,false);
                 Text(g,"Age   "+p.Age+"        Height cm   "+Fmt.N(p.HeightCm,1)+"        Weight kg   "+Fmt.N(p.WeightKg,1)+"        Gender   "+(p.Sex==Sex.Male?"Male":"Female"),new RectangleF(left,190,content,22),15,false,false,false);
@@ -59,13 +60,15 @@ namespace SpiroLab.Ui
 
                 Text(g,"INTERPRETATION:",new RectangleF(left,1432,content,22),15,false,false,false);
                 string interpretation=Interpretation(snapshot);
-                Text(g,interpretation,new RectangleF(left,1456,content,22),15,false,Persian(interpretation),false);
+                string interpretationLabel=string.IsNullOrWhiteSpace(snapshot.Data.ReviewedInterpretation)?"PRELIMINARY AUTOMATED: ":"CLINICIAN-REVIEWED: ";
+                string interpretationText=interpretationLabel+interpretation;
+                Text(g,interpretationText,new RectangleF(left,1456,content,22),15,false,Persian(interpretation),false);
                 Text(g,"QUALITY CONTROL GRADE: "+(string.IsNullOrWhiteSpace(snapshot.Data.ReviewedQualityGrade)?"—":snapshot.Data.ReviewedQualityGrade),new RectangleF(left,1482,content,22),15,false,false,false);
                 Text(g,"EXHALE ALL air in the lungs",new RectangleF(left,1504,content,22),15,false,false,false);
                 Text(g,"REPEATABILITY: FVC, FEV1",new RectangleF(left,1526,content,22),15,false,false,false);
 
                 DrawStamp(g,right-230,1638);
-                Text(g,"Made by spirolab    Ver 4.8",new RectangleF(left,1652,420,20),12,false,false,false);
+                Text(g,"SpiroLab "+ProductVersion,new RectangleF(left,1652,420,20),12,false,false,false);
                 string serial=s.BestTrial==null?null:s.BestTrial.DeviceSerial;
                 Text(g,"SN "+(string.IsNullOrWhiteSpace(serial)?"—":serial.Trim()),new RectangleF(right-260,1652,260,20),12,false,false,true);
             }

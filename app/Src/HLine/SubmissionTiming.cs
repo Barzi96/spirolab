@@ -1,3 +1,4 @@
+#if SPIROLAB_TEST
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -104,3 +105,4 @@ namespace SpiroLab.HLine
         }
     }
 }
+#endif

@@ -51,9 +51,12 @@ namespace SpiroLab
                 if(item.AcquisitionSequence<=last) throw new InvalidDataException("شمارهٔ اصلی مانورها نامعتبر است.");
                 last=item.AcquisitionSequence;
             }
+            HashSet<int> sequences=new HashSet<int>();
+            foreach(Trial item in Trials) sequences.Add(item.AcquisitionSequence);
             if(DiscardedTrials!=null) foreach(Trial item in DiscardedTrials)
             {
                 if(item==null || string.IsNullOrEmpty(item.ManeuverId) || !ids.Add(item.ManeuverId)) throw new InvalidDataException("شناسهٔ مانورها تکراری یا نامعتبر است.");
+                if(item.AcquisitionSequence<=0 || !sequences.Add(item.AcquisitionSequence)) throw new InvalidDataException("شمارهٔ مانورهای فعال و بایگانی باید یکتا باشد.");
                 if(!item.DiscardedAt.HasValue) item.DiscardedAt=DateTime.Now;
             }
             if(FailedCaptures!=null) foreach(Trial item in FailedCaptures)
@@ -61,13 +64,23 @@ namespace SpiroLab
                 if(item==null || string.IsNullOrEmpty(item.ManeuverId)) throw new InvalidDataException("شناسهٔ تلاش ناموفق نامعتبر است.");
             }
         }
+        int NextAcquisitionSequence()
+        {
+            int highest=0;
+            foreach(Trial item in Trials) if(item!=null && item.AcquisitionSequence>highest) highest=item.AcquisitionSequence;
+            if(DiscardedTrials!=null) foreach(Trial item in DiscardedTrials) if(item!=null && item.AcquisitionSequence>highest) highest=item.AcquisitionSequence;
+            return checked(highest+1);
+        }
         public void AddManeuver(Trial trial)
         {
             if(FinalizedAt.HasValue) throw new InvalidOperationException("معاینه نهایی شده است.");
             EnsureManeuverIdentities();
             if(trial==null || string.IsNullOrEmpty(trial.ManeuverId) || Trials.Exists(delegate(Trial t) { return t.ManeuverId==trial.ManeuverId; })) throw new ArgumentException("شناسهٔ مانور باید یکتا باشد.");
             if(SelectionWorkflowVersion>=4 && !trial.Simulated && !trial.Imported && trial.DeviceCaptureSequence>0) trial.RequiresDeviceCore=true;
-            trial.AcquisitionSequence=Trials.Count==0?1:checked(Trials[Trials.Count-1].AcquisitionSequence+1);
+            // Acquisition numbers are monotonic across active and archived attempts.
+            // Reusing the last active number would collide with a discarded maneuver
+            // later restored by the operator.
+            trial.AcquisitionSequence=NextAcquisitionSequence();
             if(trial.Result==null) trial.Result=SpiroAnalysis.Analyze(trial,Patient);
             Trials.Add(trial);
             MaintainSelections();
@@ -104,16 +117,62 @@ namespace SpiroLab
             if(FinalizedAt.HasValue) throw new InvalidOperationException("معاینه نهایی شده است.");
             if(DiscardedTrials==null || DiscardedTrials.Count==0) return null;
             Trial t=DiscardedTrials[DiscardedTrials.Count-1];
-            if(t==null || Trials.Exists(delegate(Trial x) { return x!=null && x.ManeuverId==t.ManeuverId; })) throw new InvalidDataException("مانور بازگردانده‌شده معتبر نیست.");
-            DiscardedTrials.RemoveAt(DiscardedTrials.Count-1);
-            t.DiscardedAt=null;
-            Trials.Add(t);
-            Trials.Sort(delegate(Trial a,Trial b) { return a.AcquisitionSequence.CompareTo(b.AcquisitionSequence); });
-            EnsureManeuverIdentities();
-            if(t.SelectedWhenDiscarded && !ReportManeuverIds.Contains(t.ManeuverId) && ReportManeuverIds.Count<3) ReportManeuverIds.Add(t.ManeuverId);
-            t.SelectedWhenDiscarded=false;
-            MaintainSelections();
-            return t;
+            if(t==null || string.IsNullOrEmpty(t.ManeuverId) || t.AcquisitionSequence<=0) throw new InvalidDataException("مانور بازگردانده‌شده معتبر نیست.");
+            // Validate the complete restoration before changing either list. A failed
+            // validation must leave the active set, archive and selection untouched.
+            int last=0;
+            foreach(Trial item in Trials)
+            {
+                if(item==null || string.IsNullOrEmpty(item.ManeuverId)) throw new InvalidDataException("فهرست مانورهای فعال معتبر نیست.");
+                if(item.ManeuverId==t.ManeuverId) throw new InvalidDataException("شناسهٔ مانور بازگردانده‌شده با مانور فعال یکسان است.");
+                if(item.AcquisitionSequence<=last) throw new InvalidDataException("ترتیب مانورهای فعال معتبر نیست.");
+                if(item.AcquisitionSequence==t.AcquisitionSequence) throw new InvalidDataException("شمارهٔ مانور بازگردانده‌شده با مانور فعال یکسان است.");
+                last=item.AcquisitionSequence;
+            }
+            if(DiscardedTrials.Exists(delegate(Trial item) { return item!=null && item!=t && item.ManeuverId==t.ManeuverId; })) throw new InvalidDataException("شناسهٔ مانور بازگردانده‌شده در بایگانی تکراری است.");
+            foreach(string id in ReportManeuverIds) if(!Trials.Exists(delegate(Trial item) { return item!=null && item.ManeuverId==id; })) throw new InvalidDataException("انتخاب گزارش با مانورهای فعال تطبیق ندارد.");
+
+            List<Trial> activeBefore=new List<Trial>(Trials);
+            List<Trial> discardedBefore=new List<Trial>(DiscardedTrials);
+            List<string> selectedBefore=new List<string>(ReportManeuverIds);
+            bool manualBefore=ReportSelectionManual;
+            DateTime? selectedAtBefore=ReportSelectionTimestamp;
+            string selectedByBefore=ReportSelectionOperator;
+            DateTime? discardedAtBefore=t.DiscardedAt;
+            bool selectedWhenDiscarded=t.SelectedWhenDiscarded;
+            try
+            {
+                DiscardedTrials.RemoveAt(DiscardedTrials.Count-1);
+                t.DiscardedAt=null;
+                Trials.Add(t);
+                Trials.Sort(delegate(Trial a,Trial b) { return a.AcquisitionSequence.CompareTo(b.AcquisitionSequence); });
+                if(t.SelectedWhenDiscarded)
+                {
+                    // Returning a formerly selected maneuver is an explicit operator
+                    // decision, not a new automatic ranking. Preserve it even when the
+                    // three-report set is already full.
+                    ReportSelectionManual=true;
+                    if(!ReportManeuverIds.Contains(t.ManeuverId))
+                    {
+                        while(ReportManeuverIds.Count>=3 && ReportManeuverIds.Count>0) ReportManeuverIds.RemoveAt(ReportManeuverIds.Count-1);
+                        ReportManeuverIds.Add(t.ManeuverId);
+                    }
+                    ReportSelectionTimestamp=DateTime.Now; ReportSelectionOperator=OperatorName;
+                }
+                t.SelectedWhenDiscarded=false;
+                EnsureManeuverIdentities();
+                MaintainSelections();
+                return t;
+            }
+            catch
+            {
+                Trials.Clear(); Trials.AddRange(activeBefore);
+                DiscardedTrials.Clear(); DiscardedTrials.AddRange(discardedBefore);
+                ReportManeuverIds.Clear(); ReportManeuverIds.AddRange(selectedBefore);
+                ReportSelectionManual=manualBefore; ReportSelectionTimestamp=selectedAtBefore; ReportSelectionOperator=selectedByBefore;
+                t.DiscardedAt=discardedAtBefore; t.SelectedWhenDiscarded=selectedWhenDiscarded;
+                throw;
+            }
         }
         public void ResetReportSelectionAutomatic()
         {

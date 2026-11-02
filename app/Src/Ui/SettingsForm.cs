@@ -7,7 +7,6 @@ namespace SpiroLab.Ui
     public sealed class SettingsForm : Form
     {
         public AppSettings Value { get; private set; }
-        public bool RunDevelopmentDemo { get; private set; }
         public SettingsForm(AppSettings current,Func<DeviceDiagnostics> readDiagnostics=null,Action<Action> connect=null)
         {
             ClinicalStyle.Form(this,"تنظیمات",new Size(740,640));
@@ -29,15 +28,11 @@ namespace SpiroLab.Ui
             ClinicalStyle.Row(table,"ارتباط",connectButton,50);
             Button details=ClinicalStyle.Button("جزئیات و ذخیرهٔ گزارش تشخیصی",delegate { using(DiagnosticsForm form=new DiagnosticsForm(readDiagnostics==null?diagnostics:readDiagnostics())) form.ShowDialog(this); },false); details.Name="DeviceDiagnostics";
             ClinicalStyle.Row(table,"گزارش بدون اطلاعات بیمار",details,50);
-            LinkLabel development=new LinkLabel { Text="توسعه و آزمون",AutoSize=true,LinkColor=Color.FromArgb(104,121,137),LinkBehavior=LinkBehavior.HoverUnderline };
-            ContextMenuStrip menu=new ContextMenuStrip(); menu.Items.Add("افزودن مانور نمایشی — دادهٔ ساختگی",null,delegate { RunDevelopmentDemo=true; DialogResult=DialogResult.Ignore; }); development.LinkClicked+=delegate { menu.Show(development,new Point(0,development.Height)); };
-            ClinicalStyle.Row(table,"فقط برای بررسی نرم‌افزار",development,40);
             ClinicalStyle.Row(table,"نسخهٔ ۳۲بیتی",new Label { Text="سقف فنی فایل معاینه: ۴۰ MiB؛ تعداد مانورها محدود نیست.",AutoSize=true },44);
             FlowLayoutPanel actions=new FlowLayoutPanel { Dock=DockStyle.Bottom,Height=58,FlowDirection=FlowDirection.RightToLeft,RightToLeft=RightToLeft.No,Padding=new Padding(12,4,12,4) };
             Button save=ClinicalStyle.Button("ذخیره تنظیمات",delegate { try { AppSettings value=new AppSettings { CenterName=center.Text.Trim(),OperatorName=op.Text.Trim(),FirefoxProfile=firefox.Text.Trim() }; value.Save(); Value=value; DialogResult=DialogResult.OK; } catch(Exception ex) { MessageBox.Show(this,ex.Message); } },true);
             Button restore=ClinicalStyle.Button("بازنشانی پیش‌فرض",delegate { if(MessageBox.Show(this,"تنظیمات پیش‌فرض بازگردانده شود؟","تنظیمات",MessageBoxButtons.YesNo)==DialogResult.Yes) { center.Text=AppSettings.DefaultCenter; op.Clear(); } },false);
             Button cancel=ClinicalStyle.Button("بستن",delegate { DialogResult=DialogResult.Cancel; },false); actions.Controls.Add(save); actions.Controls.Add(restore); actions.Controls.Add(cancel); Controls.Add(actions); CancelButton=cancel;
-            FormClosed+=delegate { menu.Dispose(); };
         }
     }
 }

@@ -2,31 +2,74 @@ param([string]$OutputDirectory = (Join-Path $PSScriptRoot '..\dist'))
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $releaseExe = Join-Path $repoRoot 'app\release\SpiroLab.exe'
-if (-not (Test-Path -LiteralPath $releaseExe)) { throw 'Build the release first.' }
+$testAssembly = Join-Path $repoRoot 'app\release-test\SpiroLab.Test.dll'
+if (-not (Test-Path -LiteralPath $releaseExe)) { throw 'Build the production release first (app\build.bat).' }
+if (-not (Test-Path -LiteralPath $testAssembly)) { throw 'Build the isolated test assembly first (app\build.bat test).' }
 $outRoot = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Force -Path $outRoot | Out-Null
-$packageId = 'SpiroLab-5.3.1-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture)
+$packageId = 'SpiroLab-5.4.0-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture)
 $packageRoot = Join-Path $outRoot $packageId
 New-Item -ItemType Directory -Path $packageRoot | Out-Null
 Copy-Item -LiteralPath $releaseExe -Destination $packageRoot
 Copy-Item -LiteralPath (Join-Path $repoRoot 'app\release\SpiroLab.exe.config') -Destination $packageRoot
 New-Item -ItemType Directory -Path (Join-Path $packageRoot 'Docs') | Out-Null
-Copy-Item -LiteralPath (Join-Path $repoRoot 'docs\standalone') -Destination (Join-Path $packageRoot 'Docs\standalone') -Recurse
-Copy-Item -LiteralPath (Join-Path $repoRoot 'docs\parity') -Destination (Join-Path $packageRoot 'Docs\parity') -Recurse
-'SpiroLab 5.3.1 - MIR measurement provenance and session BEST VALUES', 'Launch.cmd starts the application.', 'Persian instructions: Docs\standalone\installation-fa.md', 'BEST VALUES rules and evidence: Docs\standalone\best-values-531.md', 'Selected-three/delete/HLine timing contract: Docs\standalone\mir-selected-three-531.md', 'Refinement regression report: Docs\standalone\mir-refinement-regression-531.md', 'HLine workflow and limitations: Docs\standalone\hline531-workflow.md', 'HLine write implementation and risks: Docs\standalone\hline-write-implementation.md', 'HLine live test evidence: Docs\standalone\live-test-results.md', 'GUI mock end-to-end evidence: Docs\standalone\gui-e2e-results.md', 'Field-testing checklist: Docs\standalone\field-testing-checklist.md', 'HLine authentication is session-only: the operator signs in once in Firefox (including MFA) and SpiroLab reuses that same session. The normal Send button uses the displayed patient''s re-verified latest medical record; no test-mode switch, test record, or extra production activation is required. Automated test builds may use a designated record through internal APIs, but the released app has no such dependency.', 'National ID lookup is automatic. Send to site has no confirmation dialog. Post-save spirometry module status NoData is a visible failure. One owner-authorized restore to a designated historical test record passed; production/general clinical validation remains PENDING.', 'No maneuver-count cap. The visible 40 MiB XML file safety budget still applies.', 'There is no primary/site radio. BEST FVC, FEV1, PEF and FET are independent maxima; FEV1/FVC = best FEV1 / best FVC; FEF25-75 comes from the eligible maneuver with the largest FVC+FEV1. Workflow-4 examinations select at most three final maneuvers (quality then FVC+FEV1, or operator override); the selected set is the authoritative source for BEST VALUES, JPG, JSON, HLine and the displayed curves. A manual override is not silently replaced; a compact Delete/Undo action is provided.', 'HLine: fvc_amount/fev1_amount/pef_amount/fef2575_amount and each percent are the selected-three aggregate. vext is unchanged ClinicVext (largest real EVol strictly between 0 and 200 mL) over all active real maneuvers.', 'Device-reported result blocks are used only when bound to the exact completed capture; reconstructed software values remain separately labelled in local JSON diagnostics. Exact MIR firmware parity, BTPS and paired hardware validation are PENDING.', 'Private MIRUSB backup is delivered separately; see Docs\standalone\driver-installation.md.', 'Examples are NON-CLINICAL TEST DATA. Clean-PC and real hardware validation remain pending.' | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $packageRoot 'README.txt')
-'@echo off', 'start "" "%~dp0SpiroLab.exe"' | Set-Content -Encoding ASCII -LiteralPath (Join-Path $packageRoot 'Launch.cmd')
-$sampleRoot = Join-Path $outRoot ($packageId + '-selftest')
-$p = Start-Process -FilePath (Join-Path $packageRoot 'SpiroLab.exe') -ArgumentList @('--self-test', ('"' + $sampleRoot + '"')) -WorkingDirectory $packageRoot -WindowStyle Hidden -Wait -PassThru
-if ($p.ExitCode -ne 0) { throw 'Packaged self-test failed; inspect the self-test folder.' }
-$sample = Get-ChildItem -LiteralPath $sampleRoot -Directory -Filter 'Examination-*' | Select-Object -First 1
-New-Item -ItemType Directory -Path (Join-Path $packageRoot 'Examples') | Out-Null
-Copy-Item -LiteralPath (Join-Path $sample.FullName 'Spirometry-Report.jpg') -Destination (Join-Path $packageRoot 'Examples')
-Copy-Item -LiteralPath (Join-Path $sample.FullName 'Spirometry-Data.json') -Destination (Join-Path $packageRoot 'Examples')
-Copy-Item -LiteralPath (Join-Path $sampleRoot 'selftest-result.txt') -Destination (Join-Path $packageRoot 'Docs\packaged-selftest.txt')
-# Whitelist the distribution: no vendor files, compiler, sources or test executables.
-$forbidden = Get-ChildItem -LiteralPath $packageRoot -Recurse -File | Where-Object { $_.Extension -in '.sys','.inf','.cat','.dll','.cs' -or ($_.Extension -eq '.exe' -and $_.Name -ne 'SpiroLab.exe') }
-if ($forbidden) { throw 'Non-allowlisted file found in distribution.' }
-Get-ChildItem -LiteralPath $packageRoot -Recurse -File | Get-FileHash -Algorithm SHA256 | ForEach-Object { $_.Hash + '  ' + $_.Path.Substring($packageRoot.Length + 1) } | Set-Content -Encoding ASCII -LiteralPath (Join-Path $packageRoot 'SHA256SUMS.txt')
+Copy-Item -Path (Join-Path $repoRoot 'docs\operator\*') -Destination (Join-Path $packageRoot 'Docs') -Recurse
+$versionText = @(
+  'SpiroLab 5.4.0',
+  'Build UTC: ' + [DateTime]::UtcNow.ToString('o', [Globalization.CultureInfo]::InvariantCulture),
+  'Executable: SpiroLab.exe (x86, .NET Framework 4.x)',
+  'No MIR driver, proprietary software, test data, test executable, source or logs are bundled.',
+  'MIRUSB.SYS must be installed from the official MIR distribution.',
+  'Hardware, clean-PC, BTPS and production HLine validation: PENDING.'
+) -join "`r`n"
+$versionText | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $packageRoot 'Version.txt')
+$readme = @(
+  'SpiroLab 5.4.0 - Portable clinical workstation',
+  '',
+  'Run Launch.cmd. The app starts without an installer.',
+  'Read Docs\README-fa.md first, then Docs\daily-workflow-fa.md.',
+  'MIRUSB driver is NOT included; install the compatible driver from the official MIR distribution.',
+  'Portable data is stored under %APPDATA%\SpiroLab.',
+  '',
+  'Docs: README-fa.md, daily-workflow-fa.md, troubleshooting-fa.md, release-notes-540.md.',
+  'No simulated patient data, test executable, benchmark, log or source file is part of this package.',
+  'Hardware, clean-PC, BTPS and production HLine validation remain PENDING.'
+) -join "`r`n"
+$readme | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $packageRoot 'README.txt')
+@('@echo off', 'start "" "%~dp0SpiroLab.exe"') | Set-Content -Encoding ASCII -LiteralPath (Join-Path $packageRoot 'Launch.cmd')
+
+# Validation-only test host. It is compiled outside the package and never copied in.
+$csc = 'C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe'
+if (-not (Test-Path -LiteralPath $csc)) { throw 'In-box csc.exe not found.' }
+$selfTestHost = Join-Path $repoRoot 'app\release-test\SpiroLab.SelfTest.exe'
+& $csc /nologo /target:exe /platform:x86 /codepage:65001 /out:$selfTestHost /r:$testAssembly /r:System.dll /r:System.Core.dll (Join-Path $repoRoot 'app\Tests\SelfTestHost.cs')
+if ($LASTEXITCODE -ne 0) { throw 'Validation self-test host compilation failed.' }
+$validationRoot = Join-Path $outRoot ($packageId + '-validation')
+$p = Start-Process -FilePath $selfTestHost -ArgumentList @(('"' + $validationRoot + '"')) -WorkingDirectory $repoRoot -WindowStyle Hidden -Wait -PassThru
+if ($p.ExitCode -ne 0) { throw 'Validation self-test failed; inspect the validation folder.' }
+$sample = Get-ChildItem -LiteralPath $validationRoot -Directory -Filter 'Examination-*' | Select-Object -First 1
+if (-not $sample) { throw 'Validation self-test produced no report.' }
+$jpeg = Get-Item -LiteralPath (Join-Path $sample.FullName 'Spirometry-Report.jpg')
+if ($jpeg.Length -gt 5MB) { throw 'Validation JPEG exceeds the HLine safety limit.' }
+
+# Distribution whitelist: no vendor files, compiler, sources, test executable, fixtures or logs.
+$forbidden = Get-ChildItem -LiteralPath $packageRoot -Recurse -File | Where-Object {
+  $_.Extension -in '.sys','.inf','.cat','.dll','.cs','.log','.jpg','.json','.zip','.py','.ps1','.bat' -or
+  ($_.Extension -eq '.exe' -and $_.Name -ne 'SpiroLab.exe')
+}
+if ($forbidden) { throw ('Non-allowlisted file found in distribution: ' + ($forbidden.Name -join ', ')) }
+$manifest = Get-ChildItem -LiteralPath $packageRoot -Recurse -File | Get-FileHash -Algorithm SHA256 | ForEach-Object { $_.Hash + '  ' + $_.Path.Substring($packageRoot.Length + 1) }
+$manifest | Set-Content -Encoding ASCII -LiteralPath (Join-Path $packageRoot 'SHA256SUMS.txt')
 $zipPath = $packageRoot + '-Portable.zip'
 Compress-Archive -Path (Join-Path $packageRoot '*') -DestinationPath $zipPath
-[pscustomobject]@{ PackageDirectory=$packageRoot; PortableZip=$zipPath; SelfTest=$sampleRoot; CleanWindowsAcceptance='PENDING'; Hardware='HARDWARE VALIDATION PENDING' } | ConvertTo-Json
+[pscustomobject]@{
+  PackageDirectory = $packageRoot
+  PortableZip = $zipPath
+  ExecutableSha256 = (Get-FileHash -LiteralPath $releaseExe -Algorithm SHA256).Hash
+  ZipSha256 = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
+  ValidationDirectory = $validationRoot
+  ValidationJpegBytes = $jpeg.Length
+  CleanWindowsAcceptance = 'PENDING'
+  Hardware = 'HARDWARE VALIDATION PENDING'
+  ProductionHLine = 'PENDING'
+} | ConvertTo-Json

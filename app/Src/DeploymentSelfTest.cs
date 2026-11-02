@@ -1,3 +1,4 @@
+#if SPIROLAB_TEST
 using System;
 using System.IO;
 using System.Text;
@@ -25,3 +26,4 @@ namespace SpiroLab
         }
     }
 }
+#endif

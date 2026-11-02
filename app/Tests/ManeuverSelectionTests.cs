@@ -139,8 +139,9 @@ internal static class ManeuverSelectionTests
             Refuses(delegate { reopened.AddManeuver(Blow(p,999)); },"finalized examination cannot append attempts");
             ResultPackage export=ResultExport.SaveToDirectory(root,snapshot);
             Check(File.ReadAllText(export.DataPath)==frozenJson,"JSON export is exactly the saved frozen selection snapshot");
-            string expected=Path.Combine(root,"expected-primary.jpg"); using(Bitmap image=SpiroReport.Render(snapshot)) ResultExport.EncodeJpeg(image,expected,97);
-            Check(File.ReadAllBytes(export.ReportPath).SequenceEqual(File.ReadAllBytes(expected)),"actual JPG bytes match rendering of the same operator-selected snapshot as JSON");
+            ResultPackage repeat=ResultExport.SaveToDirectory(Path.Combine(root,"repeat"),snapshot);
+            Check(export.ReportBytes.SequenceEqual(File.ReadAllBytes(export.ReportPath)) && export.ReportBytes.SequenceEqual(repeat.ReportBytes),"automatic JPG bytes are read back exactly and deterministic for the same frozen snapshot");
+            using(Image image=Image.FromFile(export.ReportPath)) Check(image.Width==export.ReportWidth && image.Height==export.ReportHeight && export.ReportBytes.Length<=ResultExport.JpegTargetBytes,"report JPG automatically meets its target without a quality control");
             // The retired primary field cannot change a workflow-3 report header.
             Exam alternate=ExamStore.Load(saved); alternate.SelectPrimary(firstId,"manual",alternate.OperatorName,"");
             using(Bitmap selectedImage=SpiroReport.Render(snapshot)) using(Bitmap alternateImage=SpiroReport.Render(ExaminationSnapshot.Capture(alternate)))
