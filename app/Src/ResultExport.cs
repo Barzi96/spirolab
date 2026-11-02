@@ -38,10 +38,11 @@ namespace SpiroLab
         // on the real 1800x2546 sheet: q80 = 277 KiB, q70 = 248 KiB, so the ceiling
         // leaves room for the densest clinical sheet without any quality search.
         public const int JpegCeilingBytes=320*1024;
-        // Single quality used for the shared JPG. Measured on real report samples at
-        // 1800x2546: quality 80 keeps 99.3% of text ink at 44.2 dB PSNR; lower
-        // qualities only save ~27 KiB and start adding ringing on the small table.
-        public const int JpegQuality=80;
+        // Single quality used for the shared JPG (owner decision for 5.4.1):
+        // quality 70 on the same 1800x2546 sheet measured 247.6 KiB versus
+        // 277.1 KiB at quality 80. Geometry and the one render/one encode/one
+        // write path are unchanged; there is no quality search.
+        public const int JpegQuality=70;
         internal static Action<string> ExportCheckpoint = null;
         static ImageCodecInfo JpegEncoder()
         {

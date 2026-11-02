@@ -16,7 +16,7 @@ namespace SpiroLab.Ui
     // BEST VALUES, the per-maneuver table and a short interpretation/footer.
     public static class SpiroReport
     {
-        public const string ProductVersion="5.4.0";
+        public const string ProductVersion="5.4.1";
         // Logical canvas shared by every output. Pixel outputs are drawn directly
         // at a scale of this canvas, never enlarged and then shrunk again.
         public const int Width=1200, Height=1697;

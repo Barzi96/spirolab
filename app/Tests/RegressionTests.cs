@@ -12,9 +12,21 @@ using SpiroLab.Ui;
 internal static class RegressionTests
 {
     private static int checks;
+    private static int skipped;
     private static string output;
     private static void Check(bool ok,string name) { if(!ok) throw new Exception(name); checks++; Console.WriteLine("PASS "+name); }
+    private static void Skip(string name) { skipped++; Console.WriteLine("SKIPPED "+name); }
     private static void Near(double actual,double expected,double tolerance,string name) { Check(Math.Abs(actual-expected)<=tolerance,name+" ("+actual.ToString("F4",System.Globalization.CultureInfo.InvariantCulture)+")"); }
+    // Clearly labelled synthetic manoeuvre for the general round-trip, CSV, chart,
+    // HTML, print and UI checks. It is never presented as a MIR device capture.
+    private static Trial SyntheticSample(Patient p)
+    {
+        Trial trial=Simulator.Build(p,4242);
+        trial.When=new DateTime(2026,11,1,9,0,0);
+        for(int i=0;i<trial.Flow.Count;i+=10) trial.Packets.Add(new DevicePacket { Seconds=i*trial.Dt,Type=0x10,Raw=32768+(int)Math.Round(trial.Flow[i]*100) });
+        trial.Result=SpiroAnalysis.Analyze(trial,p);
+        return trial;
+    }
     private static object Field(object obj,string name) { return obj.GetType().GetField(name,BindingFlags.Instance|BindingFlags.NonPublic).GetValue(obj); }
     private static void Set(object obj,string name,object value) { obj.GetType().GetField(name,BindingFlags.Instance|BindingFlags.NonPublic).SetValue(obj,value); }
     private static void Call(object obj,string name,params object[] values) { obj.GetType().GetMethod(name,BindingFlags.Instance|BindingFlags.NonPublic).Invoke(obj,values); }
@@ -42,6 +54,9 @@ internal static class RegressionTests
         try
         {
             output=Path.GetFullPath(args[0]); Directory.CreateDirectory(output);
+            string capture=args.Length>1?Path.GetFullPath(args[1]):null;
+            bool haveCapture=!string.IsNullOrEmpty(capture) && File.Exists(capture);
+            if(capture!=null && !haveCapture) Console.WriteLine("SKIPPED real MIR capture not found: "+capture);
             Near(Fmt.Parse("۱۷۸٫۵",0),178.5,.001,"Persian numbers"); Near(Fmt.Parse("١٧٨",0),178,.001,"Arabic numbers");
             Check(double.IsNaN(Fmt.Parse("bad",double.NaN)),"invalid numeric input rejected"); Check(double.IsNaN(Fmt.Parse("Infinity",double.NaN)),"nonfinite rejected");
             Patient p=new Patient { FirstName="آزمایش",LastName="نرم‌افزار",Age=34,HeightCm=178,WeightKg=82,Note="تست یادداشت" };
@@ -100,14 +115,39 @@ internal static class RegressionTests
             }
             Trial constant=new Trial(); for(int i=0;i<201;i++) constant.Flow.Add(2);
             AnalysisResult cr=SpiroAnalysis.Analyze(constant,p); Near(cr.Fev1,2,.025,"fixed-rate timed volume"); Near(cr.Fvc,4.02,.025,"fixed-rate FVC");
-            Trial t=ExamStore.ImportCapture(args[1],.030); t.Result=SpiroAnalysis.Analyze(t,p);
-            Check(t.Completed && t.Imported && !t.Simulated,"development fixture provenance and natural end"); Check(t.Flow.Count==276,"all 276 device flow packets decoded");
-            Near(t.Flow[0],-.34,.0001,"signed MIR flow"); Near(t.Result.Fvc,4.74,.001,"inspiration excluded from FVC");
-            Near(t.Result.Fev1,1.6676,.001,"unverified development replay interpolated FEV1"); Near(t.Result.Pef,1.92,.001,"unverified development replay peak flow");
-            Check(t.Result.Fet>7 && t.Result.Fet<9,"irregular sample timestamps used");
-            Check(t.Result.BevAvailable && t.Result.Bev*1000>70 && t.Result.Bev*1000<76,"recorded device maneuver yields a numeric EVol near 73 mL from real samples");
-            Expiration signal=Expiration.From(t); Near(signal.Volume[signal.Count-1],t.Result.Fvc,.0001,"chart and analysis share volume");
-            Near(signal.VolumeAt(1),t.Result.Fev1,.0001,"chart and analysis share time origin");
+            Trial t=null;
+            if(haveCapture)
+            {
+                // The exact historical MIR replay facts. These are only meaningful with
+                // the real capture file and are never asserted against synthetic data.
+                t=ExamStore.ImportCapture(capture,.030); t.Result=SpiroAnalysis.Analyze(t,p);
+                Check(t.Completed && t.Imported && !t.Simulated,"real capture provenance and natural end");
+                Check(t.Flow.Count==276,"all 276 device flow packets decoded");
+                Near(t.Flow[0],-.34,.0001,"signed MIR flow");
+                Near(t.Result.Fvc,4.74,.001,"inspiration excluded from FVC");
+                Near(t.Result.Fev1,1.6676,.001,"unverified development replay interpolated FEV1");
+                Near(t.Result.Pef,1.92,.001,"unverified development replay peak flow");
+                Check(t.Result.Fet>7 && t.Result.Fet<9,"irregular sample timestamps used");
+                Check(t.Result.BevAvailable && t.Result.Bev*1000>70 && t.Result.Bev*1000<76,"recorded device maneuver yields a numeric EVol near 73 mL from real samples");
+                Expiration signal=Expiration.From(t);
+                Near(signal.Volume[signal.Count-1],t.Result.Fvc,.0001,"chart and analysis share volume");
+                Near(signal.VolumeAt(1),t.Result.Fev1,.0001,"chart and analysis share time origin");
+            }
+            else
+            {
+                Skip("real MIR capture: provenance and natural end");
+                Skip("real MIR capture: all 276 device flow packets decoded");
+                Skip("real MIR capture: signed MIR flow");
+                Skip("real MIR capture: inspiration excluded from FVC");
+                Skip("real MIR capture: interpolated FEV1");
+                Skip("real MIR capture: peak flow");
+                Skip("real MIR capture: irregular sample timestamps");
+                Skip("real MIR capture: numeric EVol near 73 mL");
+                Skip("real MIR capture: chart and analysis share volume");
+                Skip("real MIR capture: chart and analysis share time origin");
+                t=SyntheticSample(p);
+                Check(t.Simulated && !t.Imported,"general fixture is explicitly labelled simulation, not a device capture");
+            }
             Trial timeTrial=new Trial { StepType=0x40,Step=.02 }; PacketDecoder decoder=new PacketDecoder();
             for(int i=0;i<100;i++) decoder.Add(timeTrial,new DevicePacket { Seconds=i*.3,Type=0x10,Raw=200 });
             Near(timeTrial.Time[99],2,.0001,"time-step mode uses device clock"); Near(timeTrial.Volume[99],4,.0001,"time-step integration");
@@ -116,18 +156,18 @@ internal static class RegressionTests
             Near(volumeTrial.Volume[99],4,.0001,"volume packets in time-step mode"); Near(volumeTrial.Flow[99],2,.0001,"flow derived from timed volume");
             Exam e=new Exam { Patient=p }; e.Trials.Add(t); string saved=Path.Combine(output,"roundtrip.spiro"); ExamStore.Save(saved,e); ExamStore.Save(saved,e);
             Exam loaded=ExamStore.Load(saved); Check(loaded.Trials[0].Packets.Count==t.Packets.Count,"raw packets survive round trip");
-            Check(loaded.Trials[0].Imported && loaded.Patient.Note==p.Note && loaded.Patient.Origin==p.Origin,"patient, origin and provenance survive round trip"); Near(loaded.Trials[0].Result.Fvc,t.Result.Fvc,.0001,"results recomputed on load"); Check(File.Exists(saved+".bak"),"atomic save backup");
+            Check(loaded.Trials[0].Imported==t.Imported && loaded.Trials[0].Simulated==t.Simulated && loaded.Patient.Note==p.Note && loaded.Patient.Origin==p.Origin,"patient, origin and provenance survive round trip"); Near(loaded.Trials[0].Result.Fvc,t.Result.Fvc,.0001,"results recomputed on load"); Check(File.Exists(saved+".bak"),"atomic save backup");
             ExamStore.ExportCsv(Path.Combine(output,"data.csv"),e); string csv=File.ReadAllText(Path.Combine(output,"data.csv")); Check(csv.Contains("Packet") && csv.Contains("Sample") && csv.Contains("FVC") && csv.Contains("BEST") && csv.Contains("Origin"),"CSV contains best values, origin, results and raw packets");
             string bad=Path.Combine(output,"bad.spiro");
             File.WriteAllText(bad,"<!DOCTYPE Exam [<!ENTITY x SYSTEM 'file:///C:/Windows/win.ini'>]><Exam><Patient><FirstName>&x;</FirstName></Patient></Exam>");
             bool rejected=false; try { ExamStore.Load(bad); } catch { rejected=true; } Check(rejected,"XML external entities rejected");
-            Trial malformed=t.Clone(); malformed.Time[2]=-1; Exam invalid=new Exam { Patient=p }; invalid.Trials.Add(malformed); ExamStore.Save(bad,invalid);
+            Trial malformed=timeTrial.Clone(); malformed.Time[2]=-1; Exam invalid=new Exam { Patient=p }; invalid.Trials.Add(malformed); ExamStore.Save(bad,invalid);
             rejected=false; try { ExamStore.Load(bad); } catch { rejected=true; } Check(rejected,"nonmonotonic sample timestamps rejected");
             p.FirstName="<script>alert(1)</script>";
             using(Bitmap bitmap=ReportForm.RenderCurves(t))
             {
                 bitmap.Save(Path.Combine(output,"capture-curves.png")); string html=ReportForm.HtmlReport(p,t,1,"test",bitmap);
-                Check(!html.Contains("<script>") && html.Contains("&lt;script&gt;"),"HTML escapes patient input"); Check(html.Contains("data:image/png;base64,") && html.Contains("بازپخش"),"standalone report embeds charts and source");
+                Check(!html.Contains("<script>") && html.Contains("&lt;script&gt;"),"HTML escapes patient input"); Check(html.Contains("data:image/png;base64,") && html.Contains(ExamStore.Source(t)),"standalone report embeds charts and the actual provenance label");
                 File.WriteAllText(Path.Combine(output,"report.html"),html);
             }
             p.FirstName="آزمایش";
@@ -166,7 +206,7 @@ internal static class RegressionTests
                 Check(object.ReferenceEquals(Field(form,"_selected"),ExamSummary.Build(demo.Trials).BestTrial),"new maneuvers automatically update selected best");
                 Call(form,"BeginExam",new Patient { FirstName="مراجع",LastName="جدید",NationalId="0000000001",Age=30,HeightCm=175,WeightKg=70,Origin=Origin.Caucasian },false); Check(((Exam)Field(form,"_exam")).Trials.Count==0 && (bool)Field(form,"_hasPatient"),"new patient creates a separate examination session");
             }
-            Console.WriteLine("ALL "+checks+" CHECKS PASSED"); return 0;
+            Console.WriteLine("ALL "+checks+" CHECKS PASSED ("+skipped+" SKIPPED)"); return 0;
         }
         catch(Exception ex) { Console.WriteLine(ex); return 1; }
     }

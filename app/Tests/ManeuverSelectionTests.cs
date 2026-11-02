@@ -143,7 +143,7 @@ internal static class ManeuverSelectionTests
             Check(export.ReportBytes.SequenceEqual(File.ReadAllBytes(export.ReportPath)) && export.ReportBytes.SequenceEqual(repeat.ReportBytes),"automatic JPG bytes are read back exactly and deterministic for the same frozen snapshot");
             // The JPG is rasterised once at 1800x2546; the guaranteed bound is the
             // readability ceiling, not the 250 KiB preferred sharing target.
-            using(Image image=Image.FromFile(export.ReportPath)) Check(image.Width==export.ReportWidth && image.Height==export.ReportHeight && export.ReportBytes.Length<=ResultExport.JpegCeilingBytes,"report JPG automatically meets the readability ceiling without a quality control");
+            using(Image image=Image.FromFile(export.ReportPath)) Check(image.Width==1800 && image.Height==2546 && image.Width==export.ReportWidth && image.Height==export.ReportHeight && export.JpegQuality==70 && export.ReportBytes.Length<=ResultExport.JpegCeilingBytes,"report JPG is 1800x2546 at quality 70 inside the readability ceiling without a quality control");
             // The retired primary field cannot change a workflow-3 report header.
             Exam alternate=ExamStore.Load(saved); alternate.SelectPrimary(firstId,"manual",alternate.OperatorName,"");
             using(Bitmap selectedImage=SpiroReport.Render(snapshot)) using(Bitmap alternateImage=SpiroReport.Render(ExaminationSnapshot.Capture(alternate)))

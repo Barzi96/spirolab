@@ -165,16 +165,23 @@ namespace SpiroLab.HLine
         {
             string performedBy=client.CurrentUserId;
             if(string.IsNullOrEmpty(performedBy)) throw new HLineException("identity","شناسهٔ کاربر سامانه در دسترس نیست؛ دوباره وارد شوید.");
-            string interpretation=SpiroReport.Interpretation(draft.Snapshot);
-            string result=null,other=null;
-            MapInterpretation(interpretation,out result,out other);
             Dictionary<string,object> p=new Dictionary<string,object>();
             p["successful"]=true;
             p["failure_notes"]=null;
             p["failure_reason"]=null;
-            p["result"]=result;
-            p["result_severity"]=null;
-            p["result_other"]=other;
+            // Workflow 4 records measurements only. HLine's optional interpretation
+            // fields are not created at all (absent, never null/empty text), so the
+            // physician interprets the record in HLine. Historical workflow 3 and
+            // older keep the exact mapping they were written with.
+            if(draft.Snapshot.Data.SelectionWorkflowVersion<4)
+            {
+                string interpretation=ReadInterpretation(draft.Snapshot);
+                string result=null,other=null;
+                MapInterpretation(interpretation,out result,out other);
+                p["result"]=result;
+                p["result_severity"]=null;
+                p["result_other"]=other;
+            }
             p["test_date"]=draft.ExaminationDate.ToString("yyyy/MM/dd",CultureInfo.InvariantCulture);
             p["performed_by"]=performedBy;
             p["fev1_amount"]=Value(draft,"fev1_amount");
@@ -199,6 +206,15 @@ namespace SpiroLab.HLine
             if(double.IsNaN(value.Value) || double.IsInfinity(value.Value)) throw new InvalidDataException("مقدار عددی نامعتبر است.");
             return Math.Round(value.Value,2,MidpointRounding.AwayFromZero);
         }
+
+#if SPIROLAB_TEST
+        // Test seam: proves the workflow-4 payload never evaluates an
+        // interpretation. Production builds call SpiroReport directly.
+        internal static Func<ExaminationSnapshot,string> InterpretationProvider=SpiroReport.Interpretation;
+        static string ReadInterpretation(ExaminationSnapshot snapshot) {return InterpretationProvider(snapshot);}
+#else
+        static string ReadInterpretation(ExaminationSnapshot snapshot) {return SpiroReport.Interpretation(snapshot);}
+#endif
 
         static void MapInterpretation(string text,out string result,out string other)
         {

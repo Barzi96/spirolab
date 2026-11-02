@@ -48,11 +48,22 @@ internal static class StandaloneTests
             Check(Directory.GetFiles(Path.GetDirectoryName(export.ReportPath)).Length==2,"exactly JPG and JSON primary outputs");
             byte[] jpg=File.ReadAllBytes(export.ReportPath);
             Check(jpg[0]==0xff && jpg[1]==0xd8 && jpg[jpg.Length-2]==0xff && jpg[jpg.Length-1]==0xd9,"real JPEG encoder signature");
-            using(Image image=Image.FromFile(export.ReportPath)) Check(image.RawFormat.Guid==ImageFormat.Jpeg.Guid && image.Width==export.ReportWidth && image.Height==export.ReportHeight && image.Width>=1600 && image.Width<=2400 && image.Height==(int)Math.Round(3394.0*image.Width/2400.0) && image.VerticalResolution>=299,"portrait readable-resolution 300 DPI JPG");
-            // The JPG is rasterised directly at 1800x2546, so a text-dense sheet needs
-            // more than the 250 KiB preferred target to stay at quality 80; the export
-            // path guarantees the readability ceiling instead of shrinking the image.
-            Check(jpg.Length==export.ReportBytes.Length && File.ReadAllBytes(export.ReportPath).SequenceEqual(export.ReportBytes) && jpg.Length<=ResultExport.JpegCeilingBytes && jpg.Length>=150*1024 && export.JpegQuality>=78 && export.JpegQuality<=90,"JPEG stays inside the guaranteed readability ceiling and is read back byte-for-byte");
+            using(Image image=Image.FromFile(export.ReportPath)) Check(image.RawFormat.Guid==ImageFormat.Jpeg.Guid && image.Width==1800 && image.Height==2546 && image.Width==export.ReportWidth && image.Height==export.ReportHeight && image.VerticalResolution>=299,"portrait 1800x2546 300 DPI JPG");
+            Check(ResultExport.JpegQuality==70 && export.JpegQuality==70,"owner JPG policy is exactly quality 70");
+            Check(jpg.Length==export.ReportBytes.Length && File.ReadAllBytes(export.ReportPath).SequenceEqual(export.ReportBytes),"JPG on disk is byte-identical to ReportBytes");
+            Check(jpg.Length<=ResultExport.JpegCeilingBytes && jpg.Length>=150*1024,"JPEG stays inside the guaranteed readability ceiling");
+            // A quality change must not erase the table text or the three curves:
+            // sample the decoded sheet and require real dark ink without a black fill.
+            using(Bitmap decoded=new Bitmap(export.ReportPath))
+            {
+                int dark=0,sampled=0;
+                for(int y=0;y<decoded.Height;y+=8) for(int x=0;x<decoded.Width;x+=8)
+                {
+                    Color c=decoded.GetPixel(x,y);sampled++;
+                    if(c.R<96 && c.G<96 && c.B<96) dark++;
+                }
+                Check(sampled>10000 && dark>sampled/100 && dark<sampled/2,"quality-70 sheet still carries text and curve ink");
+            }
             File.Copy(export.ReportPath,Path.Combine(root,"jpeg-optimized.jpg"),true);
             string baselinePath=Path.Combine(root,"jpeg-baseline-97.jpg");
             using(Bitmap baselineImage=SpiroReport.Render(snapshot)) ResultExport.EncodeJpeg(baselineImage,baselinePath,97);

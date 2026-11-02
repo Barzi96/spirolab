@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Web.Script.Serialization;
@@ -39,6 +41,11 @@ class HLineWriteTests
     static SubmissionDraft Draft(Exam e) {ExaminationSnapshot s=ExaminationSnapshot.Capture(e);return new SubmissionDraft(s,ResultExport.SaveToDirectory(root,s));}
     static SubmissionCoordinator Coordinator(ISubmissionGateway g) {return new SubmissionCoordinator(g,new SubmissionJournal(),delegate {},Destination());}
     static Dictionary<string,object> Json(string text) {return (Dictionary<string,object>)new JavaScriptSerializer().DeserializeObject(text);}
+    static bool PayloadNumber(Dictionary<string,object> payload,string key,double? expected)
+    {
+        if(!expected.HasValue || !payload.ContainsKey(key) || payload[key]==null) return false;
+        return Convert.ToDouble(payload[key])==Math.Round(expected.Value,2,MidpointRounding.AwayFromZero);
+    }
     [STAThread] static int Main(string[] args)
     {
         try
@@ -53,13 +60,21 @@ class HLineWriteTests
                     SubmissionCoordinator first=Coordinator(gateway);first.Submit(draft);
                     Check(first.State==SubmissionState.Confirmed && !first.AlreadyPresent,"live gateway submits and verifies one result");
                     Check(server.Uploads==1 && server.Creates==1,"one multipart upload and one spirometry POST");
-                    Check(server.UploadedModule=="spirometry" && server.UploadedType=="image/jpeg" && server.UploadedFilename.EndsWith(".jpg") && server.FileBytes.Length==draft.JpegBytes.Length,"multipart carries module, filename, MIME and exact JPG");
+                    Check(server.UploadedModule=="spirometry" && server.UploadedType=="image/jpeg" && server.UploadedFilename.EndsWith(".jpg") && server.FileBytes.SequenceEqual(draft.JpegBytes),"multipart carries module, filename, MIME and the exact local JPG bytes");
+                    using(SHA256 hash=SHA256.Create()) Check(BitConverter.ToString(hash.ComputeHash(server.FileBytes)).Replace("-","").ToLowerInvariant()==draft.JpegSha256,"uploaded JPG SHA-256 equals the hash of the registered local file");
+                    Check(draft.RecordId=="R-1" && draft.PersonId=="P-1" && draft.NationalId=="0000000001" && new FileInfo(Path.Combine(root,"Examination-"+draft.Snapshot.SnapshotId,"Spirometry-Report.jpg")).Length==draft.JpegBytes.Length,"patient, record and exact local JPG file identity are preserved");
                     Dictionary<string,object> payload=server.Saved;
                     Check(Convert.ToString(payload["test_date"])=="2026/10/19" && Convert.ToString(payload["performed_by"])=="USER-1","Gregorian test date and authenticated user id");
                     Check(payload.ContainsKey("fvc_amount") && payload.ContainsKey("fev1_amount") && payload.ContainsKey("vext") && !payload.ContainsKey("fev1_fvc_percent"),"writes amounts and VEXT without inventing the derived ratio field");
                     Check(Convert.ToDouble(payload["vext"])==132.0,"VEXT comes from the clinic selection, not zero");
-                    Check(payload["result"]!=null && Convert.ToString(payload["result"]).Length>0,"interpretation is mapped to a HLine result value");
-                    Check(payload["bronchodilator_type"]==null && payload["srp"]==null && payload["notes"]==null,"empty optional sections stay null");
+                    Check(!payload.ContainsKey("result"),"workflow4 payload has no result key at all");
+                    Check(!payload.ContainsKey("result_other"),"workflow4 payload has no result_other key at all");
+                    Check(!payload.ContainsKey("result_severity"),"workflow4 payload has no result_severity key at all");
+                    Check(Convert.ToBoolean(payload["successful"]),"workflow4 successful stays true without any interpretation");
+                    Check(payload["failure_notes"]==null && payload["failure_reason"]==null && payload["notes"]==null,"workflow4 interpretation is not moved into notes or failure fields");
+                    foreach(string key in new string[] {"fvc_amount","fev1_amount","pef_amount","fef2575_amount"}) Check(PayloadNumber(payload,key,draft.Fields[key]),"workflow4 payload keeps measured "+key);
+                    Check(!payload.Values.Any(delegate(object value) {return value!=null && Convert.ToString(value).IndexOf("Obstructive",StringComparison.OrdinalIgnoreCase)>=0;}),"workflow4 payload carries no obstructive-pattern wording");
+                    Check(first.State==SubmissionState.Confirmed && !server.Saved.ContainsKey("result") && Convert.ToString(server.Saved["file_id"])=="F-1","readback confirms stored numbers and file without depending on a result field");
 
                     // A second click against the identical server result must not write again.
                     SubmissionCoordinator second=Coordinator(gateway);second.Submit(draft);
@@ -127,20 +142,70 @@ class HLineWriteTests
                 }
             }
 
-            // Free text is preserved as Other/result_other instead of being forced into a category.
+            // Workflow 4 never sends a diagnosis, even when historical review text
+            // exists on the record, and never evaluates the interpretation function.
             using(MockHLine server=new MockHLine())
             {
                 HLineHttpTransport transport;using(HLineClient client=Client(server,out transport))
                 {
-                    LiveSubmissionGateway gateway=new LiveSubmissionGateway(client);Exam e=Exam();e.ReviewedInterpretation="متن بازپزشک برای آزمون";SubmissionDraft draft=Draft(e);
-                    gateway.VerifyDestination(draft);string id=gateway.UploadJpeg(draft,"test");
+                    LiveSubmissionGateway gateway=new LiveSubmissionGateway(client);
                     MethodInfo build=typeof(LiveSubmissionGateway).GetMethod("BuildPayload",BindingFlags.Instance|BindingFlags.NonPublic);
-                    Dictionary<string,object> payload=(Dictionary<string,object>)build.Invoke(gateway,new object[] {draft,id});
-                    Check(Convert.ToString(payload["result"])=="Other" && Convert.ToString(payload["result_other"])=="متن بازپزشک برای آزمون","free-text interpretation is preserved as Other without inventing a category");
-                    Exam unrecorded=Exam();unrecorded.ReviewedInterpretation="Not recorded";SubmissionDraft ud=Draft(unrecorded);
-                    gateway.VerifyDestination(ud);string uid=gateway.UploadJpeg(ud,"test");
-                    Dictionary<string,object> upayload=(Dictionary<string,object>)build.Invoke(gateway,new object[] {ud,uid});
-                    Check(upayload["result"]==null && upayload["result_other"]==null,"not-recorded interpretation stays unset instead of inventing Normal or Other");
+                    foreach(string reviewed in new string[] {"Normal Spirometry","Obstructive Pattern"})
+                    {
+                        Exam e=Exam();e.ReviewedInterpretation=reviewed;SubmissionDraft draft=Draft(e);
+                        Dictionary<string,object> p=(Dictionary<string,object>)build.Invoke(gateway,new object[] {draft,"F-1"});
+                        string body=new JavaScriptSerializer().Serialize(p);
+                        Check(!p.ContainsKey("result") && !p.ContainsKey("result_other") && !p.ContainsKey("result_severity") && body.IndexOf(reviewed,StringComparison.OrdinalIgnoreCase)<0,"workflow4 never sends historical reviewed text: "+reviewed);
+                    }
+                    FieldInfo provider=typeof(LiveSubmissionGateway).GetField("InterpretationProvider",BindingFlags.Static|BindingFlags.NonPublic);
+                    Func<ExaminationSnapshot,string> original=(Func<ExaminationSnapshot,string>)provider.GetValue(null);
+                    try
+                    {
+                        provider.SetValue(null,(Func<ExaminationSnapshot,string>)delegate {throw new InvalidOperationException("interpretation evaluated");});
+                        SubmissionDraft v4=Draft(Exam());
+                        Dictionary<string,object> payload=(Dictionary<string,object>)build.Invoke(gateway,new object[] {v4,"F-1"});
+                        Check(!payload.ContainsKey("result") && !payload.ContainsKey("result_other") && !payload.ContainsKey("result_severity"),"workflow4 payload builds without evaluating the interpretation function");
+                        Exam historical=Exam();historical.SelectionWorkflowVersion=3;historical.ReviewedInterpretation="Normal Spirometry";SubmissionDraft hd=Draft(historical);
+                        bool evaluated=false;try {build.Invoke(gateway,new object[] {hd,"F-1"});} catch(TargetInvocationException ex) {evaluated=ex.InnerException!=null && ex.InnerException.Message.Contains("interpretation evaluated");}
+                        Check(evaluated,"workflow3 still evaluates the historical interpretation function");
+                    }
+                    finally {provider.SetValue(null,original);}
+                }
+            }
+
+            // Historical workflow 3 keeps the exact result mapping it was written with.
+            using(MockHLine server=new MockHLine())
+            {
+                HLineHttpTransport transport;using(HLineClient client=Client(server,out transport))
+                {
+                    LiveSubmissionGateway gateway=new LiveSubmissionGateway(client);
+                    MethodInfo build=typeof(LiveSubmissionGateway).GetMethod("BuildPayload",BindingFlags.Instance|BindingFlags.NonPublic);
+                    Exam normal=Exam();normal.SelectionWorkflowVersion=3;normal.ReviewedInterpretation="Normal Spirometry";SubmissionDraft nd=Draft(normal);
+                    Dictionary<string,object> np=(Dictionary<string,object>)build.Invoke(gateway,new object[] {nd,"F-1"});
+                    Check(Convert.ToString(np["result"])=="Normal" && np.ContainsKey("result_severity") && np["result_severity"]==null,"workflow3 Normal Spirometry still maps to result Normal");
+                    Exam obstructive=Exam();obstructive.SelectionWorkflowVersion=3;obstructive.ReviewedInterpretation="Obstructive Pattern";SubmissionDraft od=Draft(obstructive);
+                    Dictionary<string,object> op=(Dictionary<string,object>)build.Invoke(gateway,new object[] {od,"F-1"});
+                    Check(Convert.ToString(op["result"])=="Obstructive Pattern","workflow3 Obstructive Pattern still maps to the same HLine result");
+                    Exam free=Exam();free.SelectionWorkflowVersion=3;free.ReviewedInterpretation="متن بازپزشک برای آزمون";SubmissionDraft fd=Draft(free);
+                    Dictionary<string,object> fp=(Dictionary<string,object>)build.Invoke(gateway,new object[] {fd,"F-1"});
+                    Check(Convert.ToString(fp["result"])=="Other" && Convert.ToString(fp["result_other"])=="متن بازپزشک برای آزمون","workflow3 free-text interpretation is preserved as Other without inventing a category");
+                    Exam unrecorded=Exam();unrecorded.SelectionWorkflowVersion=3;unrecorded.ReviewedInterpretation="Not recorded";SubmissionDraft ud=Draft(unrecorded);
+                    Dictionary<string,object> upayload=(Dictionary<string,object>)build.Invoke(gateway,new object[] {ud,"F-1"});
+                    Check(upayload["result"]==null && upayload["result_other"]==null,"workflow3 not-recorded interpretation stays unset instead of inventing Normal or Other");
+                }
+            }
+
+            // The explicit correction path shares BuildPayload; a workflow-4 PATCH is
+            // interpretation-free too, so it cannot clear or rewrite a stored result.
+            using(MockHLine server=new MockHLine())
+            {
+                HLineHttpTransport transport;using(HLineClient client=Client(server,out transport))
+                {
+                    LiveSubmissionGateway gateway=new LiveSubmissionGateway(client);SubmissionDraft draft=Draft(Exam());
+                    gateway.Update(draft,"F-1","test");
+                    Check(server.Patches==1 && server.Saved!=null,"explicit PATCH path sends exactly one payload to the mock HLine");
+                    Check(!server.Saved.ContainsKey("result") && !server.Saved.ContainsKey("result_other") && !server.Saved.ContainsKey("result_severity"),"workflow4 PATCH payload omits interpretation keys instead of sending null");
+                    Check(Convert.ToBoolean(server.Saved["successful"]) && PayloadNumber(server.Saved,"fvc_amount",draft.Fields["fvc_amount"]),"workflow4 PATCH keeps successful and the measured values");
                 }
             }
             // A readable payload is not success when HLine still reports the module empty.
@@ -169,7 +234,7 @@ class HLineWriteTests
         public string[] Scopes=new string[] {"mrsp_u","mrsp_p","mrsp_i","mrsp_nf","mrsp_rf","mrsp_dm"};
         public bool ExpireNextWrite,AbortAfterUpload,AbortAfterCreate;
         public string ModuleStatus="complete";
-        public int Uploads,Creates,CsrfRefreshes;
+        public int Uploads,Creates,Patches,CsrfRefreshes;
         public string UploadedModule,UploadedFilename,UploadedType;
         public byte[] FileBytes=new byte[0];
         public Dictionary<string,object> Saved;
@@ -209,6 +274,7 @@ class HLineWriteTests
                     string body=new StreamReader(c.Request.InputStream,Encoding.UTF8).ReadToEnd();
                     Saved=Json(body);Saved["file_id"]="F-1";
                     if(c.Request.HttpMethod=="POST") Creates++;
+                    if(c.Request.HttpMethod=="PATCH") Patches++;
                     if(AbortAfterCreate && c.Request.HttpMethod=="POST") {c.Response.Abort();return;}
                     Write(c,c.Request.HttpMethod=="POST"?201:200,"{\"data\":{\"id\":\"S-1\"}}");return;
                 }
