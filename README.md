@@ -30,6 +30,6 @@ JSON نسخهٔ۲ حفظ شده و گسترش یافته است: siteExport مق
 
 [راهنمای نصب](docs/standalone/installation-fa.md) · [گزارش طراحی و شواهد A تا L](docs/standalone/ui52-delivery.md) · [تعریف انتخاب‌ها و JSON](docs/standalone/ui52-schema.md)
 
-[جریان سادهٔ HLine 5.3.1 و آزمون‌ها](docs/standalone/hline531-workflow.md) · [پیاده‌سازی ارسال مستقیم](docs/standalone/hline-write-implementation.md) · [نتیجهٔ تست زندهٔ مجاز](docs/standalone/live-test-results.md) · [نتیجهٔ GUI end-to-end با mock](docs/standalone/gui-e2e-results.md) · [گزارش مبنای 5.3](docs/standalone/hline53-delivery.md) · [قرارداد کشف‌شده از کد سایت](docs/standalone/hline53-contract.md)
+[جریان سادهٔ HLine 5.3.1 و آزمون‌ها](docs/standalone/hline531-workflow.md) · [پیاده‌سازی ارسال مستقیم](docs/standalone/hline-write-implementation.md) · [نتیجهٔ تست زندهٔ مجاز](docs/standalone/live-test-results.md) · [نتیجهٔ GUI end-to-end با mock](docs/standalone/gui-e2e-results.md) · [چک‌لیست تست میدانی](docs/standalone/field-testing-checklist.md) · [گزارش مبنای 5.3](docs/standalone/hline53-delivery.md) · [قرارداد کشف‌شده از کد سایت](docs/standalone/hline53-contract.md)
 
 تست دستگاه واقعی، رایانهٔ پاک و برابری کامل با فریم‌ور MIR هنوز انجام نشده‌اند. بررسی‌های۱۲۵/۱۵۰٪، تنش چیدمان با مقیاس معادل کنترل/فونت هستند؛ تنظیم DPI ویندوز تغییر داده نشده است.
