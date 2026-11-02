@@ -26,7 +26,9 @@ namespace SpiroLab.Ui
         PacketDecoder _decoder;
         readonly Queue<DevicePacket> _pending=new Queue<DevicePacket>();
         readonly object _queueLock=new object();
-        readonly ToolTip _tips=new ToolTip();
+        ToolTip _tips=new ToolTip();
+        readonly object _uiSync=new object();
+        volatile bool _closing;
         System.Windows.Forms.Timer _timer;
         int _simPos,_decodedLiveSamples;
         bool _receivedLiveSamples;
@@ -41,6 +43,7 @@ namespace SpiroLab.Ui
         public MainForm():this(new HLineClient(),null,null) { }
         public MainForm(HLineClient hline,string testNationalId,string testRecordId,bool allowProductionWrites):this(hline,null,null)
         {
+            if(allowProductionWrites && (!string.IsNullOrEmpty(testNationalId) || !string.IsNullOrEmpty(testRecordId))) throw new ArgumentException("حالت تست و ارسال تولیدی را نمی‌توان هم‌زمان فعال کرد.");
             _testNationalId=testNationalId==null?"":testNationalId.Trim();
             _testRecordId=testRecordId==null?"":testRecordId.Trim();
             _allowProductionWrites=allowProductionWrites;
@@ -165,10 +168,20 @@ namespace SpiroLab.Ui
             try { if(InvokeRequired) BeginInvoke((MethodInvoker)delegate { if(!IsDisposed) action(); }); else action(); } catch(InvalidOperationException) { }
         }
         void AppendLog(string line) { System.Diagnostics.Debug.WriteLine(line); }
-        void Error(string message) { lblStatus.Text=message; _tips.SetToolTip(lblStatus,message); }
+        void Error(string message)
+        {
+            lock(_uiSync)
+            {
+                if(_closing || IsDisposed || Disposing || _tips==null) return;
+                lblStatus.Text=message; _tips.SetToolTip(lblStatus,message);
+            }
+        }
         Patient ReadPatient() { if(!_hasPatient) { Error("ابتدا مراجع جدید را ثبت کنید."); return null; } return _exam.Patient.Clone(); }
         void UpdateControls()
         {
+            lock(_uiSync)
+            {
+            if(_closing || IsDisposed || Disposing || _tips==null) return;
             bool editable=!_busy && !_exam.FinalizedAt.HasValue;
             btnNew.Enabled=btnOpen.Enabled=btnSettings.Enabled=btnLogin.Enabled=!_busy;
             btnStart.Enabled=editable && _hasPatient && (_developerMode || _device.Connected);
@@ -186,6 +199,7 @@ namespace SpiroLab.Ui
             lblConnection.ForeColor=_device.Connected?ClinicalStyle.Accent:Color.FromArgb(113,126,138);
             lblPatient.Enabled=_hasPatient && !_busy;
             foreach(DataGridViewRow row in gridTrials.Rows) { row.Cells[6].Tag=row.Cells[7].Tag=editable; row.Cells[7].Style.ForeColor=editable?ClinicalStyle.Ink:Color.LightGray; }
+            }
         }
         bool CanReport()
         {
@@ -460,7 +474,7 @@ namespace SpiroLab.Ui
                     coordinator.Submit(draft);
                     return coordinator.AlreadyPresent;
                 });
-                lblStatus.Text=already?"این نتیجه قبلاً در پرونده ثبت شده بود؛ ارسال دوباره انجام نشد.":"نتیجه و تصویر در سایت ثبت و بررسی شد.";
+                lock(_uiSync) { if(!_closing && !IsDisposed && !Disposing && _tips!=null) lblStatus.Text=already?"این نتیجه قبلاً در پرونده ثبت شده بود؛ ارسال دوباره انجام نشد.":"نتیجه و تصویر در سایت ثبت و بررسی شد."; }
             }
             catch(HLineException ex) {Error(ex.Message);}
             catch(InvalidOperationException ex) {Error(ex.Message);}
@@ -484,8 +498,10 @@ namespace SpiroLab.Ui
         }
         void ClosingForm(object sender,FormClosingEventArgs args)
         {
-            if(_busy) { args.Cancel=true; if(_active!=null) StopTest(); Error("ابتدا پایان ثبت یا توقف را منتظر بمانید."); return; }
-            if(_dirty && !SaveExam(false)) { args.Cancel=true; return; } _timer.Dispose(); _device.Dispose(); _hline.Dispose(); _tips.Dispose();
+            _closing=true;
+            if(_busy) { _closing=false; args.Cancel=true; if(_active!=null) StopTest(); Error("ابتدا پایان ثبت یا توقف را منتظر بمانید."); return; }
+            if(_dirty && !SaveExam(false)) { _closing=false; args.Cancel=true; return; }
+            lock(_uiSync) { _timer.Dispose(); _device.Dispose(); _hline.Dispose(); ToolTip tips=_tips; _tips=null; if(tips!=null) tips.Dispose(); }
         }
     }
 }

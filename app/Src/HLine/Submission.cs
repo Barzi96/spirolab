@@ -68,7 +68,8 @@ namespace SpiroLab.HLine
         public IDictionary<string,double?> Fields;
         public byte[] Jpeg;
     }
-    // Deliberately no live HTTP writer until network contract + named test record + specific authorization exist.
+    // Live HTTP writer contract; the UI refuses it unless a designated test scope or
+    // the explicit owner-approved production scope is active.
     public interface ISubmissionGateway
     {
         bool ContractVerified {get;}
@@ -76,6 +77,7 @@ namespace SpiroLab.HLine
         RemoteSpirometry Read(SubmissionDraft draft);
         string UploadJpeg(SubmissionDraft draft,string localReference);
         void Create(SubmissionDraft draft,string fileId,string localReference);
+        void VerifySaved(SubmissionDraft draft);
     }
     // Explicit correction path; never used by the one-click submission button.
     public interface ISubmissionUpdateGateway
@@ -120,6 +122,7 @@ namespace SpiroLab.HLine
                     if(pending!=null && SameResult(draft,pending))
                     {
                         if(!string.IsNullOrEmpty(journal.FileId) && pending.FileId!=journal.FileId) throw new InvalidOperationException("فایل مرجع در سرور با فایل ارسالی هم‌خوان نیست؛ بازخوانی دستی لازم است.");
+                        gateway.VerifySaved(draft);
                         journal.FileId=pending.FileId;journal.Problem="";journal.State=SubmissionState.Confirmed;AlreadyPresent=true;persist();return;
                     }
                     throw new InvalidOperationException("ارسال قبلی باید از سرور بازخوانی شود؛ ارسال دوباره مجاز نیست.");
@@ -129,6 +132,7 @@ namespace SpiroLab.HLine
                 if(existing!=null)
                 {
                     if(!SameResult(draft,existing)) throw new InvalidOperationException("نتیجهٔ متفاوتی در این پرونده ثبت شده است؛ ارسال متوقف شد و چیزی بازنویسی نشد.");
+                    gateway.VerifySaved(draft);
                     journal.State=SubmissionState.Confirmed;AlreadyPresent=true;persist();return;
                 }
                 Move(SubmissionState.ValidationPassed);
@@ -138,6 +142,7 @@ namespace SpiroLab.HLine
                 gateway.Create(draft,journal.FileId,journal.Reference);
                 Move(SubmissionState.Verifying);
                 if(!Matches(draft,gateway.Read(draft))) throw new InvalidOperationException("تطبیق اعداد، پرونده یا تصویر در سرور تأیید نشد.");
+                gateway.VerifySaved(draft);
                 Move(SubmissionState.Confirmed);
             }
             catch(HLineException ex)
@@ -147,6 +152,7 @@ namespace SpiroLab.HLine
                     RemoteSpirometry remote=gateway.Read(draft);
                     if(remote!=null && SameResult(draft,remote))
                     {
+                        gateway.VerifySaved(draft);
                         journal.FileId=remote.FileId;journal.Problem="";Move(SubmissionState.Confirmed);return;
                     }
                     journal.Problem="سامانه اعلام کرد نتیجه قبلاً ثبت شده، اما تطبیق آن تأیید نشد.";
@@ -193,6 +199,7 @@ namespace SpiroLab.HLine
                 update.Update(draft,journal.FileId,journal.Reference);
                 Move(SubmissionState.Verifying);
                 if(!Matches(draft,gateway.Read(draft))) throw new InvalidOperationException("تطبیق اعداد، پرونده یا تصویر در سرور تأیید نشد.");
+                gateway.VerifySaved(draft);
                 Move(SubmissionState.Confirmed);
             }
             catch
@@ -213,6 +220,7 @@ namespace SpiroLab.HLine
                 if(remote==null || !SameResult(draft,remote)) return false;
                 if(!string.IsNullOrEmpty(journal.FileId) && remote.FileId!=journal.FileId) return false;
                 if(string.IsNullOrEmpty(journal.FileId)) journal.FileId=remote.FileId;
+                gateway.VerifySaved(draft);
                 Move(SubmissionState.Confirmed);return true;
             }
             finally {Interlocked.Exchange(ref active,0);}

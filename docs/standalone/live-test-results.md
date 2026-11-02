@@ -43,11 +43,15 @@ Independent read-only verification
 - all amount and percentage fields and VEXT matched
 - files: 1
 - file download HTTP 200; byte identity match: True
+- spirometry module status observed: complete
 - RESULT: PASS
 
 Limits
 - This proves the write contract for this one designated historical record only.
 - Production writes remain disabled by default and require explicit owner approval.
+- The post-save module-status gate (`NoData` must fail) was added after this write and
+  is proven against the loopback mock; the live record's status was observed as
+  complete, but the gate itself was not re-run as part of a new live write.
 - PATCH/correction, real duplicate_record response, real 419, network timeout recovery,
-  server file-size limits, module status transition and other interpretation categories
-  were not exercised live.
+  server file-size limits, other interpretation categories and a newly rendered JPG
+  uploaded from the real GUI button were not exercised live.

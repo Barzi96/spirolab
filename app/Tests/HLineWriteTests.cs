@@ -143,6 +143,17 @@ class HLineWriteTests
                     Check(upayload["result"]==null && upayload["result_other"]==null,"not-recorded interpretation stays unset instead of inventing Normal or Other");
                 }
             }
+            // A readable payload is not success when HLine still reports the module empty.
+            using(MockHLine server=new MockHLine {ModuleStatus="nodata"})
+            {
+                HLineHttpTransport transport;using(HLineClient client=Client(server,out transport))
+                {
+                    LiveSubmissionGateway gateway=new LiveSubmissionGateway(client);SubmissionDraft draft=Draft(Exam());
+                    SubmissionCoordinator c=Coordinator(gateway);bool failed=false;
+                    try {c.Submit(draft);} catch(HLineException ex) {failed=ex.Code=="module_status";}
+                    Check(failed && c.State==SubmissionState.FailedOrUncertain && server.Creates==1,"NoData module status blocks a false success");
+                }
+            }
             Console.WriteLine("ALL "+checks+" HLINE WRITE CHECKS PASSED");return 0;
         }
         catch(Exception e) {Console.WriteLine(e);return 1;}
@@ -157,6 +168,7 @@ class HLineWriteTests
         public string UserCenter="C-1";
         public string[] Scopes=new string[] {"mrsp_u","mrsp_p","mrsp_i","mrsp_nf","mrsp_rf","mrsp_dm"};
         public bool ExpireNextWrite,AbortAfterUpload,AbortAfterCreate;
+        public string ModuleStatus="complete";
         public int Uploads,Creates,CsrfRefreshes;
         public string UploadedModule,UploadedFilename,UploadedType;
         public byte[] FileBytes=new byte[0];
@@ -229,7 +241,7 @@ class HLineWriteTests
             }
             return true;
         }
-        string Record() {return "{\"id\":\"R-1\",\"person_id\":\"P-1\",\"person_id_no\":\"0000000001\",\"admission_date\":\"2026/11/01\",\"status\":\"complete\",\"medical_center_id\":\""+Center+"\"}";}
+        string Record() {return "{\"id\":\"R-1\",\"person_id\":\"P-1\",\"person_id_no\":\"0000000001\",\"admission_date\":\"2026/11/01\",\"status\":\"complete\",\"medical_center_id\":\""+Center+"\",\"modules\":[{\"module_id\":\"spirometry\",\"status\":\""+ModuleStatus+"\"}]}";}
         static void Write(HttpListenerContext c,int status,string body)
         {
             byte[] data=Encoding.UTF8.GetBytes(body);c.Response.StatusCode=status;c.Response.ContentType="application/json; charset=utf-8";c.Response.ContentLength64=data.Length;c.Response.OutputStream.Write(data,0,data.Length);c.Response.Close();

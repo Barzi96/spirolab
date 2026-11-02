@@ -33,6 +33,24 @@ namespace SpiroLab.HLine
             CaptureKnownFiles(draft.RecordId);
         }
 
+        // A row of data is not success if HLine still shows the spirometry module as
+        // NoData. Only a completed/saved module is accepted.
+        public void VerifySaved(SubmissionDraft draft)
+        {
+            string status="";
+            // HLine updates the module row from the same POST; allow a short, bounded
+            // read-after-write window instead of rejecting a normal eventual-consistency lag.
+            for(int attempt=0;attempt<3;attempt++)
+            {
+                status=client.SpirometryModuleStatus(draft.RecordId);
+                if(string.Equals(status,"complete",StringComparison.OrdinalIgnoreCase) || string.Equals(status,"completed",StringComparison.OrdinalIgnoreCase) || string.Equals(status,"saved",StringComparison.OrdinalIgnoreCase)) return;
+                if(attempt<2) System.Threading.Thread.Sleep(150);
+            }
+            if(string.IsNullOrEmpty(status)) throw new HLineException("module_status","وضعیت ماژول اسپیرومتری در سامانه خوانده نشد؛ موفقیت تأیید نمی‌شود.");
+            if(string.Equals(status,"nodata",StringComparison.OrdinalIgnoreCase) || string.Equals(status,"no_data",StringComparison.OrdinalIgnoreCase)) throw new HLineException("module_status","ماژول اسپیرومتری سامانه هنوز خالی است؛ ثبت تأیید نشد.");
+            throw new HLineException("module_status","وضعیت ماژول اسپیرومتری پس از ثبت «"+status+"» است؛ موفقیت تأیید نشد.");
+        }
+
         public RemoteSpirometry Read(SubmissionDraft draft)
         {
             Dictionary<string,object> data=client.FindSpirometry(draft.RecordId);

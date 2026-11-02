@@ -277,6 +277,22 @@ namespace SpiroLab.HLine
         }
         internal List<Dictionary<string,object>> Files(string recordId)
         { return Rows(Request("GET","/medical-records/"+Segment(recordId)+"/files/spirometry",null)); }
+        // The record screen exposes module state; a successful payload must not leave
+        // the spirometry module in NoData. Returns "" when the module row is absent.
+        internal string SpirometryModuleStatus(string recordId)
+        {
+            Dictionary<string,object> record=RecordDetail(recordId);
+            object modules;
+            if(!record.TryGetValue("modules",out modules) || modules==null) return "";
+            System.Collections.IEnumerable rows=modules as System.Collections.IEnumerable;
+            if(rows==null || modules is string) return "";
+            foreach(object row in rows)
+            {
+                Dictionary<string,object> item=row as Dictionary<string,object>;
+                if(item!=null && Text(item,"module_id")=="spirometry") return Text(item,"status");
+            }
+            return "";
+        }
         internal byte[] FileBytes(string recordId,string fileId,out int status)
         {
             RequireId(fileId);

@@ -58,6 +58,19 @@ namespace SpiroLab
                     }
                 }
             }
+            // Two independent write scopes must never be combined by accident. A partial
+            // test scope is also refused instead of silently becoming production or no-write.
+            bool partialTest = (testNationalId.Length == 0) != (testRecordId.Length == 0);
+            if (allowProductionWrites && (testNationalId.Length > 0 || testRecordId.Length > 0))
+            {
+                MessageBox.Show("حالت «ارسال تولیدی» و «پروندهٔ تست» را نمی‌توان هم‌زمان فعال کرد. برنامه بسته می‌شود.", "SpiroLab", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+            if (partialTest || (testNationalId.Length > 0 && (!System.Text.RegularExpressions.Regex.IsMatch(testNationalId, "^[0-9]{10}$") || testRecordId.Length == 0)))
+            {
+                MessageBox.Show("پروندهٔ تست باید به شکل --hline-test=<کد ملی ۱۰ رقمی>:<شناسهٔ پرونده> باشد. برنامه بسته می‌شود.", "SpiroLab", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
 
             try
             {

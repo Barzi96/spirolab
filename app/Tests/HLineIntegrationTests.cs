@@ -314,11 +314,12 @@ class HLineIntegrationTests
     }
     sealed class Gateway : ISubmissionGateway
     {
-        public bool Verified=true,TimeoutAfterCreate,FailAssociation,FailUpload,ChangedDestination,UnverifiedJpg;
+        public bool Verified=true,TimeoutAfterCreate,FailAssociation,FailUpload,ChangedDestination,UnverifiedJpg,BadModule;
         public int Uploads,Creates; public RemoteSpirometry Saved;
         public ManualResetEvent UploadStarted,ContinueUpload;
         public bool ContractVerified {get{return Verified;}}
         public void VerifyDestination(SubmissionDraft d) {if(ChangedDestination) throw new Exception("destination_changed");}
+        public void VerifySaved(SubmissionDraft d) {if(BadModule) throw new HLineException("module_status","module is still empty");}
         public RemoteSpirometry Read(SubmissionDraft d) {return Saved;}
         public string UploadJpeg(SubmissionDraft d,string reference) {Uploads++;if(UploadStarted!=null) {UploadStarted.Set();if(!ContinueUpload.WaitOne(5000)) throw new Exception("mock timeout");}if(FailUpload) throw new IOException("timeout");return "TEST-FILE";}
         public void Create(SubmissionDraft d,string file,string reference)

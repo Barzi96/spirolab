@@ -57,7 +57,7 @@
 
 ## آزمون‌ها
 
-`app\test.bat` اکنون هشت suite را اجرا می‌کند و مجموعاً **۶۳۵ بررسی** می‌دهد:
+`app\test.bat` اکنون هشت suite را اجرا می‌کند و مجموعاً **۶۳۶ بررسی** می‌دهد:
 
 ```
 RegressionTests          76
@@ -67,15 +67,18 @@ ManeuverSelectionTests   59
 ClinicalUiTests         166
 HLinePhaseTests          26
 HLineIntegrationTests   151
-HLineWriteTests          18
+HLineWriteTests          19
 ```
 
 `HLineWriteTests` یک سرور loopback واقعی (`HttpListener`) بالا می‌آورد و
 مسیر کامل را با درخواست‌های HTTP واقعی آزمایش می‌کند: multipart و MIME،
 پیلود و تاریخ میلادی، `performed_by`، نبود نسبت مشتق، VEXT، `null`های
 اختیاری، نتیجهٔ یکسان، تعارض، 419 و CSRF تازه، upload timeout و
-reconciliation، create timeout و Recheck، مرکز/مجوز نادرست، و متن آزاد
-پزشک به‌صورت `Other` + `result_other`.
+reconciliation، create timeout و Recheck، مرکز/مجوز نادرست، متن آزاد
+پزشک به‌صورت `Other` + `result_other`، و **وضعیت ماژول `NoData` پس از
+ذخیره به‌عنوان شکست قابل‌مشاهده، نه موفقیت**. مسیر GUI واقعی نیز با mock
+محلی در [gui-e2e-results.md](gui-e2e-results.md) ثبت شده است (۲۷ بررسی،
+بدون write زنده).
 
 ## تست زندهٔ مجاز روی پروندهٔ تعیین‌شده
 
@@ -93,6 +96,8 @@ SubmissionCoordinator` بازگردانی شد:
   بکاپ یکسان بود.
 - اجرای دوباره با journal تازه `AlreadyPresent` داد، فایل‌ها `1` ماند و هیچ
   upload/POST دوباره‌ای انجام نشد.
+- پس از نوشتن، وضعیت ماژول اسپیرومتری در پروندهٔ واقعی `complete` خوانده شد؛
+  بررسی خودکار همین وضعیت به مسیر موفقیت اضافه شده و `NoData` را رد می‌کند.
 
 پیش از نوشتن: نشست معتبر، هویت شخص/پرونده، مرکز، scopes و خالی‌بودن
 spirometry بررسی شد. هیچ کوکی، توکن، کد ملی، نام یا شناسهٔ پرونده در این
@@ -111,7 +116,9 @@ spirometry بررسی شد. هیچ کوکی، توکن، کد ملی، نام ی
    فایل‌های مرزی/خراب روی سرور واقعی آزموده نشدند.
 3. `vext` به‌صورت mL پذیرفته و بازخوانی شد؛ رفتار سرور با مقادیر اعشاری/بزرگ‌تر
    و معنای واحد در سایر تنظیمات مرکز تأیید نشده است.
-4. انتقال خودکار وضعیت module پس از POST به‌طور مستقل از UI بررسی نشده است.
+4. وضعیت ماژول در پروندهٔ واقعی پس از نوشتن `complete` خوانده شد؛ گیت
+   خودکار `NoData` فقط با mock آزموده شده و به‌عنوان یک write زندهٔ تازه
+   اجرا نشده است.
 5. مسیر `419`/CSRF تازه فقط با mock آزموده شده است؛ مصرف تک‌بارهٔ توکن در
    درخواست واقعی دیده نشد.
 6. مجازبودن پروندهٔ تاریخی در حالت تست یک استثنای عمدی است؛ برای ارسال
@@ -137,6 +144,7 @@ spirometry بررسی شد. هیچ کوکی، توکن، کد ملی، نام ی
 - `app/Src/Ui/HLineForms.cs` — رفع مسابقهٔ فعال‌شدن دکمه پس از ورود.
 - `app/Src/Ui/SpiroReport.cs` — دسترسی داخلی به متن تفسیر برای نگاشت، بدون تغییر ظاهر.
 - `app/Src/Program.cs` — `--hline-test` و `--hline-write=all`.
-- `app/Tests/HLineWriteTests.cs` — ۱۸ بررسی HTTP واقعی.
+- `app/Tests/HLineWriteTests.cs` — ۱۹ بررسی HTTP واقعی.
 - `app/Tests/HLineIntegrationTests.cs` — انتظار AlreadyPresent به‌جای شکست برای نتیجهٔ یکسان.
+- `docs/standalone/gui-e2e-results.md` — مسیر GUI واقعی با mock و ۲۷ بررسی.
 - `app/build.bat`، `app/test.bat`، `README.md`، `docs/standalone/hline531-workflow.md`.
