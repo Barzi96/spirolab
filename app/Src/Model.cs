@@ -102,11 +102,16 @@ namespace SpiroLab
         public string EndReason = "";
         public string DeviceSerial = "";
         public int DeviceCaptureSequence;
+        // Workflow-4 real maneuvers require all four device core fields. The flag
+        // is persisted so reopening a new record cannot fall back to software.
+        public bool RequiresDeviceCore;
         public byte StepType;
         public double Step;
         public double Dt = 0.01;                 // seconds per sample
         public DateTime When = DateTime.Now;
         public bool Simulated;
+        public DateTime? DiscardedAt;
+        public bool SelectedWhenDiscarded;
         [XmlIgnore] public AnalysisResult Result;
         public AnalysisResult FinalizedResult; // Saved attempt analysis; XML name retained for historical compatibility.
         [XmlIgnore] public ManeuverMeasurementSet Measurements { get { return ManeuverMeasurementSet.Build(this); } }
@@ -136,6 +141,9 @@ namespace SpiroLab
             t.Step = Step;
             t.DeviceSerial = DeviceSerial;
             t.DeviceCaptureSequence=DeviceCaptureSequence;
+            t.RequiresDeviceCore=RequiresDeviceCore;
+            t.DiscardedAt=DiscardedAt;
+            t.SelectedWhenDiscarded=SelectedWhenDiscarded;
             foreach(Device.DevicePacket packet in Packets) t.Packets.Add(new Device.DevicePacket { Seconds=packet.Seconds,Type=packet.Type,Raw=packet.Raw });
             t.EndReason = EndReason;
             t.DeviceValues = DeviceValues; // raw vendor block is retained locally, never a validated export source

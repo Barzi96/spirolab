@@ -44,12 +44,21 @@ namespace SpiroLab
         public void EnsureManeuverIdentities()
         {
             HashSet<string> ids=new HashSet<string>(); int last=0;
-            foreach(Trial t in Trials)
+            foreach(Trial item in Trials)
             {
-                if(t==null || string.IsNullOrEmpty(t.ManeuverId) || !ids.Add(t.ManeuverId)) throw new InvalidDataException("شناسهٔ مانورها تکراری یا نامعتبر است.");
-                if(t.AcquisitionSequence==0) t.AcquisitionSequence=last+1;
-                if(t.AcquisitionSequence<=last) throw new InvalidDataException("شمارهٔ اصلی مانورها نامعتبر است.");
-                last=t.AcquisitionSequence;
+                if(item==null || string.IsNullOrEmpty(item.ManeuverId) || !ids.Add(item.ManeuverId)) throw new InvalidDataException("شناسهٔ مانورها تکراری یا نامعتبر است.");
+                if(item.AcquisitionSequence==0) item.AcquisitionSequence=last+1;
+                if(item.AcquisitionSequence<=last) throw new InvalidDataException("شمارهٔ اصلی مانورها نامعتبر است.");
+                last=item.AcquisitionSequence;
+            }
+            if(DiscardedTrials!=null) foreach(Trial item in DiscardedTrials)
+            {
+                if(item==null || string.IsNullOrEmpty(item.ManeuverId) || !ids.Add(item.ManeuverId)) throw new InvalidDataException("شناسهٔ مانورها تکراری یا نامعتبر است.");
+                if(!item.DiscardedAt.HasValue) item.DiscardedAt=DateTime.Now;
+            }
+            if(FailedCaptures!=null) foreach(Trial item in FailedCaptures)
+            {
+                if(item==null || string.IsNullOrEmpty(item.ManeuverId)) throw new InvalidDataException("شناسهٔ تلاش ناموفق نامعتبر است.");
             }
         }
         public void AddManeuver(Trial trial)
@@ -57,9 +66,59 @@ namespace SpiroLab
             if(FinalizedAt.HasValue) throw new InvalidOperationException("معاینه نهایی شده است.");
             EnsureManeuverIdentities();
             if(trial==null || string.IsNullOrEmpty(trial.ManeuverId) || Trials.Exists(delegate(Trial t) { return t.ManeuverId==trial.ManeuverId; })) throw new ArgumentException("شناسهٔ مانور باید یکتا باشد.");
+            if(SelectionWorkflowVersion>=4 && !trial.Simulated && !trial.Imported && trial.DeviceCaptureSequence>0) trial.RequiresDeviceCore=true;
             trial.AcquisitionSequence=Trials.Count==0?1:checked(Trials[Trials.Count-1].AcquisitionSequence+1);
             if(trial.Result==null) trial.Result=SpiroAnalysis.Analyze(trial,Patient);
             Trials.Add(trial);
+            MaintainSelections();
+        }
+        public void RecordFailedCapture(Trial trial)
+        {
+            if(FinalizedAt.HasValue) throw new InvalidOperationException("معاینه نهایی شده است.");
+            if(trial==null) return;
+            if(trial.Result==null) trial.Result=SpiroAnalysis.Analyze(trial,Patient);
+            if(FailedCaptures==null) FailedCaptures=new List<Trial>();
+            FailedCaptures.Add(trial);
+        }
+        public Trial DiscardManeuver(string id)
+        {
+            if(FinalizedAt.HasValue) throw new InvalidOperationException("معاینه نهایی شده است.");
+            int index=Trials.FindIndex(delegate(Trial item) { return item!=null && item.ManeuverId==id; });
+            if(index<0) throw new ArgumentException("مانور در این معاینه وجود ندارد.");
+            Trial t=Trials[index];
+            Trials.RemoveAt(index);
+            t.DiscardedAt=DateTime.Now;
+            t.SelectedWhenDiscarded=ReportManeuverIds.Contains(id);
+            ReportManeuverIds.Remove(id);
+            if(OperatorSelectedManeuverId==id)
+            {
+                OperatorSelectedManeuverId=""; SelectionMethod=""; SelectionTimestamp=null; SelectionOperatorName=""; SelectionReason="";
+            }
+            if(DiscardedTrials==null) DiscardedTrials=new List<Trial>();
+            DiscardedTrials.Add(t);
+            MaintainSelections();
+            return t;
+        }
+        public Trial RestoreLastDiscarded()
+        {
+            if(FinalizedAt.HasValue) throw new InvalidOperationException("معاینه نهایی شده است.");
+            if(DiscardedTrials==null || DiscardedTrials.Count==0) return null;
+            Trial t=DiscardedTrials[DiscardedTrials.Count-1];
+            if(t==null || Trials.Exists(delegate(Trial x) { return x!=null && x.ManeuverId==t.ManeuverId; })) throw new InvalidDataException("مانور بازگردانده‌شده معتبر نیست.");
+            DiscardedTrials.RemoveAt(DiscardedTrials.Count-1);
+            t.DiscardedAt=null;
+            Trials.Add(t);
+            Trials.Sort(delegate(Trial a,Trial b) { return a.AcquisitionSequence.CompareTo(b.AcquisitionSequence); });
+            EnsureManeuverIdentities();
+            if(t.SelectedWhenDiscarded && !ReportManeuverIds.Contains(t.ManeuverId) && ReportManeuverIds.Count<3) ReportManeuverIds.Add(t.ManeuverId);
+            t.SelectedWhenDiscarded=false;
+            MaintainSelections();
+            return t;
+        }
+        public void ResetReportSelectionAutomatic()
+        {
+            if(FinalizedAt.HasValue) throw new InvalidOperationException("معاینه نهایی شده است.");
+            ReportSelectionManual=false; ReportSelectionTimestamp=null; ReportSelectionOperator="";
             MaintainSelections();
         }
         public void MaintainSelections()
@@ -150,10 +209,11 @@ namespace SpiroLab
             if(rejected && SelectionWorkflowVersion<3 && trial.ManeuverId==OperatorSelectedManeuverId) throw new InvalidOperationException("پیش از رد مانور اصلی، یک مانور اصلی دیگر انتخاب کنید.");
             if(string.IsNullOrWhiteSpace(operatorName) || operatorName.Trim().Length>100 || (reason??"").Length>500) throw new ArgumentException("نام کارشناس و علت معتبر وارد کنید.");
             trial.OperatorRejected=rejected; trial.RejectionOperator=operatorName.Trim(); trial.RejectionReason=(reason??"").Trim(); trial.RejectionTimestamp=DateTime.Now;
+            if(rejected && SelectionWorkflowVersion>=3) ReportManeuverIds.Remove(trial.ManeuverId);
             MaintainSelections();
         }
         public static Exam CreateNew(AppSettings settings)
-        { return new Exam { CenterName=settings.CenterName,OperatorName=settings.OperatorName,ExaminationDate=DateTime.Today,ExaminationDateSource="windows_local_date",PrimarySelectionRequired=false,SelectionWorkflowVersion=3,SessionType="PRE" }; }
+        { return new Exam { CenterName=settings.CenterName,OperatorName=settings.OperatorName,ExaminationDate=DateTime.Today,ExaminationDateSource="windows_local_date",PrimarySelectionRequired=false,SelectionWorkflowVersion=4,SessionType="PRE" }; }
         public void FinalizeExamination()
         {
             if(FinalizedAt.HasValue) return;
@@ -165,6 +225,19 @@ namespace SpiroLab
         }
         public Patient Patient = new Patient();
         public List<Trial> Trials = new List<Trial>();
+        // User-discarded and failed-capture evidence stays local for recovery and
+        // diagnostics, but is never part of the active clinical collection.
+        public List<Trial> DiscardedTrials = new List<Trial>();
+        public List<Trial> FailedCaptures = new List<Trial>();
+        [XmlIgnore] public IEnumerable<Trial> AllStoredTrials
+        {
+            get
+            {
+                foreach(Trial t in Trials) yield return t;
+                if(DiscardedTrials!=null) foreach(Trial t in DiscardedTrials) yield return t;
+                if(FailedCaptures!=null) foreach(Trial t in FailedCaptures) yield return t;
+            }
+        }
     }
     public static class ExamStore
     {
@@ -183,10 +256,10 @@ namespace SpiroLab
             try
             {
                 exam.EnsureManeuverIdentities(); exam.MaintainSelections(); exam.ValidateSelection(false); exam.ValidateReportSelection(false);
-                foreach(Trial t in exam.Trials)
+                foreach(Trial t in exam.AllStoredTrials)
                 {
-                    if(t.Result==null) t.Result=SpiroAnalysis.Analyze(t,exam.Patient);
-                    if(!exam.FinalizedAt.HasValue || t.FinalizedResult==null) t.FinalizedResult=t.Result.Clone();
+                    if(t.Result==null && t.Flow!=null) t.Result=SpiroAnalysis.Analyze(t,exam.Patient);
+                    if(t.Result!=null && (!exam.FinalizedAt.HasValue || t.FinalizedResult==null)) t.FinalizedResult=t.Result.Clone();
                 }
                 using (FileStream f = new FileStream(temp, FileMode.Create, FileAccess.Write, FileShare.None))
                     new XmlSerializer(typeof(Exam)).Serialize(f, exam);
@@ -206,22 +279,31 @@ namespace SpiroLab
             if (e == null || (e.Version != 1 && e.Version != 2) || e.Patient == null || !e.Patient.IsUsable(out problem) || e.Trials == null)
                 throw new InvalidDataException("پروندهٔ معتبر SpiroLab نیست.");
             if(e.Version==1) { e.LegacyRecord=true; e.Version=2; }
-            foreach (Trial t in e.Trials)
-            {
-                if (t == null || t.Flow == null || t.Time == null || t.Volume == null || t.Packets == null || t.Flow.Count > 120000 || t.Packets.Count > 150000 || t.Dt <= 0 || double.IsNaN(t.Dt) || double.IsInfinity(t.Dt))
-                    throw new InvalidDataException("داده‌های تست معتبر نیست.");
-                if ((t.Time.Count != 0 && t.Time.Count != t.Flow.Count) || (t.Volume.Count != 0 && t.Volume.Count != t.Flow.Count))
-                    throw new InvalidDataException("تعداد نمونه‌های حجم و زمان با جریان برابر نیست.");
-                for (int i = 0; i < t.Flow.Count; i++)
-                {
-                    if (!Finite(t.Flow[i]) || Math.Abs(t.Flow[i]) > 25 || (t.Time.Count > 0 && (!Finite(t.Time[i]) || t.Time[i] < 0 || t.Time[i] > 3600 || (i > 0 && t.Time[i] < t.Time[i - 1]))) || (t.Volume.Count > 0 && (!Finite(t.Volume[i]) || Math.Abs(t.Volume[i]) > 100)))
-                        throw new InvalidDataException("نمونهٔ نامعتبر در فایل وجود دارد.");
-                }
-                t.Result = t.FinalizedResult!=null ? t.FinalizedResult.Clone() : SpiroAnalysis.Analyze(t, e.Patient);
-            }
+            foreach (Trial t in e.Trials) ValidateStoredTrial(t, true, e.Patient);
+            if(e.DiscardedTrials!=null) foreach(Trial t in e.DiscardedTrials) ValidateStoredTrial(t, false, e.Patient);
+            if(e.FailedCaptures!=null) foreach(Trial t in e.FailedCaptures) ValidateStoredTrial(t, false, e.Patient);
             e.EnsureManeuverIdentities(); e.ValidateSelection(false); e.ValidateReportSelection(false);
             if(!e.ExaminationDate.HasValue && e.Trials.Count>0) { e.ExaminationDate=e.Trials[0].When.Date; e.ExaminationDateSource="legacy_capture_date"; }
             return e;
+        }
+        private static void ValidateStoredTrial(Trial t,bool requireCurve,Patient patient)
+        {
+            if(t==null) throw new InvalidDataException("داده‌های تست معتبر نیست.");
+            if(t.Flow==null)
+            {
+                if(requireCurve) throw new InvalidDataException("داده‌های تست معتبر نیست.");
+                return;
+            }
+            if(t.Time==null || t.Volume==null || t.Packets==null || t.Flow.Count > 120000 || t.Packets.Count > 150000 || t.Dt <= 0 || double.IsNaN(t.Dt) || double.IsInfinity(t.Dt))
+                throw new InvalidDataException("داده‌های تست معتبر نیست.");
+            if((t.Time.Count != 0 && t.Time.Count != t.Flow.Count) || (t.Volume.Count != 0 && t.Volume.Count != t.Flow.Count))
+                throw new InvalidDataException("تعداد نمونه‌های حجم و زمان با جریان برابر نیست.");
+            for(int i=0;i<t.Flow.Count;i++)
+            {
+                if(!Finite(t.Flow[i]) || Math.Abs(t.Flow[i]) > 25 || (t.Time.Count > 0 && (!Finite(t.Time[i]) || t.Time[i] < 0 || t.Time[i] > 3600 || (i > 0 && t.Time[i] < t.Time[i-1]))) || (t.Volume.Count > 0 && (!Finite(t.Volume[i]) || Math.Abs(t.Volume[i]) > 100)))
+                    throw new InvalidDataException("نمونهٔ نامعتبر در فایل وجود دارد.");
+            }
+            t.Result = t.FinalizedResult!=null ? t.FinalizedResult.Clone() : SpiroAnalysis.Analyze(t, patient);
         }
         private static bool Finite(double x) { return !double.IsNaN(x) && !double.IsInfinity(x); }
 
@@ -269,7 +351,7 @@ namespace SpiroLab
             using (StreamWriter w = new StreamWriter(path, false, new UTF8Encoding(true)))
             {
                 w.WriteLine("Patient,NationalId,Age,Sex,Origin,Height_cm,Weight_kg,Trial,Source,Section,Time_s,Volume_L,Flow_Lps,Metric,Value,Unit");
-                ExamSummary best = ExamSummary.Build(e.Trials,false);
+                ExamSummary best = e.SelectionWorkflowVersion>=4?ExamSummary.BuildSelected(e.Trials,e.ReportManeuverIds):ExamSummary.Build(e.Trials,false);
                 if (best.Best != null)
                 {
                     string prefix = CsvText(e.Patient.FullName) + "," + CsvText(e.Patient.NationalId) + "," + e.Patient.Age.ToString(CultureInfo.InvariantCulture) + "," + e.Patient.Sex + "," + e.Patient.Origin + "," + e.Patient.HeightCm.ToString("R",CultureInfo.InvariantCulture) + "," + e.Patient.WeightKg.ToString("R",CultureInfo.InvariantCulture) + ",BEST," + CsvText(Source(best.BestTrial)) + ",";

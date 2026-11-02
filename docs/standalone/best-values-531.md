@@ -44,13 +44,15 @@ Observed `cod_LAST` fields used by this build (unsigned 16-bit, 0.01 scaling): F
 - Eligibility excludes incomplete, technical-failure, operator-rejected and unusable maneuvers. FVC and FEV1 have separate usability/acceptability decisions.
 - If no quality-acceptable maneuver exists, a usable value may be reported with an explicit `qualityLimited` flag and limitation list; it is never silently presented as fully acceptable.
 
-Non-finalized report selection does not change this aggregate. `ExamSummary.Trials` is only the displayed subset.
+For **new workflow-4 examinations**, the selected (automatic or manual) set of at most three maneuvers is the authoritative clinical set. The aggregate is calculated only over that set. Old finalized/opened workflow-3 records retain their historical all-eligible aggregate on read-back. See [mir-selected-three-531.md](mir-selected-three-531.md) for the current contract and deletion/recovery rules.
 
-## 3. Report curves
+## 3. Report curves and final selection
 
-- Up to three real report curves are chosen automatically by quality tier, then `FVC + FEV1`, with deterministic acquisition-sequence tie-break.
-- The operator may check/uncheck any eligible real curve. This changes only the displayed curves and per-maneuver table columns. It does not change BEST VALUES, the derived ratio, HLine fields or VEXT.
+- Up to three real curves are chosen automatically by quality tier, then `FVC + FEV1`, with deterministic acquisition-sequence tie-break.
+- The operator may check/uncheck any eligible real curve under «انتخاب نهایی»; this changes the selected clinical set, the aggregate, the JPG/JSON/HLine values and the displayed curves together. The limit is three.
+- A manual override is persisted and is not silently replaced by a later acquisition. «بازگشت به انتخاب خودکار» restores the automatic recommendation.
 - The uploaded JPG and JSON describe the same immutable snapshot. A manually chosen subset is still validated against eligible maneuvers.
+- A non-blocking warning appears when an unselected eligible maneuver has a higher FVC or FEV1 than the selected best. It does not block finalization.
 
 ## 4. HLine mapping
 
@@ -71,18 +73,20 @@ Non-finalized report selection does not change this aggregate. `ExamSummary.Tria
 
 ## 5. JSON compatibility
 
-Workflow 3 (`SelectionWorkflowVersion = 3`, `PrimarySelectionRequired = false`) removes the single primary maneuver. Old XML fields (`OperatorSelectedManeuverId`, `SelectionMethod`, `SelectionOperatorName`, `SelectionReason`, `SelectionTimestamp`, `PrimarySelectionRequired`) remain readable for historical records but are not required for new examinations and are marked `not_applicable_workflow3_best_values_aggregate`.
+Workflow 4 (`SelectionWorkflowVersion = 4`, `PrimarySelectionRequired = false`) is the new-examination default. Old XML fields (`OperatorSelectedManeuverId`, `SelectionMethod`, `SelectionOperatorName`, `SelectionReason`, `SelectionTimestamp`, `PrimarySelectionRequired`) remain readable for historical records but are not required for new examinations. Historical workflow-3 records keep their v3 behavior; the reader does not retroactively reinterpret their frozen aggregate.
 
-For workflow 3:
+For workflow 4:
 
-- `bestValues` is the aggregate over all eligible maneuvers, not the report subset.
+- `bestValues` is the aggregate over exactly the selected three (or fewer) maneuvers. `scope` is `operator_selected_max_three_only_not_all_eligible_maneuvers`.
+- `reportSelection` lists the authoritative selected IDs with `method=automatic|manual` and `scope=authoritative_clinical_set_max_three`.
 - `bestReportedValues` (and the compatibility alias `spirometry`) mirror that aggregate. `spirometry.VEXT` remains the local legacy/manual value, not the HLine field.
-- `vextSelection` records the unchanged clinic EVol rule and its source.
+- `vextSelection` records the unchanged clinic EVol rule and its source; it is computed from all active real maneuvers, not only the selected three.
 - `siteExport` is explicitly `retired_single_site_maneuver_use_bestValues` with no measurements.
 - Each maneuver has `measurements`, `softwareReconstruction`, `deviceResult`, `includedInBestReportedValues` and quality/assessment fields.
+- A failed `cod_LAST`/unassociated/invalid real capture is not added to the active maneuver table and is absent from `maneuvers`; it is kept only in local diagnostic history. The UI shows: «نتیجه مانور از دستگاه دریافت نشد؛ لطفاً مانور را تکرار کنید.»
 
 ## 6. Evidence status
 
-**Automated tests:** the nine suites currently total **744 checks**, including anonymized/synthetic MIR reference cases A–D, capture-token mismatch, duplicate/truncated block rejection, independent maxima, report-selection independence, JSON/JPG/HLine agreement and VEXT examples. See `app\test.bat` and `app\*-test-output\`.
+**Automated tests:** ten suites currently total **792 checks**, including anonymized/synthetic MIR reference cases A–D, device-core rejection, capture-token mismatch, duplicate/truncated block rejection, selected-three aggregation/warning, delete/archive/undo, independent maxima, JSON/JPG/HLine agreement and VEXT examples. See `app\test.bat` and `app\*-test-output\`.
 
 **Hardware validated:** **NO.** A live USB capture was observed and its `cod_LAST` block was decoded for development, and one owner-authorized HLine restore to a designated historical test record passed. Neither establishes general hardware parity, firmware algorithm equivalence, BTPS accuracy, clean-PC behaviour or production HLine safety. Those remain **PENDING**.

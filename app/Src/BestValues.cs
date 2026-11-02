@@ -128,7 +128,11 @@ namespace SpiroLab
             Reference reference=r==null?null:r.Ref;
             Device.DeviceResults device=allowDevice?trial.DeviceValues:null;
             bool verifiedDevice=allowDevice && VerifiedDevice(trial,device);
-            bool legacyDevice=allowDevice && !verifiedDevice && device!=null && device.Present && !device.Associated && device.Raw!=null && HasAnyDeviceValue(device);
+            bool deviceOnlyCore=allowDevice && trial.RequiresDeviceCore && trial.DeviceCaptureSequence>0 && !trial.Simulated && !trial.Imported;
+            bool legacyDevice=allowDevice && !verifiedDevice && !deviceOnlyCore && device!=null && device.Present && !device.Associated && device.Raw!=null && HasAnyDeviceValue(device);
+            // A new real USB maneuver must have all four device core fields. The
+            // software analyzer remains available only for the curve-derived
+            // parameters and for the separate Reconstructed diagnostics object.
 
             // Device-reported fields for which the observed protocol supplies values.
             if(verifiedDevice)
@@ -148,10 +152,10 @@ namespace SpiroLab
 
             bool valid=r!=null && r.Valid;
             // Missing device fields may use a software value, but its source stays explicit.
-            if(!set.Has(Metric.Fvc)) set.Add(Software(trial,r,Metric.Fvc,valid && r.Fvc>0 && Present(r,r.FvcAvailable,r.Fvc)?r.Fvc:(double?)null,0.01,r!=null&&r.FvcAvailable?"reconstructed_expiration_volume":"legacy_numeric_result_no_availability_metadata",reference));
-            if(!set.Has(Metric.Fev1)) set.Add(Software(trial,r,Metric.Fev1,valid && r.Fev1>0 && r.Fev1<=r.Fvc+.001 && Present(r,r.Fev1Available,r.Fev1)?r.Fev1:(double?)null,0.01,r!=null&&r.Fev1Available?"reconstructed_volume_at_1s":"legacy_numeric_result_no_availability_metadata",reference));
-            if(!set.Has(Metric.Pef)) set.Add(Software(trial,r,Metric.Pef,valid && r.Pef>0 && Present(r,r.PefAvailable,r.Pef)?r.Pef:(double?)null,0.01,r!=null&&r.PefAvailable?"reconstructed_peak_flow":"legacy_numeric_result_no_availability_metadata",reference));
-            if(!set.Has(Metric.Fet)) set.Add(Software(trial,r,Metric.Fet,valid && r.Fet>0 && Present(r,r.FetAvailable,r.Fet)?r.Fet:(double?)null,0.01,r!=null&&r.FetAvailable?"reconstructed_expiration_duration":"legacy_numeric_result_no_availability_metadata",null));
+            if(!set.Has(Metric.Fvc)) set.Add(deviceOnlyCore?Unavailable(trial,Metric.Fvc,"device_core_result_required_for_new_real_maneuver"):Software(trial,r,Metric.Fvc,valid && r.Fvc>0 && Present(r,r.FvcAvailable,r.Fvc)?r.Fvc:(double?)null,0.01,r!=null&&r.FvcAvailable?"reconstructed_expiration_volume":"legacy_numeric_result_no_availability_metadata",reference));
+            if(!set.Has(Metric.Fev1)) set.Add(deviceOnlyCore?Unavailable(trial,Metric.Fev1,"device_core_result_required_for_new_real_maneuver"):Software(trial,r,Metric.Fev1,valid && r.Fev1>0 && r.Fev1<=r.Fvc+.001 && Present(r,r.Fev1Available,r.Fev1)?r.Fev1:(double?)null,0.01,r!=null&&r.Fev1Available?"reconstructed_volume_at_1s":"legacy_numeric_result_no_availability_metadata",reference));
+            if(!set.Has(Metric.Pef)) set.Add(deviceOnlyCore?Unavailable(trial,Metric.Pef,"device_core_result_required_for_new_real_maneuver"):Software(trial,r,Metric.Pef,valid && r.Pef>0 && Present(r,r.PefAvailable,r.Pef)?r.Pef:(double?)null,0.01,r!=null&&r.PefAvailable?"reconstructed_peak_flow":"legacy_numeric_result_no_availability_metadata",reference));
+            if(!set.Has(Metric.Fet)) set.Add(deviceOnlyCore?Unavailable(trial,Metric.Fet,"device_core_result_required_for_new_real_maneuver"):Software(trial,r,Metric.Fet,valid && r.Fet>0 && Present(r,r.FetAvailable,r.Fet)?r.Fet:(double?)null,0.01,r!=null&&r.FetAvailable?"reconstructed_expiration_duration":"legacy_numeric_result_no_availability_metadata",null));
 
             set.Add(Software(trial,r,Metric.Fef25,valid && r.Fef25>0 && Present(r,r.Fef25Available,r.Fef25)?r.Fef25:(double?)null,0.01,r!=null&&r.Fef25Available?"reconstructed_flow_at_25pct_fvc":"legacy_numeric_result_no_availability_metadata",reference));
             set.Add(Software(trial,r,Metric.Fef50,valid && r.Fef50>0 && Present(r,r.Fef50Available,r.Fef50)?r.Fef50:(double?)null,0.01,r!=null&&r.Fef50Available?"reconstructed_flow_at_50pct_fvc":"legacy_numeric_result_no_availability_metadata",reference));

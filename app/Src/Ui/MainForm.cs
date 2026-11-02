@@ -132,14 +132,36 @@ namespace SpiroLab.Ui
             gridTrials=new DataGridView { Name="ManeuverHistory",Dock=DockStyle.Fill,ReadOnly=false,AllowUserToAddRows=false,AllowUserToDeleteRows=false,AllowUserToResizeRows=false,RowHeadersVisible=false,MultiSelect=false,SelectionMode=DataGridViewSelectionMode.FullRowSelect,AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill,ScrollBars=ScrollBars.Vertical,BackgroundColor=Color.White,BorderStyle=BorderStyle.None,RightToLeft=RightToLeft.Yes,EnableHeadersVisualStyles=false,ColumnHeadersHeightSizeMode=DataGridViewColumnHeadersHeightSizeMode.DisableResizing,ColumnHeadersHeight=52,AutoGenerateColumns=false };
             string[] captions={"مانور","حجم\nFVC (L)","حجم ثانیه اول\nFEV1 (L)","نسبت\nFEV1/FVC (%)","جریان بیشینه\nPEF (L/s)","جریان میانی\nFEF25–75 (L/s)"};
             float[] weights={9,13,14,14,13,15,11};
-            for(int i=0;i<captions.Length;i++) gridTrials.Columns.Add(new DataGridViewTextBoxColumn { Name="Metric"+i,HeaderText=captions[i],ReadOnly=true,FillWeight=weights[i],MinimumWidth=25,SortMode=DataGridViewColumnSortMode.NotSortable });
-            gridTrials.Columns.Add(new ReportColumn { Name="ReportSelection",HeaderText="نمایش در گزارش",ReadOnly=true,FillWeight=weights[6],MinimumWidth=25,SortMode=DataGridViewColumnSortMode.NotSortable,ToggleRow=delegate(int row) {ChangeChoice(row,ReportColumnIndex);} });
+            for(int i=0;i<captions.Length;i++)
+            {
+                if(i==0) gridTrials.Columns.Add(new ManeuverColumn { Name="Metric0",HeaderText=captions[0],ReadOnly=true,FillWeight=weights[0],MinimumWidth=44,DeleteRow=delegate(int row) {DeleteManeuver(row);} });
+                else gridTrials.Columns.Add(new DataGridViewTextBoxColumn { Name="Metric"+i,HeaderText=captions[i],ReadOnly=true,FillWeight=weights[i],MinimumWidth=25,SortMode=DataGridViewColumnSortMode.NotSortable });
+            }
+            ReportColumn reportColumn=new ReportColumn { Name="ReportSelection",HeaderText="انتخاب نهایی",ReadOnly=true,FillWeight=weights[6],MinimumWidth=40,SortMode=DataGridViewColumnSortMode.NotSortable,ToggleRow=delegate(int row) {ChangeChoice(row,ReportColumnIndex);} };
+            reportColumn.ToolTipText="حداکثر سه مانور؛ بهترین مقادیر گزارش و سایت از همین مانورها انتخاب می‌شوند.";
+            gridTrials.Columns.Add(reportColumn);
             gridTrials.RowTemplate.Height=31;
             gridTrials.ColumnHeadersDefaultCellStyle.BackColor=Color.FromArgb(236,242,246); gridTrials.ColumnHeadersDefaultCellStyle.ForeColor=ClinicalStyle.Ink; gridTrials.ColumnHeadersDefaultCellStyle.Alignment=DataGridViewContentAlignment.MiddleCenter; gridTrials.ColumnHeadersDefaultCellStyle.WrapMode=DataGridViewTriState.True;
             gridTrials.DefaultCellStyle.Alignment=DataGridViewContentAlignment.MiddleCenter; gridTrials.DefaultCellStyle.SelectionBackColor=Color.FromArgb(223,239,242); gridTrials.DefaultCellStyle.SelectionForeColor=ClinicalStyle.Ink; gridTrials.GridColor=Color.FromArgb(233,238,242); gridTrials.CellBorderStyle=DataGridViewCellBorderStyle.SingleHorizontal;
             gridTrials.SelectionChanged+=delegate { if(!_rendering && gridTrials.CurrentRow!=null) SelectTrial(gridTrials.CurrentRow.Index); };
             gridTrials.CellClick+=delegate(object sender,DataGridViewCellEventArgs e) { ChangeChoice(e.RowIndex,e.ColumnIndex); };
-            gridTrials.KeyDown+=delegate(object sender,KeyEventArgs e) { if(e.KeyCode==Keys.Space && gridTrials.CurrentCell!=null && gridTrials.CurrentCell.OwningColumn.Name=="ReportSelection") { ChangeChoice(gridTrials.CurrentCell.RowIndex,ReportColumnIndex); e.Handled=e.SuppressKeyPress=true; } };
+            gridTrials.CellMouseClick+=delegate(object sender,DataGridViewCellMouseEventArgs e)
+            {
+                if(e.RowIndex<0 || e.ColumnIndex!=0) return;
+                ManeuverColumn column=gridTrials.Columns[0] as ManeuverColumn;
+                if(column!=null && column.HitDelete(gridTrials.Columns[0].Width,e.Location.X)) DeleteManeuver(e.RowIndex);
+            };
+            gridTrials.KeyDown+=delegate(object sender,KeyEventArgs e)
+            {
+                if(e.KeyCode==Keys.Space && gridTrials.CurrentCell!=null && gridTrials.CurrentCell.OwningColumn.Name=="ReportSelection") { ChangeChoice(gridTrials.CurrentCell.RowIndex,ReportColumnIndex); e.Handled=e.SuppressKeyPress=true; }
+                else if(e.KeyCode==Keys.Delete && gridTrials.CurrentRow!=null) { DeleteManeuver(gridTrials.CurrentRow.Index); e.Handled=e.SuppressKeyPress=true; }
+                else if(e.Control && e.KeyCode==Keys.Z) { UndoLastDiscard(); e.Handled=e.SuppressKeyPress=true; }
+            };
+            ContextMenuStrip historyMenu=new ContextMenuStrip();
+            historyMenu.Items.Add("نمایش حذف‌شده‌ها",null,delegate { ShowDiscarded(); });
+            historyMenu.Items.Add("بازگرداندن آخرین حذف",null,delegate { UndoLastDiscard(); });
+            historyMenu.Items.Add("بازگشت به انتخاب خودکار",null,delegate { RestoreAutomaticSelection(); });
+            gridTrials.ContextMenuStrip=historyMenu;
             history.Controls.Add(gridTrials); history.Controls.Add(lblSummary); root.Controls.Add(history,0,3);
             FlowLayoutPanel actions=new FlowLayoutPanel { Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft,RightToLeft=RightToLeft.No,WrapContents=false,Padding=new Padding(0,6,0,0) };
             btnStart=MakeButton("شروع تست",delegate { if(_developerMode) StartSimulation(); else StartTest(); },true); btnStop=MakeButton("توقف مانور",delegate { StopTest(); },false); btnReport=MakeButton("ارسال به سایت",async delegate { await SendSite(); },false);
@@ -198,14 +220,18 @@ namespace SpiroLab.Ui
             lblConnection.Text=_busy && _active!=null?"● در حال دریافت":_device.Connected?"● متصل":"● متصل نیست";
             lblConnection.ForeColor=_device.Connected?ClinicalStyle.Accent:Color.FromArgb(113,126,138);
             lblPatient.Enabled=_hasPatient && !_busy;
-            foreach(DataGridViewRow row in gridTrials.Rows) { row.Cells[ReportColumnIndex].Tag=editable; row.Cells[ReportColumnIndex].Style.ForeColor=editable?ClinicalStyle.Ink:Color.LightGray; }
+            foreach(DataGridViewRow row in gridTrials.Rows) { row.Cells[0].Tag=editable; row.Cells[ReportColumnIndex].Tag=editable; row.Cells[ReportColumnIndex].Style.ForeColor=editable?ClinicalStyle.Ink:Color.LightGray; }
             }
         }
         int ReportColumnIndex { get { return gridTrials.Columns["ReportSelection"].Index; } }
         bool CanReport()
         {
-            if(ExamSummary.Build(_exam.Trials).Best==null) return false;
+            if(CurrentSummary().Best==null) return false;
             try { _exam.ValidateSelection(_exam.SelectionWorkflowVersion<3); _exam.ValidateReportSelection(true); return true; } catch { return false; }
+        }
+        ExamSummary CurrentSummary()
+        {
+            return _exam.SelectionWorkflowVersion>=4?ExamSummary.BuildSelected(_exam.Trials,ReportIds()):ExamSummary.Build(_exam.Trials);
         }
 
         private void ConnectDevice(bool startAfter,Action completed=null)
@@ -291,8 +317,32 @@ namespace SpiroLab.Ui
         {
             _timer.Stop(); _busy=false; _simulating=false;
             Trial t=_active; _active=null; if(t==null) { UpdateControls(); return; }
-            t.Result=SpiroAnalysis.Analyze(t,_exam.Patient); _exam.AddManeuver(t); _dirty=true; _selected=t;
+            t.Result=SpiroAnalysis.Analyze(t,_exam.Patient);
+            if(!t.Simulated && !t.Imported && !DeviceCoreAccepted(t))
+            {
+                // A failed device result never enters the active clinical table.
+                // Keep the raw attempt only as separate local diagnostic evidence.
+                _exam.RecordFailedCapture(t);
+                _dirty=true;
+                chart.Trial=null; chart.Result=null; chart.VisibleSamples=0;
+                RenderTrials(); RestorePrimaryPreview(); SaveExam(false); UpdateControls();
+                Error("نتیجه مانور از دستگاه دریافت نشد؛ لطفاً مانور را تکرار کنید.");
+                return;
+            }
+            _exam.AddManeuver(t); _dirty=true; _selected=t;
             RenderTrials(); RestorePrimaryPreview(); SaveExam(false); UpdateControls();
+        }
+        static bool DeviceCoreAccepted(Trial t)
+        {
+            if(t==null || t.Simulated || t.Imported || !t.Completed || !string.IsNullOrEmpty(t.CaptureError)) return false;
+            if(t.DeviceCaptureSequence<=0 || t.DeviceValues==null) return false;
+            DeviceResults d=t.DeviceValues;
+            if(!d.Present || !d.BlockValid || !d.Associated || d.Raw==null) return false;
+            if(d.CaptureSequence!=t.DeviceCaptureSequence) return false;
+            if(!d.FvcValid || !d.Fev1Valid || !d.PefValid || !d.FetValid) return false;
+            if(d.SerialNumber!=t.DeviceSerial && !(d.SerialNumber.Length==0 && t.DeviceSerial.Length==0)) return false;
+            ManeuverAssessment a=ManeuverAssessment.Assess(t);
+            return a.TechnicalValid && t.Flow.Count>=5;
         }
         void RenderTrials()
         {
@@ -300,13 +350,14 @@ namespace SpiroLab.Ui
             for(int i=0;i<_exam.Trials.Count;i++)
             {
                 Trial t=_exam.Trials[i]; AnalysisResult r=t.Result; ManeuverAssessment assessment=ManeuverAssessment.Assess(t); string state=assessment.Status;
-                gridTrials.Rows.Add(t.AcquisitionSequence+(state.Length>0?" · "+state:""),MetricText(t,0),MetricText(t,1),MetricText(t,2),MetricText(t,3),MetricText(t,7),ReportIds().Contains(t.ManeuverId));
+                gridTrials.Rows.Add(t.AcquisitionSequence.ToString(),MetricText(t,0),MetricText(t,1),MetricText(t,2),MetricText(t,3),MetricText(t,7),ReportIds().Contains(t.ManeuverId));
                 string info=ExamStore.Source(t)+" | "+t.When.ToString("o")+(t.EndReason.Length>0?" | "+t.EndReason:"");
                 if(r!=null) info+=" | "+r.InvalidReason;
                 info+=" | "+assessment.Status+" | "+assessment.Problem;
                 MeasuredValue fvc=t.Measurements.Fvc,fev1=t.Measurements.Fev1,pef=t.Measurements.Pef;
                 info+=" | FVC: "+SourceFa(fvc)+" | FEV1: "+SourceFa(fev1)+" | PEF: "+SourceFa(pef);
                 foreach(DataGridViewCell cell in gridTrials.Rows[i].Cells) cell.ToolTipText=info;
+                gridTrials.Rows[i].Cells[0].ToolTipText="حذف مانور "+t.AcquisitionSequence+" | "+info;
                 if(!ExamSummary.CanReport(t)) gridTrials.Rows[i].DefaultCellStyle.ForeColor=Color.FromArgb(144,113,113);
             }
             _rendering=false; UpdateSummary(); UpdateComparisons(); UpdateControls();
@@ -325,13 +376,18 @@ namespace SpiroLab.Ui
                 case 4:return Metric.Fef25;case 5:return Metric.Fef50;case 6:return Metric.Fef75;case 7:return Metric.Fef2575;default:return Metric.Bev;
             }
         }
-        List<string> ReportIds() { return _exam.SelectionWorkflowVersion>=3||_exam.SelectionWorkflowVersion>=2?_exam.ReportManeuverIds:_legacyReportIds; }
+        List<string> ReportIds() { return _exam.SelectionWorkflowVersion>=2?_exam.ReportManeuverIds:_legacyReportIds; }
         void ChangeChoice(int row,int column)
         {
             if(_rendering || _busy || _exam.FinalizedAt.HasValue || row<0 || row>=_exam.Trials.Count || column!=ReportColumnIndex) return;
             Trial t=_exam.Trials[row];
             try
             {
+                if(!_exam.ReportManeuverIds.Contains(t.ManeuverId) && !ExamSummary.CanReport(t))
+                {
+                    Error("این مانور برای انتخاب نهایی واجد شرایط نیست؛ وضعیت کیفیت و هشدارهای آن را ببینید.");
+                    return;
+                }
                 _exam.SetReportManeuver(t.ManeuverId,!_exam.ReportManeuverIds.Contains(t.ManeuverId));
                 _dirty=true; UpdateChoiceCells(); SaveExam(false);
             }
@@ -343,6 +399,43 @@ namespace SpiroLab.Ui
             for(int i=0;i<_exam.Trials.Count;i++) gridTrials.Rows[i].Cells[ReportColumnIndex].Value=ReportIds().Contains(_exam.Trials[i].ManeuverId);
             _rendering=false; UpdateSummary(); UpdateComparisons(); UpdateControls();
         }
+        void DeleteManeuver(int row)
+        {
+            if(_rendering || _busy || _exam.FinalizedAt.HasValue || row<0 || row>=_exam.Trials.Count) return;
+            Trial t=_exam.Trials[row]; if(t==null) return;
+            if(MessageBox.Show(this,"مانور شماره "+t.AcquisitionSequence+" از معاینهٔ فعال حذف شود؟ این کار با «بازگرداندن آخرین حذف» قابل بازگشت است.","حذف مانور",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)!=DialogResult.Yes) return;
+            try
+            {
+                _exam.DiscardManeuver(t.ManeuverId);
+                _dirty=true; _selected=null; chart.Trial=null; chart.Result=null; chart.VisibleSamples=0;
+                RenderTrials(); RestorePrimaryPreview(); SaveExam(false);
+            }
+            catch(Exception ex) { Error(ex.Message); }
+        }
+        void UndoLastDiscard()
+        {
+            if(_busy || _exam.FinalizedAt.HasValue) return;
+            try
+            {
+                Trial t=_exam.RestoreLastDiscarded();
+                if(t==null) { Error("مانور حذف‌شده‌ای برای بازگرداندن وجود ندارد."); return; }
+                _dirty=true; _selected=t; RenderTrials(); SelectTrial(_exam.Trials.IndexOf(t)); SaveExam(false);
+            }
+            catch(Exception ex) { Error(ex.Message); }
+        }
+        void ShowDiscarded()
+        {
+            if(_exam.DiscardedTrials==null || _exam.DiscardedTrials.Count==0) { Error("مانور حذف‌شده‌ای در این معاینه وجود ندارد."); return; }
+            List<string> rows=new List<string>();
+            foreach(Trial t in _exam.DiscardedTrials) rows.Add("مانور "+t.AcquisitionSequence+(t.DiscardedAt.HasValue?" | "+t.DiscardedAt.Value.ToString("yyyy-MM-dd HH:mm"):"")+(t.SelectedWhenDiscarded?" | قبلاً در انتخاب نهایی":""));
+            MessageBox.Show(this,string.Join(Environment.NewLine,rows.ToArray()),"مانورهای حذف‌شده (بازیابی از منوی راست‌کلیک)",MessageBoxButtons.OK,MessageBoxIcon.Information);
+        }
+        void RestoreAutomaticSelection()
+        {
+            if(_busy || _exam.FinalizedAt.HasValue) return;
+            try { _exam.ResetReportSelectionAutomatic(); _dirty=true; RenderTrials(); SaveExam(false); }
+            catch(Exception ex) { Error(ex.Message); }
+        }
         void UpdateComparisons() { chart.ComparisonTrials=_exam.Trials.FindAll(delegate(Trial t) { return ReportIds().Contains(t.ManeuverId); }); }
         void SelectTrial(int index)
         {
@@ -352,20 +445,32 @@ namespace SpiroLab.Ui
             lblLive.Text=(_selected.Simulated?"دادهٔ آزمایشی | ":"")+"نمایش مانور "+_selected.AcquisitionSequence+(!_selected.Completed?" · ناقص":_selected.OperatorRejected?" · ردشده":_selected.Result==null || !_selected.Result.Valid?" · داده ناکافی":"");
             UpdateControls();
         }
-        void SelectBest() { Trial t=ExamSummary.Build(_exam.Trials).BestTrial; if(t!=null) SelectTrial(_exam.Trials.IndexOf(t)); }
+        void SelectBest() { Trial t=CurrentSummary().BestTrial; if(t!=null) SelectTrial(_exam.Trials.IndexOf(t)); }
         void RestorePrimaryPreview()
         {
             // Row preview never changes the aggregate. New workflow starts on the
             // quality-ranked representative maneuver, not an operator primary.
-            if(ExamSummary.Build(_exam.Trials).BestTrial!=null) SelectBest();
+            if(CurrentSummary().BestTrial!=null) SelectBest();
             else if(_exam.Trials.Count>0) SelectTrial(_exam.Trials.Count-1);
+            else { chart.Trial=null; chart.Result=null; chart.VisibleSamples=0; }
         }
         void UpdateSummary()
         {
-            ExamSummary s=ExamSummary.Build(_exam.Trials);
+            ExamSummary s=CurrentSummary();
             List<string> numbers=new List<string>(); foreach(Trial t in _exam.Trials) if(ReportIds().Contains(t.ManeuverId)) numbers.Add(t.AcquisitionSequence.ToString());
             string best=s.FvcAvailable?"FVC "+Fmt.N(s.Fvc,2)+" L | FEV1 "+Fmt.N(s.Fev1,2)+" L | FEV1/FVC "+Fmt.N(s.Ratio,1)+"% | PEF "+Fmt.N(s.Pef,2)+" L/s":"مقادیر BEST VALUES کامل نیست";
-            lblSummary.Text="مانورها: "+_exam.Trials.Count+"     |     "+best+"     |     گزارش: "+(numbers.Count==0?"—":string.Join("، ",numbers.ToArray()));
+            string warning=SelectionWarning(s);
+            lblSummary.Text="مانورها: "+_exam.Trials.Count+"     |     "+best+"     |     گزارش: "+(numbers.Count==0?"—":string.Join("، ",numbers.ToArray()))+(warning.Length>0?"     |     توجه: "+warning:"");
+        }
+        string SelectionWarning(ExamSummary selected)
+        {
+            if(_exam.SelectionWorkflowVersion<4 || selected==null || selected.BestValues==null) return "";
+            ExamSummary all=ExamSummary.Build(_exam.Trials);
+            if(all.BestValues==null) return "";
+            bool fvc=all.BestValues.Fvc.Available && selected.BestValues.Fvc.Available && all.BestValues.Fvc.Value.Value>selected.BestValues.Fvc.Value.Value+1e-9;
+            bool fev1=all.BestValues.Fev1.Available && selected.BestValues.Fev1.Available && all.BestValues.Fev1.Value.Value>selected.BestValues.Fev1.Value.Value+1e-9;
+            if(!fvc && !fev1) return "";
+            return "یک مانور فعال خارج از انتخاب نهایی مقدار "+(fvc?"FVC":"")+(fvc&&fev1?" و ":"")+(fev1?"FEV1":"")+" بالاتری دارد؛ BEST VALUES فقط از انتخاب نهایی است.";
         }
         private bool SaveExam(bool explicitSave)
         {
@@ -481,31 +586,33 @@ namespace SpiroLab.Ui
             if(!SaveExam(false)) return;
             _busy=true;UpdateControls();
             Exam submitting=_exam;string submittingPath=_path;
+            SubmissionTiming timing=new SubmissionTiming("send");
             try
             {
-                ExaminationSnapshot snapshot=ExaminationSnapshot.Capture(submitting);
-                ResultPackage package=ResultExport.SaveToDirectory(Path.Combine(Path.GetDirectoryName(submittingPath),"exports"),snapshot);
-                StoreExport(package,submitting,submittingPath);
-                SubmissionDraft draft=new SubmissionDraft(snapshot,package);
-                draft.ValidateForSubmission();
+                ExaminationSnapshot snapshot=timing.Measure("snapshot_build",delegate { return ExaminationSnapshot.Capture(submitting); });
+                ResultPackage package=timing.Measure("local_export",delegate { return ResultExport.SaveToDirectory(Path.Combine(Path.GetDirectoryName(submittingPath),"exports"),snapshot); });
+                timing.Measure("local_persist",delegate { StoreExport(package,submitting,submittingPath); });
+                SubmissionDraft draft=timing.Measure("draft_build",delegate { return new SubmissionDraft(snapshot,package); });
+                timing.Measure("draft_validate",delegate { draft.ValidateForSubmission(); });
                 bool already=await Task.Factory.StartNew(delegate
                 {
                     if(_submissionGateway==null) throw new InvalidOperationException("ارسال به سایت روی این نسخه فعال نیست.");
                     bool designatedTest=_testRecord!=null || (!_allowProductionWrites && !string.IsNullOrEmpty(_testNationalId));
                     LiveSubmissionGateway live=_submissionGateway as LiveSubmissionGateway;
-                    if(live!=null) live.AllowHistoricalRecord=designatedTest;
+                    if(live!=null) { live.AllowHistoricalRecord=designatedTest; live.Timing=timing; }
                     if(live==null || !designatedTest) _hline.VerifyLatestRecord(submitting.Patient);
                     MedicalRecord allowed=SubmissionDestination(draft);
-                    SubmissionCoordinator coordinator=new SubmissionCoordinator(_submissionGateway,submitting.Submission,delegate {ExamStore.Save(submittingPath,submitting);},allowed);
+                    SubmissionCoordinator coordinator=new SubmissionCoordinator(_submissionGateway,submitting.Submission,delegate {ExamStore.Save(submittingPath,submitting);},allowed,timing);
                     coordinator.Submit(draft);
                     return coordinator.AlreadyPresent;
                 });
                 lock(_uiSync) { if(!_closing && !IsDisposed && !Disposing && _tips!=null) lblStatus.Text=already?"این نتیجه قبلاً در پرونده ثبت شده بود؛ ارسال دوباره انجام نشد.":"نتیجه و تصویر در سایت ثبت و بررسی شد."; }
+                timing.Complete(already?"already_present":"confirmed");
             }
-            catch(HLineException ex) {Error(ex.Message);}
-            catch(InvalidOperationException ex) {Error(ex.Message);}
-            catch {Error(submitting.Submission.WriteAttempted?"نتیجهٔ ارسال نامطمئن است؛ وضعیت سایت باید بازخوانی شود.":"ارسال انجام نشد؛ پروندهٔ محلی محفوظ است.");}
-            finally {_busy=false;UpdateControls();}
+            catch(HLineException ex) {timing.Complete("hline_error");Error(ex.Message);}
+            catch(InvalidOperationException ex) {timing.Complete("validation_error");Error(ex.Message);}
+            catch {timing.Complete("uncertain_or_failed");Error(submitting.Submission.WriteAttempted?"نتیجهٔ ارسال نامطمئن است؛ وضعیت سایت باید بازخوانی شود.":"ارسال انجام نشد؛ پروندهٔ محلی محفوظ است.");}
+            finally {timing.Complete("completed");_busy=false;UpdateControls();}
         }
         MedicalRecord SubmissionDestination(SubmissionDraft draft)
         {

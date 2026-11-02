@@ -1,4 +1,4 @@
-> Historical 5.1.1 record. Current 5.3.1 behavior is in [best-values-531.md](best-values-531.md): the primary/site radio is removed, BEST VALUES are the independent session aggregate, and report checkboxes affect display only. The text below is retained as history.
+> Historical 5.1.1 record. Current 5.3.1 workflow-4 behavior is in [mir-selected-three-531.md](mir-selected-three-531.md): the primary/site radio is removed, the selected (automatic or manual) set of at most three maneuvers is authoritative for BEST VALUES/JPG/JSON/HLine, and a later acquisition does not silently replace a manual override. The text below is retained as history.
 
 # الحاقیهٔ انتخاب مانور — SpiroLab 5.1.1
 

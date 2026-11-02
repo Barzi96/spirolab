@@ -127,7 +127,7 @@ internal static class ManeuverSelectionTests
                 Check(((Trial)Field(form,"_selected")).ManeuverId==ExamSummary.Build(ui.Trials).BestTrial.ManeuverId,"new acquisition restores automatic best preview");
                 Call(form,"SelectTrial",125);
                 Check((bool)grid.Rows[125].Cells[reportColumn].Tag && grid.Rows[125].Cells[0].ToolTipText.Contains(incomplete.EndReason),"incomplete attempt remains selectable for review with its precise warning");
-                Call(form,"SelectTrial",127); Check(grid.Rows[127].Cells[0].Value.ToString().Contains("ردشده"),"rejected state visible in maneuver review");
+                Call(form,"SelectTrial",127); Check(grid.Rows[127].Cells[0].ToolTipText.Contains("ردشده") && grid.Rows[127].Cells[0].Value.ToString()==rejected.AcquisitionSequence.ToString(),"rejected state remains visible in the compact maneuver cell tooltip");
                 Call(form,"SelectTrial",0);
                 using(Bitmap image=new Bitmap(form.Width,form.Height)) { form.DrawToBitmap(image,new Rectangle(Point.Empty,form.Size)); image.Save(Path.Combine(root,"operator-selection-gui.png")); }
                 reopened=ui;

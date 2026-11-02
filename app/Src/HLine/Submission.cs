@@ -91,15 +91,20 @@ namespace SpiroLab.HLine
         readonly SubmissionJournal journal;
         readonly Action persist;
         readonly MedicalRecord testRecord;
+        readonly SubmissionTiming timing;
         int active;
         public SubmissionState State {get {return journal.State;} }
         public bool AlreadyPresent {get;private set;}
-        public SubmissionCoordinator(ISubmissionGateway gateway,SubmissionJournal journal,Action persist,MedicalRecord designatedTestRecord)
+        public SubmissionCoordinator(ISubmissionGateway gateway,SubmissionJournal journal,Action persist,MedicalRecord designatedTestRecord) : this(gateway,journal,persist,designatedTestRecord,null) { }
+        public SubmissionCoordinator(ISubmissionGateway gateway,SubmissionJournal journal,Action persist,MedicalRecord designatedTestRecord,SubmissionTiming timing)
         {
-            this.gateway=gateway;this.journal=journal;this.persist=persist;
+            this.gateway=gateway;this.journal=journal;this.persist=persist;this.timing=timing;
             if(designatedTestRecord!=null) testRecord=new MedicalRecord {Id=designatedTestRecord.Id,PersonId=designatedTestRecord.PersonId,NationalId=designatedTestRecord.NationalId,DateText=designatedTestRecord.DateText,Status=designatedTestRecord.Status};
         }
         void Move(SubmissionState state) {journal.State=state;persist();}
+        void MoveTimed(SubmissionState state) { Timed("journal_persist",delegate { Move(state); }); }
+        void Timed(string stage,Action work) { if(timing==null) work(); else timing.Measure(stage,work); }
+        T Timed<T>(string stage,Func<T> work) { return timing==null?work():timing.Measure(stage,work); }
         void VerifyTestDestination(SubmissionDraft draft)
         {
             if(testRecord==null) throw new InvalidOperationException("ارسال فعال نیست؛ پروندهٔ تست اختصاصی هنوز معرفی نشده است.");
@@ -112,42 +117,43 @@ namespace SpiroLab.HLine
             try
             {
                 AlreadyPresent=false;
-                draft.ValidateForSubmission();
+                Timed("draft_validate",delegate { draft.ValidateForSubmission(); });
                 // A designated test record is optional now: normal production submission
                 // is bound to the destination that the live gateway has just re-verified.
-                if(testRecord!=null) VerifyTestDestination(draft);
+                if(testRecord!=null) Timed("designated_record_verify",delegate { VerifyTestDestination(draft); });
                 if(gateway==null || !gateway.ContractVerified) throw new InvalidOperationException("قرارداد ارسال هنوز تأیید نشده است.");
                 if(journal.WriteAttempted)
                 {
                     // A previous non-idempotent attempt may have committed. Reconcile
                     // read-only; never send the write again automatically.
-                    gateway.VerifyDestination(draft);
-                    RemoteSpirometry pending=gateway.Read(draft);
+                    Timed("destination_verify",delegate { gateway.VerifyDestination(draft); });
+                    RemoteSpirometry pending=Timed("existing_result_read",delegate { return gateway.Read(draft); });
                     if(pending!=null && SameResult(draft,pending))
                     {
                         if(!string.IsNullOrEmpty(journal.FileId) && pending.FileId!=journal.FileId) throw new InvalidOperationException("فایل مرجع در سرور با فایل ارسالی هم‌خوان نیست؛ بازخوانی دستی لازم است.");
-                        gateway.VerifySaved(draft);
-                        journal.FileId=pending.FileId;journal.Problem="";journal.State=SubmissionState.Confirmed;AlreadyPresent=true;persist();return;
+                        Timed("module_verify",delegate { gateway.VerifySaved(draft); });
+                        journal.FileId=pending.FileId;journal.Problem="";journal.State=SubmissionState.Confirmed;AlreadyPresent=true;Timed("journal_persist",delegate { persist(); });return;
                     }
                     throw new InvalidOperationException("ارسال قبلی باید از سرور بازخوانی شود؛ ارسال دوباره مجاز نیست.");
                 }
-                gateway.VerifyDestination(draft);
-                RemoteSpirometry existing=gateway.Read(draft);
+                Timed("destination_verify",delegate { gateway.VerifyDestination(draft); });
+                RemoteSpirometry existing=Timed("existing_result_read",delegate { return gateway.Read(draft); });
                 if(existing!=null)
                 {
                     if(!SameResult(draft,existing)) throw new InvalidOperationException("نتیجهٔ متفاوتی در این پرونده ثبت شده است؛ ارسال متوقف شد و چیزی بازنویسی نشد.");
-                    gateway.VerifySaved(draft);
-                    journal.State=SubmissionState.Confirmed;AlreadyPresent=true;persist();return;
+                    Timed("module_verify",delegate { gateway.VerifySaved(draft); });
+                    journal.State=SubmissionState.Confirmed;AlreadyPresent=true;Timed("journal_persist",delegate { persist(); });return;
                 }
-                Move(SubmissionState.ValidationPassed);
-                attempted=journal.WriteAttempted=true;Move(SubmissionState.Uploading); // Durable before the first non-idempotent request.
-                journal.FileId=gateway.UploadJpeg(draft,journal.Reference);persist();
+                MoveTimed(SubmissionState.ValidationPassed);
+                attempted=journal.WriteAttempted=true;MoveTimed(SubmissionState.Uploading); // Durable before the first non-idempotent request.
+                journal.FileId=Timed("jpg_upload",delegate { return gateway.UploadJpeg(draft,journal.Reference); });Timed("journal_persist",delegate { persist(); });
                 if(string.IsNullOrWhiteSpace(journal.FileId)) throw new InvalidOperationException("شناسهٔ فایل برگشت داده نشد.");
-                gateway.Create(draft,journal.FileId,journal.Reference);
-                Move(SubmissionState.Verifying);
-                if(!Matches(draft,gateway.Read(draft))) throw new InvalidOperationException("تطبیق اعداد، پرونده یا تصویر در سرور تأیید نشد.");
-                gateway.VerifySaved(draft);
-                Move(SubmissionState.Confirmed);
+                Timed("create_post",delegate { gateway.Create(draft,journal.FileId,journal.Reference); });
+                MoveTimed(SubmissionState.Verifying);
+                bool matches=Timed("server_readback",delegate { return Matches(draft,gateway.Read(draft)); });
+                if(!matches) throw new InvalidOperationException("تطبیق اعداد، پرونده یا تصویر در سرور تأیید نشد.");
+                Timed("module_verify",delegate { gateway.VerifySaved(draft); });
+                MoveTimed(SubmissionState.Confirmed);
             }
             catch(HLineException ex)
             {

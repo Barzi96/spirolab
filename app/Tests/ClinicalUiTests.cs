@@ -64,12 +64,12 @@ internal static class ClinicalUiTests
             for(int count=1;count<=5;count++)
             {
                 Exam e=ExamWith(count);
-                Check(e.SelectionWorkflowVersion==3 && !e.PrimarySelectionRequired && string.IsNullOrEmpty(e.OperatorSelectedManeuverId),"no primary maneuver in workflow3 "+count);
+                Check(e.SelectionWorkflowVersion==4 && !e.PrimarySelectionRequired && string.IsNullOrEmpty(e.OperatorSelectedManeuverId),"no primary maneuver in workflow4 "+count);
                 Check(e.ReportManeuverIds.Count==Math.Min(count,3),"automatic report count "+count);
                 e.ValidateReportSelection(true);
             }
             Exam auto=ExamWith(1); auto.Trials[0].Result.Fvc=.8; auto.Trials[0].Result.Fev1=.5; auto.AddManeuver(Simulator.Build(auto.Patient,500));
-            Check(ExamSummary.Build(auto.Trials).Fvc>=.8 && string.IsNullOrEmpty(auto.OperatorSelectedManeuverId),"new better attempt updates aggregate without creating a primary");
+            Check(ExamSummary.BuildSelected(auto.Trials,auto.ReportManeuverIds).Fvc>=.8 && string.IsNullOrEmpty(auto.OperatorSelectedManeuverId),"new better attempt updates selected aggregate without creating a primary");
             Exam choices=ExamWith(5); string[] original=choices.ReportManeuverIds.ToArray();
             string fourth=choices.Trials.First(t=>!choices.ReportManeuverIds.Contains(t.ManeuverId)).ManeuverId;
             Refuses(delegate { choices.SetReportManeuver(fourth,true); },"fourth report checkbox refused");
@@ -83,13 +83,13 @@ internal static class ClinicalUiTests
             choices.ValidateReportSelection(true);
             Check(choices.ReportSelectionManual && !choices.ReportManeuverIds.Contains(choices.OperatorSelectedManeuverId),"report visibility and legacy primary field are independent");
             string saved=Path.Combine(root,"selection-roundtrip.spiro"); ExamStore.Save(saved,choices); Exam reopened=ExamStore.Load(saved);
-            Check(reopened.ReportManeuverIds.SequenceEqual(choices.ReportManeuverIds) && reopened.ReportSelectionManual && reopened.SelectionWorkflowVersion==3,"report choices and workflow survive restart without a required primary");
+            Check(reopened.ReportManeuverIds.SequenceEqual(choices.ReportManeuverIds) && reopened.ReportSelectionManual && reopened.SelectionWorkflowVersion==4,"report choices and workflow survive restart without a required primary");
             var doc=Json(ExaminationSnapshot.Capture(reopened)); var site=Obj(doc["siteExport"]);
             Check(site["status"].ToString()=="retired_single_site_maneuver_use_bestValues" && Obj(site["measurements"]).Count==0,"workflow3 JSON retires the single-maneuver site export");
             var display=(object[])Obj(doc["report"])["displayedManeuvers"];
             Check(display.Select(x=>Obj(x)["id"].ToString()).SequenceEqual(new string[] {reopened.Trials[0].ManeuverId,reopened.Trials[2].ManeuverId,reopened.Trials[4].ManeuverId}),"JPG displays exactly the manual 1,3,5 report set");
-            ExamSummary all=ExamSummary.Build(reopened.Trials);
-            Check(Convert.ToDouble(Obj(Obj(doc["bestReportedValues"])["FVC"])["value"])==all.Fvc,"JSON best values use all eligible maneuvers, not the report display subset");
+            ExamSummary all=ExamSummary.BuildSelected(reopened.Trials,reopened.ReportManeuverIds);
+            Check(Convert.ToDouble(Obj(Obj(doc["bestReportedValues"])["FVC"])["value"])==all.Fvc,"JSON best values use exactly the selected three maneuvers, not the report display subset");
             Check(Convert.ToDouble(Obj(Obj(doc["bestReportedValues"])["FEV1"])["value"])==all.Fev1 && Obj(Obj(doc["bestReportedValues"])["FVC"])["valueSource"].ToString()!="unavailable","best FEV1 is independent and sourced explicitly");
             Check(Obj(doc["vextSelection"])["valueMl"]==null,"simulated-only examination yields no clinic VEXT and never zero");
             Trial selected=reopened.Trials[3];
@@ -135,12 +135,12 @@ internal static class ClinicalUiTests
                 Check(grid.Rows.Cast<DataGridViewRow>().Count(r=>Convert.ToBoolean(r.Cells[6].Value))==3,"automatic report selection checks up to three real curves");
                 foreach(string id in ui.ReportManeuverIds.ToArray()) Space(grid,ui.Trials.FindIndex(t=>t.ManeuverId==id),6);
                 Space(grid,0,6); Space(grid,2,6); Space(grid,4,6);
-                Check(ui.SelectionWorkflowVersion==3 && ui.ReportManeuverIds.SequenceEqual(new string[] {ui.Trials[0].ManeuverId,ui.Trials[2].ManeuverId,ui.Trials[4].ManeuverId}),"keyboard report selection directly saves1,3,5 without a primary");
+                Check(ui.SelectionWorkflowVersion==4 && ui.ReportManeuverIds.SequenceEqual(new string[] {ui.Trials[0].ManeuverId,ui.Trials[2].ManeuverId,ui.Trials[4].ManeuverId}),"keyboard final-selection directly saves1,3,5 without a primary");
                 Space(grid,3,6); Check(((Label)Field(form,"lblStatus")).Text=="برای گزارش حداکثر سه مانور قابل انتخاب است." && ui.ReportManeuverIds.Count==3,"fourth checkbox gives short Persian inline message");
                 Call(form,"SelectTrial",0); Check(ui.OperatorSelectedManeuverId!=ui.Trials[0].ManeuverId && ui.ReportManeuverIds.Count==3,"row preview does not alter report choices or create a primary");
                 Call(form,"SelectTrial",3); Shot(form,"04-main-five");
                 string stableId=ui.ExaminationId; Call(form,"LoadExam",uiPath); ui=(Exam)Field(form,"_exam");
-                Check(ui.ExaminationId==stableId && ui.ReportManeuverIds.Count==3 && ui.SelectionWorkflowVersion==3,"GUI reopens saved report selections without a primary");
+                Check(ui.ExaminationId==stableId && ui.ReportManeuverIds.Count==3 && ui.SelectionWorkflowVersion==4,"GUI reopens saved final selections without a primary");
                 ((TextBox)Field(form,"txtExamDate")).Text="۱۴۰۵/۰۷/۲۷"; Check((bool)Call(form,"SyncMetadata") && (bool)Call(form,"SaveExam",false),"manual Jalali date edit validates and saves");
                 Call(form,"LoadExam",uiPath); ui=(Exam)Field(form,"_exam");
                 Check(ui.ExaminationDate==new DateTime(2026,10,19),"historical chosen date does not become today on reopen");

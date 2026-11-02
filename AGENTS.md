@@ -14,7 +14,7 @@ Persian README and phase evidence live in [README.md](README.md) and [docs/stand
 ## Build, test, package
 
 - `app\build.bat` — compiles `app\release\SpiroLab.exe` with the in-box `csc.exe` (no SDK needed).
-- `app\test.bat` — builds, then runs all nine check suites (they open real WinForms windows). Current total: **744 PASS**.
+- `app\test.bat` — builds, then runs all ten check suites (they open real WinForms windows). Current total: **792 PASS**.
 - GUI mock end-to-end evidence: [docs/standalone/gui-e2e-results.md](docs/standalone/gui-e2e-results.md) (27 PASS; not a live write).
 - `tools\package-release.ps1` — portable package + self-test + SHA256 into `dist\`.
 - Suite logs land in `app\*-test-output\` and are ignored by Git; do not commit them.

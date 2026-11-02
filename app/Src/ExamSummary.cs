@@ -3,8 +3,8 @@ using System.Collections.Generic;
 
 namespace SpiroLab
 {
-    // Session-level facade. The scientific aggregate is SessionBestValues over
-    // ALL eligible maneuvers; Trials is only the displayed/report subset.
+    // Session-level facade. Workflow 4 selects at most three authoritative
+    // maneuvers; old workflow builds retain their all-eligible aggregate.
     public sealed class ExamSummary
     {
         public readonly List<Trial> Trials = new List<Trial>();
@@ -34,17 +34,26 @@ namespace SpiroLab
             ManeuverAssessment a=ManeuverAssessment.Assess(t);
             return a.TechnicalValid && a.FvcUsable;
         }
-        public static ExamSummary Build(IList<Trial> trials) { return Build(trials,true); }
-        internal static ExamSummary Build(IList<Trial> trials,bool qualityRanking)
+        public static ExamSummary Build(IList<Trial> trials) { return BuildCore(trials,true,null); }
+        // Workflow 4: the operator-selected (or automatically selected) set is the
+        // authoritative clinical result set, not merely the report display subset.
+        public static ExamSummary BuildSelected(IList<Trial> trials,IList<string> selectedIds) { return BuildCore(trials,true,selectedIds); }
+        internal static ExamSummary Build(IList<Trial> trials,bool qualityRanking) { return BuildCore(trials,qualityRanking,null); }
+        static ExamSummary BuildCore(IList<Trial> trials,bool qualityRanking,IList<string> selectedIds)
         {
             ExamSummary s=new ExamSummary();
             List<Trial> source=new List<Trial>();
+            HashSet<string> selected=null;
+            if(selectedIds!=null) { selected=new HashSet<string>(); foreach(string id in selectedIds) if(!string.IsNullOrEmpty(id)) selected.Add(id); if(selected.Count>3) throw new ArgumentException("حداکثر سه مانور می‌توانند مبنای انتخاب نهایی باشند."); }
             if(trials!=null) foreach(Trial t in trials) if(t!=null)
             {
                 source.Add(t);
+                if(selected!=null && !selected.Contains(t.ManeuverId)) continue;
                 ManeuverAssessment a=ManeuverAssessment.Assess(t);
                 if(!t.OperatorRejected && a.TechnicalValid && a.FvcUsable) {s.Candidates.Add(t); if(t.OperatorAccepted) s.OperatorReviewed=true;}
             }
+            List<Trial> aggregateSource=new List<Trial>();
+            foreach(Trial t in source) if(selected==null || selected.Contains(t.ManeuverId)) aggregateSource.Add(t);
             Dictionary<Trial,int> originalOrder=new Dictionary<Trial,int>();
             for(int i=0;i<s.Candidates.Count;i++) if(!originalOrder.ContainsKey(s.Candidates[i])) originalOrder.Add(s.Candidates[i],i);
             s.Candidates.Sort(delegate(Trial a,Trial b)
@@ -52,7 +61,7 @@ namespace SpiroLab
                 int score=qualityRanking?ManeuverAssessment.Compare(a,b):CompareSum(a,b);
                 return score!=0?score:originalOrder[a].CompareTo(originalOrder[b]);
             });
-            s.BestValues=SessionBestValues.Build(source);
+            s.BestValues=SessionBestValues.Build(aggregateSource);
             s.BestTrial=s.BestValues.ReportTrial;
             s.Best=s.BestTrial==null?null:s.BestTrial.Result;
             s.Excluded=source.Count-s.Candidates.Count;

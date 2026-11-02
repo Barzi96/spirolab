@@ -35,6 +35,7 @@ echo Building SpiroLab.exe ...
   Src\HLine\FirefoxSession.cs ^
   Src\HLine\Sqlite.cs ^
   Src\HLine\Submission.cs ^
+  Src\HLine\SubmissionTiming.cs ^
   Src\HLine\LiveSubmissionGateway.cs ^
   Src\ResultExport.cs ^
   Src\Ers93.cs ^

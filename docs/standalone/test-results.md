@@ -1,5 +1,7 @@
 > Current version5.2: use [ui52-delivery.md](ui52-delivery.md) and [ui52-schema.md](ui52-schema.md). The earlier phase record below is retained as history; explicit radio/checkbox selections supersede its UI instructions.
 
+> Historical 5.1/5.2 test record. Current workflow-4 results are **792 checks / ten suites**; see [mir-selected-three-531.md](mir-selected-three-531.md) and `app\test.bat`.
+
 # Validation record — SpiroLab5.1, 2026-11-01
 
 Baseline before edits: 75 regression +63 standalone checks PASS (138). Final corrected application: 75 retained +63 retained +66 new checks PASS (204). Six separate private-driver inspection checks also PASS. The old obsolete CurvesPath test causes one expected compiler warning; no test was removed to hide failure.

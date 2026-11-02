@@ -1,3 +1,5 @@
+> Historical 5.2 record. Current workflow-4 examinations use the selected-three final set described in [mir-selected-three-531.md](mir-selected-three-531.md); the native primary radio and display-only checkbox semantics below are retained as history.
+
 # SpiroLab5.2 — delivery and visual acceptance
 
 ## A. UI changes

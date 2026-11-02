@@ -45,7 +45,7 @@ class HLinePhaseTests
                 foreach(int index in new int[] {0,2,4}) exam.SetReportManeuver(exam.Trials[index].ManeuverId,true);
                 Call(form,"RenderTrials");Call(form,"SelectTrial",0);
                 grid.CurrentCell=grid.Rows[2].Cells[reportColumn];Call(grid,"OnKeyDown",new KeyEventArgs(Keys.Space));
-                Check(exam.SelectionWorkflowVersion==3 && exam.ReportManeuverIds.Count==2,"keyboard report toggle commits once without creating a primary");
+                Check(exam.SelectionWorkflowVersion==4 && exam.ReportManeuverIds.Count==2,"keyboard final-selection toggle commits once without creating a primary");
                 using(Bitmap shot=new Bitmap(form.Width,form.Height)) {form.DrawToBitmap(shot,new Rectangle(Point.Empty,form.Size));shot.Save(Path.Combine(root,"01-five-maneuvers.png"));}
                 Trial broken=Simulator.Build(p,55);broken.Completed=false;broken.CaptureError="synthetic malformed packet";broken.EndReason="synthetic capture failure";exam.AddManeuver(broken);Call(form,"SaveExam",false);Call(form,"RenderTrials");Call(form,"SelectTrial",5);
                 Check(((Trial)Get(form,"_selected")).ManeuverId==broken.ManeuverId && grid.Rows[5].Cells[0].ToolTipText.Contains(broken.EndReason),"technical-failure row remains selectable for review");
@@ -69,11 +69,11 @@ class HLinePhaseTests
             for(int i=0;i<12;i++)
             {
                 Trial t=Simulator.Build(automatic.Patient,200+i);automatic.AddManeuver(t);
-                Check(automatic.ReportManeuverIds.SequenceEqual(ExamSummary.Build(automatic.Trials).Trials.Select(x=>x.ManeuverId)) && automatic.SelectionWorkflowVersion==3 && string.IsNullOrEmpty(automatic.OperatorSelectedManeuverId),"automatic top-three report count without primary "+(i+1));
+                Check(automatic.ReportManeuverIds.SequenceEqual(ExamSummary.Build(automatic.Trials).Trials.Select(x=>x.ManeuverId)) && automatic.SelectionWorkflowVersion==4 && string.IsNullOrEmpty(automatic.OperatorSelectedManeuverId),"automatic top-three report count without primary "+(i+1));
             }
             automatic.SelectSiteManeuver(automatic.Trials[0].ManeuverId);automatic.SetReportManeuver(automatic.ReportManeuverIds[0],false);string[] manual=automatic.ReportManeuverIds.ToArray();
             automatic.AddManeuver(Simulator.Build(automatic.Patient,444));string path=Path.Combine(root,"manual.spiro");ExamStore.Save(path,automatic);automatic=ExamStore.Load(path);automatic.AddManeuver(Simulator.Build(automatic.Patient,445));
-            Check(automatic.ReportManeuverIds.SequenceEqual(manual) && automatic.SelectionWorkflowVersion==3,"manual report overrides survive new maneuvers and restart independently of legacy site field");
+            Check(automatic.ReportManeuverIds.SequenceEqual(manual) && automatic.SelectionWorkflowVersion==4,"manual report overrides survive new maneuvers and restart independently of legacy site field");
             Trial good=automatic.Trials[0].Clone(),poor=automatic.Trials[1].Clone();
             good.Result.Fvc=2;good.Result.Fev1=1.8;good.Result.BevAvailable=good.Result.BevOk=good.Result.PlateauOk=true;good.Result.Cough=false;good.Result.Fet=6;
             poor.Result.Fvc=8;poor.Result.Fev1=7;poor.Result.BevAvailable=false;poor.Result.PlateauOk=false;poor.Result.Cough=false;poor.Result.Fet=6;

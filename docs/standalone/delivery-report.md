@@ -1,5 +1,7 @@
 > Current version5.2: use [ui52-delivery.md](ui52-delivery.md) and [ui52-schema.md](ui52-schema.md). The earlier phase record below is retained as history; explicit radio/checkbox selections supersede its UI instructions.
 
+> Historical 5.2 phase record. Current workflow-4 selection/delete semantics are in [mir-selected-three-531.md](mir-selected-three-531.md). The radio/checkbox description below is retained as history.
+
 # Current patch: SpiroLab5.1.1
 
 Mandatory addendum completed: no maneuver-count cap, explicit persisted primary selection, all-attempt history, independent aggregates, shared selected snapshot and263 passing software checks. See [full addendum](maneuver-selection-addendum.md). The 5.1 phase record below is retained as history; its204-test total and automatic display subset are superseded by this addendum.

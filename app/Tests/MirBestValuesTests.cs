@@ -171,7 +171,7 @@ namespace MirBestValuesTests
         static void DeviceProvenanceTests(Patient p)
         {
             Trial t=Numeric(p,20,4.74,1.67,1.92,1.10,7.5,true);
-            t.Simulated=false; t.Imported=false; t.DeviceSerial="J22889"; t.DeviceCaptureSequence=7;
+            t.Simulated=false; t.Imported=false; t.DeviceSerial="J22889"; t.DeviceCaptureSequence=7; t.RequiresDeviceCore=true;
             t.DeviceValues=new DeviceResults { Present=true,BlockValid=true,Associated=true,Association="fixture",CaptureSequence=7,SerialNumber="J22889",Fvc=4.78,Fev1=1.81,Pef=1.92,Fet=7.20,FvcValid=true,Fev1Valid=true,PefValid=true,FetValid=true,Raw=DeviceBlock(4.78,1.81,1.92,7.20) };
             ManeuverMeasurementSet m=t.Measurements;
             Near(m.Fvc.Value,4.78,"verified device FVC is primary");
@@ -186,18 +186,17 @@ namespace MirBestValuesTests
             Check(s.BestValues.Fvc.Source==MeasurementSource.DeviceReported,"session provenance preserves device source");
             t.DeviceCaptureSequence=8;
             ManeuverMeasurementSet mismatch=t.Measurements;
-            Near(mismatch.Fvc.Value,4.74,"a capture-token mismatch cannot be used as a device value");
-            Check(mismatch.Fvc.Source==MeasurementSource.SoftwareCalculated && mismatch.Reconstructed.Fvc.Source==MeasurementSource.SoftwareCalculated,"mismatch falls back to explicit software source");
+            Check(!mismatch.Fvc.Available && mismatch.Fvc.Source==MeasurementSource.Unavailable && mismatch.Reconstructed.Fvc.Source==MeasurementSource.SoftwareCalculated,"capture-token mismatch cannot become a clinical device value; reconstructed diagnostics remain separate");
             t.DeviceCaptureSequence=7; t.DeviceSerial="OTHER";
-            Check(t.Measurements.Fvc.Source==MeasurementSource.SoftwareCalculated,"serial mismatch cannot be used as a device value");
+            Check(!t.Measurements.Fvc.Available && t.Measurements.Fvc.Source==MeasurementSource.Unavailable && t.Measurements.Reconstructed.Fvc.Available,"serial mismatch cannot become a clinical device value");
             t.DeviceSerial="J22889"; t.DeviceValues.Associated=false; t.DeviceValues.CaptureSequence=0; t.DeviceCaptureSequence=0;
             ManeuverMeasurementSet legacy=t.Measurements;
             Near(legacy.Fvc.Value,4.78,"persisted legacy device block remains available for review");
             Check(legacy.Fvc.Source==MeasurementSource.LegacyUnverified && legacy.Fvc.ValidationStatus.Contains("unverified"),"persisted block is never called device verified");
             t.DeviceValues.Associated=true; t.DeviceCaptureSequence=9;
-            Check(t.Measurements.Fvc.Source==MeasurementSource.SoftwareCalculated,"associated block with wrong capture is unavailable as device or legacy");
+            Check(!t.Measurements.Fvc.Available && t.Measurements.Fvc.Source==MeasurementSource.Unavailable,"associated block with wrong capture is unavailable as device or legacy");
             t.DeviceValues.Raw=null;
-            Check(t.Measurements.Fvc.Source==MeasurementSource.SoftwareCalculated,"missing raw block cannot support device provenance");
+            Check(!t.Measurements.Fvc.Available && t.Measurements.Fvc.Source==MeasurementSource.Unavailable,"missing raw block cannot support device provenance");
         }
 
         static void DeviceSessionTests()
@@ -222,6 +221,10 @@ namespace MirBestValuesTests
                 Trial changed=new Trial(); CaptureOutcome three=session.Capture(changed,delegate{return false;},delegate(DevicePacket packet) { });
                 changed.DeviceValues=three.Results;
                 Check(three.Completed && three.Results.Present && three.Results.CaptureSequence==3,"a genuinely changed LAST block is accepted for the new capture");
+                usb.Block=DeviceBlock(4.70,0,1.90,7.10);
+                Trial partial=new Trial(); CaptureOutcome partialOutcome=session.Capture(partial,delegate{return false;},delegate(DevicePacket packet) { });
+                partial.DeviceValues=partialOutcome.Results;
+                Check(partialOutcome.Completed && !partialOutcome.Results.Present && !partialOutcome.Results.Fev1Valid && partialOutcome.Results.InvalidReason.Contains("required_core"),"all four required device core fields are required for a clinical result");
                 usb.Block=new byte[8];
                 Trial truncated=new Trial(); CaptureOutcome four=session.Capture(truncated,delegate{return false;},delegate(DevicePacket packet) { });
                 truncated.DeviceValues=four.Results;

@@ -394,10 +394,10 @@ namespace SpiroLab.Device
                 r.PefValid=Finite(r.Pef) && r.Pef>0 && r.Pef<=20;
                 r.FetValid=Finite(r.Fet) && r.Fet>0 && r.Fet<=30;
                 r.PefTimeValid=last.Length>=0x52 && Finite(r.PefTime) && r.PefTime>0 && r.PefTime<=r.Fet+.05;
-                if(!r.FvcValid)
+                if(!r.FvcValid || !r.Fev1Valid || !r.PefValid || !r.FetValid)
                 {
-                    r.InvalidReason="cod_LAST_values_outside_supported_ranges";
-                    Log("cod_LAST values look invalid -> ignored");
+                    r.InvalidReason="cod_LAST_required_core_field_missing_or_outside_supported_ranges";
+                    Log("cod_LAST required core fields invalid -> not a clinical result");
                     return r;
                 }
 

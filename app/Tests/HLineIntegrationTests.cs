@@ -563,12 +563,12 @@ class HLineIntegrationTests
             OneClickMainTests();
             NormalMainTests();
             Exam exam=Exam(false);exam.SelectSiteManeuver(exam.Trials[0].ManeuverId);SubmissionDraft draft=Draft(exam);
-            VextSelection vx=ClinicVext.Select(exam.Trials); ExamSummary best=ExamSummary.Build(exam.Trials);
+            VextSelection vx=ClinicVext.Select(exam.Trials); ExamSummary best=ExamSummary.BuildSelected(exam.Trials,exam.ReportManeuverIds);
             Check(draft.RecordId=="2" && draft.ExaminationDate==new DateTime(2026,10,19) && vx.Available && vx.ValueMl==132 && draft.Fields["vext"]==132 && draft.Fields["vext"]!=111 && draft.Vext.ManeuverId==vx.ManeuverId && draft.ManeuverId==best.BestValues.Fvc.SourceManeuverId,"submission binds exact record, Gregorian date, clinic VEXT and best-FVC source");
             var doc=Json(draft.Snapshot);var bestJson=Obj(doc["bestValues"]);var siteJson=Obj(doc["siteExport"]);var manualVext=Obj(Obj(doc["spirometry"])["VEXT"]);var selectionJson=Obj(doc["vextSelection"]);
             Check(N(Obj(bestJson["fvc"])["value"])==best.BestValues.Fvc.Value.Value && N(Obj(bestJson["fev1"])["value"])==best.BestValues.Fev1.Value.Value && N(Obj(bestJson["fev1Fvc"])["value"])==best.BestValues.Fev1Fvc.Value.Value,"JSON bestValues are the same independent aggregate used by the report");
-            Check(bestJson["scope"].ToString()=="all_eligible_maneuvers_not_report_display_subset" && bestJson["qualityLimited"]!=null,"JSON bestValues declare whole-session scope and quality status");
-            Check(siteJson["status"].ToString()=="retired_single_site_maneuver_use_bestValues" && Obj(siteJson["measurements"]).Count==0,"workflow3 retires the single site export");
+            Check(bestJson["scope"].ToString()=="operator_selected_max_three_only_not_all_eligible_maneuvers" && bestJson["qualityLimited"]!=null,"JSON bestValues declare selected-three scope and quality status");
+            Check(siteJson["status"].ToString()=="retired_single_site_maneuver_use_bestValues" && Obj(siteJson["measurements"]).Count==0,"workflow4 retires the single site export");
             Check(manualVext["value"]==null && manualVext["verificationStatus"].ToString()=="not_validated","legacy per-maneuver review does not become an exam-level manual VEXT");
             Check(selectionJson["rule"].ToString().Contains("EVol") && selectionJson["qualityGate"].ToString().StartsWith("none") && N(selectionJson["valueMl"])==132 && selectionJson["sourceManeuverId"].ToString()==vx.ManeuverId,"clinic rule and quality separation are recorded with provenance");
             Check(Math.Abs(draft.Fields["fvc_amount"].Value-best.BestValues.Fvc.Value.Value)<1e-12 && Math.Abs(draft.Fields["fev1_amount"].Value-best.BestValues.Fev1.Value.Value)<1e-12 && Math.Abs(draft.Fields["fev1_fvc_percent"].Value-best.BestValues.Fev1Fvc.Value.Value)<1e-12 && Math.Abs(draft.Fields["fef2575_amount"].Value-best.BestValues.Fef2575.Value.Value)<1e-12 && Math.Abs(draft.Fields["pef_amount"].Value-best.BestValues.Pef.Value.Value)<1e-12,"all five HLine fields use independent session best values, not one radio maneuver");
@@ -587,6 +587,18 @@ class HLineIntegrationTests
             var uncertain=new Gateway {TimeoutAfterCreate=true};var uj=new SubmissionJournal();var uc=new SubmissionCoordinator(uncertain,uj,delegate {},TestDestination());Refuses(delegate {uc.Submit(draft);},"timeout after committed create remains uncertain");
             Check(uc.State==SubmissionState.FailedOrUncertain && uncertain.Creates==1,"no automatic retry after uncertain response");
             var restarted=new SubmissionCoordinator(uncertain,uj,delegate {},TestDestination());restarted.Submit(draft);Check(restarted.State==SubmissionState.Confirmed && uncertain.Creates==1 && restarted.AlreadyPresent,"uncertain journal is reconciled read-only on the next click without resend");Check(restarted.Recheck(draft) && restarted.State==SubmissionState.Confirmed && uncertain.Creates==1,"read-only recheck resolves uncertain committed result");
+            // Production recheck must work without a designated test record, and it
+            // must never turn its read-only readback into a second write.
+            var noTestGateway=new Gateway {TimeoutAfterCreate=true};var noTestJournal=new SubmissionJournal();
+            var noTest=new SubmissionCoordinator(noTestGateway,noTestJournal,delegate {},null);
+            Refuses(delegate {noTest.Submit(draft);},"uncertain production submission without a designated test record is not retried");
+            Check(noTest.State==SubmissionState.FailedOrUncertain && noTestGateway.Uploads==1 && noTestGateway.Creates==1,"production uncertain journal keeps its single write attempt");
+            var readOnlyRecheck=new SubmissionCoordinator(noTestGateway,noTestJournal,delegate {},null);
+            Check(readOnlyRecheck.Recheck(draft) && readOnlyRecheck.State==SubmissionState.Confirmed && noTestGateway.Uploads==1 && noTestGateway.Creates==1,"read-only recheck without a test record verifies the stored result and performs no second upload or POST");
+            Check(readOnlyRecheck.Recheck(draft) && noTestGateway.Uploads==1 && noTestGateway.Creates==1,"repeated read-only recheck remains idempotent");
+            Exam otherExam=Exam(false);otherExam.Patient.NationalId="0000000002";otherExam.Patient.HLinePersonId="OTHER-P";otherExam.Patient.HLineRecordId="OTHER-R";
+            SubmissionDraft otherDraft=Draft(otherExam);
+            Check(!new SubmissionCoordinator(noTestGateway,noTestJournal,delegate {},null).Recheck(otherDraft) && noTestGateway.Uploads==1 && noTestGateway.Creates==1,"read-only recheck cannot reconcile another patient's stored result");
             exam.Submission=uj;string journalPath=Path.Combine(root,"submission-journal.spiro");ExamStore.Save(journalPath,exam);var reloaded=ExamStore.Load(journalPath);Check(reloaded.Submission.WriteAttempted && reloaded.Submission.Reference==uj.Reference && reloaded.Submission.FileId==uj.FileId,"submission reference and attempted-write journal survive actual XML restart");
             foreach(int failure in new int[] {0,1,2})
             {
@@ -597,6 +609,14 @@ class HLineIntegrationTests
             var unverified=new Gateway {Verified=false};Refuses(delegate {new SubmissionCoordinator(unverified,new SubmissionJournal(),delegate {},TestDestination()).Submit(draft);},"unverified write contract blocks all writes");
             var changed=new Gateway {ChangedDestination=true};Refuses(delegate {new SubmissionCoordinator(changed,new SubmissionJournal(),delegate {},TestDestination()).Submit(draft);},"wrong or changed destination blocks writes");
             var normalProduction=new Gateway();var normalCoordinator=new SubmissionCoordinator(normalProduction,new SubmissionJournal(),delegate {},null);normalCoordinator.Submit(draft);Check(normalCoordinator.State==SubmissionState.Confirmed && normalProduction.Uploads==1 && normalProduction.Creates==1,"normal production path submits only after gateway destination verification without a test record");
+            using(SubmissionTiming timing=new SubmissionTiming("test"))
+            {
+                var measured=new SubmissionCoordinator(new Gateway(),new SubmissionJournal(),delegate {},TestDestination(),timing);measured.Submit(draft);timing.Complete("confirmed");
+                string stages=timing.Summary;
+                Check(stages.Contains("draft_validate") && stages.Contains("jpg_upload") && stages.Contains("create_post") && stages.Contains("server_readback") && stages.Contains("module_verify"),"submission timing records distinct acquisition, upload, create, readback and module stages");
+                string log=File.Exists(SubmissionTiming.LogPath)?File.ReadAllText(SubmissionTiming.LogPath):"";
+                Check(log.Contains("operation=test") && log.Contains("draft_validate=") && log.IndexOf(draft.NationalId,StringComparison.Ordinal)<0 && log.IndexOf(draft.PersonId,StringComparison.Ordinal)<0 && log.IndexOf(draft.JpegSha256,StringComparison.Ordinal)<0,"timing log contains generic stages only, never patient, record or payload identifiers");
+            }
             var restricted=new Gateway();
             var wrongTest=TestDestination();wrongTest.Id="OTHER";Refuses(delegate {new SubmissionCoordinator(restricted,new SubmissionJournal(),delegate {},wrongTest).Submit(draft);},"integration writes restricted to designated test medical record");
             wrongTest=TestDestination();wrongTest.PersonId="OTHER";Refuses(delegate {new SubmissionCoordinator(restricted,new SubmissionJournal(),delegate {},wrongTest).Submit(draft);},"test record must belong to exact designated person");

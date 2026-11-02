@@ -25,12 +25,25 @@ namespace SpiroLab.HLine
         // Only the explicit, designated test-record scope enables this; production
         // submissions still require the patient's latest record.
         public bool AllowHistoricalRecord {get;set;}
+        public SubmissionTiming Timing {get;set;}
 
         public void VerifyDestination(SubmissionDraft draft)
         {
-            if(AllowHistoricalRecord) client.VerifySubmissionRecord(draft);
-            else client.VerifySubmissionDestination(draft);
-            CaptureKnownFiles(draft.RecordId);
+            if(Timing==null)
+            {
+                if(AllowHistoricalRecord) client.VerifySubmissionRecord(draft);
+                else client.VerifySubmissionDestination(draft);
+                CaptureKnownFiles(draft.RecordId);
+            }
+            else
+            {
+                Timing.Measure("patient_record_verify",delegate
+                {
+                    if(AllowHistoricalRecord) client.VerifySubmissionRecord(draft);
+                    else client.VerifySubmissionDestination(draft);
+                });
+                Timing.Measure("existing_file_discovery",delegate { CaptureKnownFiles(draft.RecordId); });
+            }
         }
 
         // A row of data is not success if HLine still shows the spirometry module as
@@ -42,7 +55,7 @@ namespace SpiroLab.HLine
             // read-after-write window instead of rejecting a normal eventual-consistency lag.
             for(int attempt=0;attempt<3;attempt++)
             {
-                status=client.SpirometryModuleStatus(draft.RecordId);
+                status=Timing==null?client.SpirometryModuleStatus(draft.RecordId):Timing.Measure("module_status_poll",delegate { return client.SpirometryModuleStatus(draft.RecordId); });
                 if(string.Equals(status,"complete",StringComparison.OrdinalIgnoreCase) || string.Equals(status,"completed",StringComparison.OrdinalIgnoreCase) || string.Equals(status,"saved",StringComparison.OrdinalIgnoreCase)) return;
                 if(attempt<2) System.Threading.Thread.Sleep(150);
             }
@@ -53,7 +66,7 @@ namespace SpiroLab.HLine
 
         public RemoteSpirometry Read(SubmissionDraft draft)
         {
-            Dictionary<string,object> data=client.FindSpirometry(draft.RecordId);
+            Dictionary<string,object> data=Timing==null?client.FindSpirometry(draft.RecordId):Timing.Measure("server_result_read",delegate { return client.FindSpirometry(draft.RecordId); });
             if(data==null || data.Count==0) return null;
             Dictionary<string,double?> fields=new Dictionary<string,double?>();
             foreach(string key in new string[] {"fvc_amount","fev1_amount","pef_amount","fef2575_amount","vext","fvc_percent","fev1_percent","pef_percent","fef2575_percent"})
@@ -65,7 +78,9 @@ namespace SpiroLab.HLine
             if(!string.IsNullOrEmpty(fileId) && fileId!="0")
             {
                 int status=0;
-                byte[] bytes=client.FileBytes(draft.RecordId,fileId,out status);
+                byte[] bytes;
+                if(Timing==null) bytes=client.FileBytes(draft.RecordId,fileId,out status);
+                else bytes=Timing.Measure("jpg_download",delegate { int code=0; byte[] payload=client.FileBytes(draft.RecordId,fileId,out code); status=code; return payload; });
                 if(status==200) jpeg=bytes;
             }
             DateTime date; HLineClient.TryDate(HLineClient.Text(data,"test_date"),out date);
@@ -78,7 +93,7 @@ namespace SpiroLab.HLine
             if(!knownFiles.TryGetValue(draft.RecordId,out before)) {before=new HashSet<string>(StringComparer.Ordinal);CaptureKnownFiles(draft.RecordId);knownFiles.TryGetValue(draft.RecordId,out before);}
             try
             {
-                HLineResponse response=client.WriteFile(draft.RecordId,draft.JpegBytes,draft.JpegFilename,"SpiroLab report");
+                HLineResponse response=Timing==null?client.WriteFile(draft.RecordId,draft.JpegBytes,draft.JpegFilename,"SpiroLab report"):Timing.Measure("jpg_upload_request",delegate { return client.WriteFile(draft.RecordId,draft.JpegBytes,draft.JpegFilename,"SpiroLab report"); });
                 if(response.Status!=201 && response.Status!=200)
                 {
                     if(response.Status>=500 || response.Status==408) throw new HLineException("uncertain_upload","پاسخ بارگذاری فایل نامطمئن است.");
@@ -92,7 +107,7 @@ namespace SpiroLab.HLine
             catch(HLineException ex)
             {
                 if(ex.Code!="network" && ex.Code!="uncertain_upload" && ex.Code!="timeout") throw;
-                string reconciled=ReconcileUpload(draft,before);
+                string reconciled=Timing==null?ReconcileUpload(draft,before):Timing.Measure("upload_reconcile",delegate { return ReconcileUpload(draft,before); });
                 if(!string.IsNullOrEmpty(reconciled)) return reconciled;
                 throw new HLineException("uncertain_upload","نتیجهٔ بارگذاری نامطمئن است؛ فایل تکراری ارسال نشد.");
             }
@@ -101,7 +116,7 @@ namespace SpiroLab.HLine
         public void Create(SubmissionDraft draft,string fileId,string localReference)
         {
             Dictionary<string,object> payload=BuildPayload(draft,fileId);
-            HLineResponse response=client.WriteJson("POST","/medical-records/"+Uri.EscapeDataString(draft.RecordId)+"/spirometry",payload);
+            HLineResponse response=Timing==null?client.WriteJson("POST","/medical-records/"+Uri.EscapeDataString(draft.RecordId)+"/spirometry",payload):Timing.Measure("create_post_request",delegate { return client.WriteJson("POST","/medical-records/"+Uri.EscapeDataString(draft.RecordId)+"/spirometry",payload); });
             if(response.Status!=201 && response.Status!=200) throw Failure(response,"ثبت اطلاعات اسپیرومتری");
         }
 
