@@ -12,7 +12,8 @@ namespace SpiroLab.Ui
         readonly Label error;
         public ExaminationDetailsForm(Exam value,Trial preview=null)
         {
-            exam=value; maneuver=exam.OperatorSelectedManeuver;
+            exam=value; Trial auto=ExamSummary.Build(exam.Trials).BestTrial;
+            maneuver=preview??exam.OperatorSelectedManeuver??auto;
             ClinicalStyle.Form(this,"جزئیات معاینه و گزارش",new Size(710,700));
             Panel body=new Panel { Dock=DockStyle.Fill,AutoScroll=true,BackColor=Color.White }; Controls.Add(body);
             TableLayoutPanel table=ClinicalStyle.FormTable(); table.RowCount=0; body.Controls.Add(table);

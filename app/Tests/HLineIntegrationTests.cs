@@ -337,7 +337,7 @@ class HLineIntegrationTests
         for(int i=0;i<5;i++) {Trial t=Simulator.Build(e.Patient,100+i);t.Simulated=simulated;e.AddManeuver(t);}
         double?[] evol={110,132,105,230,null};
         for(int i=0;i<5;i++) {e.Trials[i].Result.BevAvailable=evol[i].HasValue;e.Trials[i].Result.Bev=evol[i].HasValue?evol[i].Value/1000.0:0;}
-        Trial site=e.OperatorSelectedManeuver; site.Result.Fet=6;site.Result.Cough=false;
+        Trial site=ExamSummary.Build(e.Trials).BestTrial; site.Result.Fet=6;site.Result.Cough=false;
         site.ReviewedVextMl=111;site.ReviewedVextSource="synthetic mock fixture";site.VextReviewer="بازبین آزمایشی";site.VextManuallyReviewed=true;
         e.SelectSiteManeuver(site.ManeuverId);return e;
     }
@@ -563,12 +563,15 @@ class HLineIntegrationTests
             OneClickMainTests();
             NormalMainTests();
             Exam exam=Exam(false);exam.SelectSiteManeuver(exam.Trials[0].ManeuverId);SubmissionDraft draft=Draft(exam);
-            VextSelection vx=ClinicVext.Select(exam.Trials);
-            Check(draft.RecordId=="2" && draft.ExaminationDate==new DateTime(2026,10,19) && vx.Available && vx.ValueMl==132 && draft.Fields["vext"]==132 && draft.Fields["vext"]!=111 && draft.Vext.ManeuverId==vx.ManeuverId && draft.ManeuverId==exam.Trials[0].ManeuverId,"submission binds exact record, Gregorian date and clinic-selected VEXT without changing the site maneuver");
-            var doc=Json(draft.Snapshot);var siteJson=Obj(doc["siteExport"]);var vextJson=Obj(Obj(siteJson["measurements"])["VEXT"]);var selectionJson=Obj(doc["vextSelection"]);
-            Check(N(vextJson["value"])==132 && vextJson["sourceManeuverId"].ToString()==vx.ManeuverId && vextJson["selectedManeuverId"].ToString()==exam.Trials[0].ManeuverId && Math.Abs(N(vextJson["selectedManeuverEvolMl"]).Value-110)<1e-6,"local JSON keeps the clinic VEXT, its source maneuver and the site maneuver EVol separately");
+            VextSelection vx=ClinicVext.Select(exam.Trials); ExamSummary best=ExamSummary.Build(exam.Trials);
+            Check(draft.RecordId=="2" && draft.ExaminationDate==new DateTime(2026,10,19) && vx.Available && vx.ValueMl==132 && draft.Fields["vext"]==132 && draft.Fields["vext"]!=111 && draft.Vext.ManeuverId==vx.ManeuverId && draft.ManeuverId==best.BestValues.Fvc.SourceManeuverId,"submission binds exact record, Gregorian date, clinic VEXT and best-FVC source");
+            var doc=Json(draft.Snapshot);var bestJson=Obj(doc["bestValues"]);var siteJson=Obj(doc["siteExport"]);var manualVext=Obj(Obj(doc["spirometry"])["VEXT"]);var selectionJson=Obj(doc["vextSelection"]);
+            Check(N(Obj(bestJson["fvc"])["value"])==best.BestValues.Fvc.Value.Value && N(Obj(bestJson["fev1"])["value"])==best.BestValues.Fev1.Value.Value && N(Obj(bestJson["fev1Fvc"])["value"])==best.BestValues.Fev1Fvc.Value.Value,"JSON bestValues are the same independent aggregate used by the report");
+            Check(bestJson["scope"].ToString()=="all_eligible_maneuvers_not_report_display_subset" && bestJson["qualityLimited"]!=null,"JSON bestValues declare whole-session scope and quality status");
+            Check(siteJson["status"].ToString()=="retired_single_site_maneuver_use_bestValues" && Obj(siteJson["measurements"]).Count==0,"workflow3 retires the single site export");
+            Check(manualVext["value"]==null && manualVext["verificationStatus"].ToString()=="not_validated","legacy per-maneuver review does not become an exam-level manual VEXT");
             Check(selectionJson["rule"].ToString().Contains("EVol") && selectionJson["qualityGate"].ToString().StartsWith("none") && N(selectionJson["valueMl"])==132 && selectionJson["sourceManeuverId"].ToString()==vx.ManeuverId,"clinic rule and quality separation are recorded with provenance");
-            Check(draft.Fields["fvc_amount"]==exam.OperatorSelectedManeuver.Result.Fvc && draft.Fields["fev1_amount"]==exam.OperatorSelectedManeuver.Result.Fev1 && draft.Fields["fev1_fvc_percent"]==exam.OperatorSelectedManeuver.Result.Fev1Fvc && draft.Fields["fef2575_amount"]==exam.OperatorSelectedManeuver.Result.Fef2575 && draft.Fields["pef_amount"]==exam.OperatorSelectedManeuver.Result.Pef,"all five measured core fields use only radio-selected maneuver");
+            Check(Math.Abs(draft.Fields["fvc_amount"].Value-best.BestValues.Fvc.Value.Value)<1e-12 && Math.Abs(draft.Fields["fev1_amount"].Value-best.BestValues.Fev1.Value.Value)<1e-12 && Math.Abs(draft.Fields["fev1_fvc_percent"].Value-best.BestValues.Fev1Fvc.Value.Value)<1e-12 && Math.Abs(draft.Fields["fef2575_amount"].Value-best.BestValues.Fef2575.Value.Value)<1e-12 && Math.Abs(draft.Fields["pef_amount"].Value-best.BestValues.Pef.Value.Value)<1e-12,"all five HLine fields use independent session best values, not one radio maneuver");
             byte[] image=draft.JpegBytes;image[0]=0;Check(draft.JpegBytes[0]==255,"exact JPEG bytes retained immutably");
             var other=ExaminationSnapshot.Capture(Exam(false));var otherPackage=ResultExport.SaveToDirectory(root,other);Refuses(delegate {new SubmissionDraft(draft.Snapshot,otherPackage);},"JPG from another snapshot cannot be attached to selected examination");
             Check(draft.JpegFilename=="Spirometry-Report.jpg" && SubmissionDraft.JpegMimeType=="image/jpeg","submission retains JPEG filename and MIME without a preview approval");

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -22,7 +22,8 @@ namespace SpiroLab.Ui
         public ReportForm(Patient patient,IList<Trial> trials) : this(ExaminationSnapshot.Capture(patient,trials)) { }
         public ReportForm(ExaminationSnapshot snapshot)
         {
-            snapshot.Data.ValidateSelection(snapshot.Data.PrimarySelectionRequired);
+            int workflow=snapshot.Data.SelectionWorkflowVersion;
+            snapshot.Data.ValidateSelection(workflow>0 && workflow<3);
             snapshot.Data.ValidateReportSelection(true);
             _snapshot=snapshot; _patient=snapshot.Data.Patient; _trials=snapshot.Data.Trials; _report=SpiroReport.Render(snapshot);
             Text="گزارش توسعه — "+_patient.FullName; Size=new Size(1000,900); StartPosition=FormStartPosition.CenterParent;

@@ -22,6 +22,8 @@ echo Building SpiroLab.exe ...
   Src\Program.cs ^
   Src\AssemblyInfo.cs ^
   Src\Model.cs ^
+  Src\BestValues.cs ^
+  Src\SessionBestValues.cs ^
   Src\AppSettings.cs ^
   Src\DeploymentSelfTest.cs ^
   Src\ExaminationSnapshot.cs ^

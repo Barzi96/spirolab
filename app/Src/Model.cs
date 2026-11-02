@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.Xml.Serialization;
@@ -101,6 +101,7 @@ namespace SpiroLab
         public bool OperatorAccepted;
         public string EndReason = "";
         public string DeviceSerial = "";
+        public int DeviceCaptureSequence;
         public byte StepType;
         public double Step;
         public double Dt = 0.01;                 // seconds per sample
@@ -108,6 +109,7 @@ namespace SpiroLab
         public bool Simulated;
         [XmlIgnore] public AnalysisResult Result;
         public AnalysisResult FinalizedResult; // Saved attempt analysis; XML name retained for historical compatibility.
+        [XmlIgnore] public ManeuverMeasurementSet Measurements { get { return ManeuverMeasurementSet.Build(this); } }
 
         public void Add(double flow)
         {
@@ -133,6 +135,7 @@ namespace SpiroLab
             t.StepType = StepType;
             t.Step = Step;
             t.DeviceSerial = DeviceSerial;
+            t.DeviceCaptureSequence=DeviceCaptureSequence;
             foreach(Device.DevicePacket packet in Packets) t.Packets.Add(new Device.DevicePacket { Seconds=packet.Seconds,Type=packet.Type,Raw=packet.Raw });
             t.EndReason = EndReason;
             t.DeviceValues = DeviceValues; // raw vendor block is retained locally, never a validated export source
@@ -174,6 +177,16 @@ namespace SpiroLab
         public string BevSourceAdequacy = "not_assessed";
         public double VolumeMax;
         public int SampleCount;
+        // Availability is deliberately separate from the numeric field. A zero
+        // numeric value is never used as a substitute for a missing measurement.
+        public bool FvcAvailable, Fev1Available, PefAvailable, FetAvailable;
+        public bool Fev3Available, Fev6Available, Fev1FvcAvailable;
+        public bool Fef25Available, Fef50Available, Fef75Available, Fef2575Available;
+        public bool CurveUsable;
+        public string CurveProblem = "";
+        // True for results produced by the current analyzer. Legacy persisted
+        // results lack this flag and may only be read through their numeric fields.
+        public bool AvailabilityMetadata;
 
         public Reference Ref;
         public Pattern Pattern = Pattern.Invalid;

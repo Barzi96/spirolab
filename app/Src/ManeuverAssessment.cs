@@ -4,6 +4,7 @@ namespace SpiroLab
     public sealed class ManeuverAssessment
     {
         public bool TechnicalValid, Fev1Usable, FvcUsable, StartScreenPassed, EndScreenPassed, QualityScreenPassed;
+        public bool FvcAcceptable,Fev1Acceptable;
         public string Problem="",Status="";
         public static ManeuverAssessment Assess(Trial t)
         {
@@ -19,25 +20,39 @@ namespace SpiroLab
             }
             if(a.TechnicalValid)
             {
-                a.FvcUsable=r!=null && r.Valid && Positive(r.Fvc);
+                ManeuverMeasurementSet m=t.Measurements;
+                double fet=m.Fet.Available?m.Fet.Value.Value:(r==null?0:r.Fet);
+                bool legacyNumeric=r!=null && !r.AvailabilityMetadata && r.Valid && !r.Fev1Available && !r.FetAvailable && r.Fev1>0;
+                a.FvcUsable=m.Fvc.Available && m.Fvc.Value.Value>0;
                 a.StartScreenPassed=r!=null && r.BevAvailable && r.BevOk;
                 a.EndScreenPassed=r!=null && (r.PlateauOk || r.Fet>=15);
-                a.Fev1Usable=r!=null && r.Valid && Positive(r.Fev1) && r.Fev1<=r.Fvc && r.Fet>=1 && !r.Cough;
-                // shortcut: leaks/glottic closure and device timing are unverified; require operator review until validated.
-                a.QualityScreenPassed=a.StartScreenPassed && a.EndScreenPassed && a.Fev1Usable && a.FvcUsable;
-                a.Status=!a.FvcUsable?"داده ناکافی":a.QualityScreenPassed?"نیازمند تأیید کیفیت":"محدودیت کیفیت";
-                if(!a.FvcUsable) a.Problem="FVC معتبر در دسترس نیست.";
+                a.Fev1Usable=m.Fev1.Available && m.Fev1.Value.Value>0 && (!m.Fvc.Available || m.Fev1.Value.Value<=m.Fvc.Value.Value+.05) && (fet>=1 || legacyNumeric) && (r==null || !r.Cough);
+                // Separate parameter acceptance: an inadequate FEV1 must not erase a
+                // usable FVC, and an inadequate FVC must not erase a usable FEV1.
+                a.FvcAcceptable=a.FvcUsable && a.StartScreenPassed && a.EndScreenPassed;
+                a.Fev1Acceptable=a.Fev1Usable && a.StartScreenPassed && a.EndScreenPassed;
+                // Leaks/glottic closure and device timing remain unverified; the
+                // screen is not presented as a MIR firmware grade.
+                a.QualityScreenPassed=a.FvcAcceptable && a.Fev1Acceptable;
+                a.Status=!a.FvcUsable&&!a.Fev1Usable?"داده ناکافی":a.QualityScreenPassed?"نیازمند تأیید کیفیت":"محدودیت کیفیت";
+                if(!a.FvcUsable && !a.Fev1Usable) a.Problem="FVC و FEV1 معتبر در دسترس نیست.";
+                else if(!a.FvcUsable) a.Problem="FVC معتبر در دسترس نیست؛ FEV1 جداگانه ارزیابی می‌شود.";
                 else if(!a.Fev1Usable) a.Problem="FEV1 قابل اتکا نیست؛ مدت بازدم یا سرفهٔ ثانیهٔ اول را بررسی کنید.";
             }
             else a.Status="خطای ثبت";
-            if(t.OperatorRejected) { a.Status="ردشده"; a.Problem="مانور توسط کارشناس رد شده است."; }
+            if(t.OperatorRejected) { a.Status="ردشده"; a.Problem="مانور توسط کارشناس رد شده است."; a.FvcAcceptable=a.Fev1Acceptable=false; }
             return a;
         }
         public static int Compare(Trial a,Trial b)
         {
             ManeuverAssessment x=Assess(a),y=Assess(b);
             int rank=(y.QualityScreenPassed?2:y.Fev1Usable?1:0).CompareTo(x.QualityScreenPassed?2:x.Fev1Usable?1:0);
-            return rank!=0?rank:(b.Result.Fvc+b.Result.Fev1).CompareTo(a.Result.Fvc+a.Result.Fev1);
+            return rank!=0?rank:(Sum(b)).CompareTo(Sum(a));
+        }
+        static double Sum(Trial t)
+        {
+            ManeuverMeasurementSet m=t.Measurements;
+            return (m.Fvc.Available?m.Fvc.Value.Value:0)+(m.Fev1.Available?m.Fev1.Value.Value:0);
         }
         static bool Positive(double v) { return Finite(v) && v>0; }
         static bool Finite(double v) { return !double.IsNaN(v) && !double.IsInfinity(v); }

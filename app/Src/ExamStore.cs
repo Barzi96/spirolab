@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -13,6 +13,7 @@ namespace SpiroLab
     public sealed class Exam
     {
         public int Version = 2;
+        public string SessionType="PRE"; // PRE/POST are separate sessions; never mixed.
         public string ExaminationId = Guid.NewGuid().ToString("N");
         public string CenterName = "";
         public string OperatorName = "";
@@ -63,8 +64,21 @@ namespace SpiroLab
         }
         public void MaintainSelections()
         {
-            if(FinalizedAt.HasValue || SelectionWorkflowVersion<2) return;
+            if(FinalizedAt.HasValue) return;
             ExamSummary summary=ExamSummary.Build(Trials);
+            if(SelectionWorkflowVersion>=3)
+            {
+                // New workflow: there is no primary maneuver. The best aggregate is
+                // independent of both the report display set and the old fields.
+                if(!ReportSelectionManual)
+                {
+                    ReportManeuverIds.Clear();
+                    foreach(Trial t in summary.Trials) ReportManeuverIds.Add(t.ManeuverId);
+                    ReportSelectionTimestamp=DateTime.Now; ReportSelectionOperator=OperatorName;
+                }
+                return;
+            }
+            if(SelectionWorkflowVersion<2) return;
             if(summary.BestTrial!=null && (string.IsNullOrEmpty(OperatorSelectedManeuverId) || SelectionMethod=="automatic"))
             {
                 if(OperatorSelectedManeuverId!=summary.BestTrial.ManeuverId)
@@ -112,6 +126,9 @@ namespace SpiroLab
         }
         public void ValidateSelection(bool required)
         {
+            // Workflow 3 removed the single primary maneuver. Old fields are retained
+            // only for backward-compatible reading of historical records.
+            if(SelectionWorkflowVersion>=3) return;
             if(string.IsNullOrEmpty(OperatorSelectedManeuverId)) { if(required) throw new InvalidOperationException("ابتدا مانور اصلی را صریحاً انتخاب کنید."); return; }
             if(OperatorSelectedManeuver==null || (SelectionMethod!="manual" && SelectionMethod!="automatic_suggestion" && SelectionMethod!="automatic") || !SelectionTimestamp.HasValue || (SelectionWorkflowVersion<2 && string.IsNullOrWhiteSpace(SelectionOperatorName))) throw new InvalidDataException("انتخاب مانور اصلی معتبر نیست.");
             if(required && !ExamSummary.CanReport(OperatorSelectedManeuver)) throw new InvalidOperationException(ManeuverAssessment.Assess(OperatorSelectedManeuver).Problem);
@@ -130,16 +147,17 @@ namespace SpiroLab
         public void SetRejected(Trial trial,bool rejected,string operatorName,string reason)
         {
             if(FinalizedAt.HasValue || !Trials.Contains(trial)) throw new InvalidOperationException("تغییر وضعیت مانور مجاز نیست.");
-            if(rejected && trial.ManeuverId==OperatorSelectedManeuverId) throw new InvalidOperationException("پیش از رد مانور اصلی، یک مانور اصلی دیگر انتخاب کنید.");
+            if(rejected && SelectionWorkflowVersion<3 && trial.ManeuverId==OperatorSelectedManeuverId) throw new InvalidOperationException("پیش از رد مانور اصلی، یک مانور اصلی دیگر انتخاب کنید.");
             if(string.IsNullOrWhiteSpace(operatorName) || operatorName.Trim().Length>100 || (reason??"").Length>500) throw new ArgumentException("نام کارشناس و علت معتبر وارد کنید.");
             trial.OperatorRejected=rejected; trial.RejectionOperator=operatorName.Trim(); trial.RejectionReason=(reason??"").Trim(); trial.RejectionTimestamp=DateTime.Now;
+            MaintainSelections();
         }
         public static Exam CreateNew(AppSettings settings)
-        { return new Exam { CenterName=settings.CenterName,OperatorName=settings.OperatorName,ExaminationDate=DateTime.Today,ExaminationDateSource="windows_local_date",PrimarySelectionRequired=true,SelectionWorkflowVersion=2 }; }
+        { return new Exam { CenterName=settings.CenterName,OperatorName=settings.OperatorName,ExaminationDate=DateTime.Today,ExaminationDateSource="windows_local_date",PrimarySelectionRequired=false,SelectionWorkflowVersion=3,SessionType="PRE" }; }
         public void FinalizeExamination()
         {
             if(FinalizedAt.HasValue) return;
-            EnsureManeuverIdentities(); MaintainSelections(); ValidateSelection(true); ValidateReportSelection(true);
+            EnsureManeuverIdentities(); MaintainSelections(); ValidateSelection(SelectionWorkflowVersion<3); ValidateReportSelection(true);
             ExaminationSnapshot.Capture(this); // validate before freezing
             foreach(Trial t in Trials) { if(t.Result==null) t.Result=SpiroAnalysis.Analyze(t,Patient); t.FinalizedResult=t.Result.Clone(); }
             ReportSnapshotId=Guid.NewGuid().ToString("N");
@@ -256,7 +274,7 @@ namespace SpiroLab
                 {
                     string prefix = CsvText(e.Patient.FullName) + "," + CsvText(e.Patient.NationalId) + "," + e.Patient.Age.ToString(CultureInfo.InvariantCulture) + "," + e.Patient.Sex + "," + e.Patient.Origin + "," + e.Patient.HeightCm.ToString("R",CultureInfo.InvariantCulture) + "," + e.Patient.WeightKg.ToString("R",CultureInfo.InvariantCulture) + ",BEST," + CsvText(Source(best.BestTrial)) + ",";
                     string[] names = { "FVC", "FEV1", "FEV1/FVC", "PEF", "FEF25-75" };
-                    double[] values = { best.Fvc, best.Fev1, best.Ratio, best.Pef, best.Best.Fef2575 };
+                    double[] values = { best.Fvc, best.Fev1, best.Ratio, best.Pef, best.Fef2575 };
                     string[] units = { "L", "L", "%", "L/s", "L/s" };
                     for (int i=0;i<names.Length;i++) w.WriteLine(prefix + "Best,,,," + names[i] + "," + values[i].ToString("R",CultureInfo.InvariantCulture) + "," + units[i]);
                 }

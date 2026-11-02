@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace SpiroLab
 {
@@ -23,9 +23,28 @@ namespace SpiroLab
                 // A signal flag only: the operator must inspect cough and leaks.
                 if (i > 1 && s.Time[i] <= 1 && s.Flow[i - 1] - s.Flow[i] > Math.Max(1.5, r.Pef * 0.4)) r.Cough = true;
             }
-            r.Fef25 = s.FlowAtVolume(r.Fvc * .25); r.Fef50 = s.FlowAtVolume(r.Fvc * .5); r.Fef75 = s.FlowAtVolume(r.Fvc * .75);
-            double span = s.TimeAtVolume(r.Fvc * .75) - s.TimeAtVolume(r.Fvc * .25);
-            r.Fef2575 = span > 0 ? r.Fvc * .5 / span : 0;
+            r.FvcAvailable = Finite(r.Fvc) && r.Fvc > 0;
+            r.FetAvailable = Finite(r.Fet) && r.Fet > 0;
+            r.Fev1Available = r.FvcAvailable && Finite(r.Fev1) && r.Fev1 > 0 && r.Fev1 <= r.Fvc + .001 && r.Fet >= 1 - 1e-9;
+            r.Fev3Available = r.Fev1Available && r.Fet >= 3 - 1e-9;
+            r.Fev6Available = r.Fev1Available && r.Fet >= 6 - 1e-9;
+            r.Fev1FvcAvailable = r.FvcAvailable && r.Fev1Available;
+            r.PefAvailable = Finite(r.Pef) && r.Pef > 0;
+            r.CurveUsable = UsableCurve(s, out r.CurveProblem);
+            if (r.CurveUsable)
+            {
+                double span = s.TimeAtVolume(r.Fvc * .75) - s.TimeAtVolume(r.Fvc * .25);
+                r.Fef25 = s.FlowAtVolume(r.Fvc * .25); r.Fef50 = s.FlowAtVolume(r.Fvc * .5); r.Fef75 = s.FlowAtVolume(r.Fvc * .75);
+                r.Fef25Available = r.Fef50Available = r.Fef75Available = r.Fvc > 0;
+                r.Fef2575 = span > .05 ? r.Fvc * .5 / span : 0;
+                r.Fef2575Available = r.Fef2575 > 0 && Finite(r.Fef2575);
+            }
+            else
+            {
+                r.Fef25 = r.Fef50 = r.Fef75 = r.Fef2575 = 0;
+                r.Fef25Available = r.Fef50Available = r.Fef75Available = r.Fef2575Available = false;
+            }
+            r.AvailabilityMetadata = true;
             // ATS/ERS: the peak tangent locates Time Zero; BEV is V(Time Zero),
             // not PEF * Time Zero. Acquisition timing is still unvalidated.
             r.BevAvailable = TryBackExtrapolation(s, r.PefTime, r.Pef, out r.TimeZero, out r.Bev);
@@ -41,6 +60,8 @@ namespace SpiroLab
             else if (!r.BevOk) r.Warnings.Add("برآورد حجم پس‌برون‌یابی بالاست؛ شروع مانور را بررسی کنید.");
             if (!r.PeftOk) r.Warnings.Add("اوج جریان دیررس است؛ شروع بازدم را بررسی کنید.");
             if (r.Cough) r.Warnings.Add("افت ناگهانی جریان در ثانیهٔ اول؛ بررسی سرفه لازم است.");
+            if (!r.CurveUsable) r.Warnings.Add("FEF25–75 ناموجود است: "+r.CurveProblem);
+            else if (!r.Fef2575Available) r.Warnings.Add("بازهٔ زمان-حجم برای FEF25–75 کافی نیست؛ مقدار ساخته نمی‌شود.");
             if (r.Fet < 1) r.Warnings.Add("بازدم کمتر از یک ثانیه است؛ FEV1 قابل اتکا نیست.");
             if (!trial.Simulated) r.Warnings.Add("شاخص‌ها از بسته‌های جریان بازسازی شده‌اند؛ زمان‌بندی رایانه و گام حجمی بر دقت اثر دارند.");
             if (trial.Imported) r.Warnings.Add("این تست از فایل ضبط‌شده بازپخش شده است؛ اندازه‌گیری جدید نیست.");
@@ -63,6 +84,25 @@ namespace SpiroLab
             return Finite(bev);
         }
         private static bool Finite(double value) { return !double.IsNaN(value) && !double.IsInfinity(value); }
+
+        // FEF25-75 needs a real time-volume curve with a consistent origin. A
+        // numerically finite end volume alone is not enough evidence.
+        private static bool UsableCurve(Expiration s,out string problem)
+        {
+            problem="";
+            if(s==null || s.Count<5 || s.Time==null || s.Volume==null || s.Flow==null || s.Time.Length!=s.Count || s.Volume.Length!=s.Count || s.Flow.Length!=s.Count)
+            { problem="منحنی زمان-حجم برای محاسبهٔ FEF25–75 کامل نیست."; return false; }
+            for(int i=0;i<s.Count;i++)
+            {
+                if(!Finite(s.Time[i]) || !Finite(s.Volume[i]) || !Finite(s.Flow[i]) || s.Time[i]<0 || s.Volume[i]<0)
+                { problem="نمونهٔ غیرمعتبر در منحنی زمان-حجم وجود دارد."; return false; }
+                if(i>0 && (s.Time[i]<=s.Time[i-1] || s.Volume[i]<s.Volume[i-1]))
+                { problem="ترتیب زمان یا حجم در منحنی پیوسته نیست."; return false; }
+            }
+            if(s.Volume[s.Count-1]<=0 || s.Time[s.Count-1]<=0)
+            { problem="مبنای زمان یا حجم منحنی معتبر نیست."; return false; }
+            return true;
+        }
 
         private static void Interpret(AnalysisResult r, Patient p)
         {

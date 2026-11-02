@@ -1,4 +1,4 @@
-> Current version5.2: use [ui52-delivery.md](ui52-delivery.md) and [ui52-schema.md](ui52-schema.md). The earlier phase record below is retained as history; explicit radio/checkbox selections supersede its UI instructions.
+> Historical 5.1.1 record. Current 5.3.1 behavior is in [best-values-531.md](best-values-531.md): the primary/site radio is removed, BEST VALUES are the independent session aggregate, and report checkboxes affect display only. The text below is retained as history.
 
 # الحاقیهٔ انتخاب مانور — SpiroLab 5.1.1
 

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -34,7 +34,8 @@ namespace SpiroLab
         }
         public static ResultPackage SaveToDirectory(string parent,ExaminationSnapshot snapshot)
         {
-            snapshot.Data.ValidateSelection(snapshot.Data.PrimarySelectionRequired);
+            int workflow=snapshot.Data.SelectionWorkflowVersion;
+            snapshot.Data.ValidateSelection(workflow>0 && workflow<3);
             snapshot.Data.ValidateReportSelection(true);
             string root=Path.GetFullPath(parent); Directory.CreateDirectory(root);
             string id=snapshot.SnapshotId;

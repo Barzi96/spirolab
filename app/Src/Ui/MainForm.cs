@@ -131,16 +131,15 @@ namespace SpiroLab.Ui
             lblSummary=ClinicalStyle.Label("مانورها"); lblSummary.Dock=DockStyle.Top; lblSummary.Height=27; lblSummary.Font=new Font("Tahoma",9,FontStyle.Bold);
             gridTrials=new DataGridView { Name="ManeuverHistory",Dock=DockStyle.Fill,ReadOnly=false,AllowUserToAddRows=false,AllowUserToDeleteRows=false,AllowUserToResizeRows=false,RowHeadersVisible=false,MultiSelect=false,SelectionMode=DataGridViewSelectionMode.FullRowSelect,AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill,ScrollBars=ScrollBars.Vertical,BackgroundColor=Color.White,BorderStyle=BorderStyle.None,RightToLeft=RightToLeft.Yes,EnableHeadersVisualStyles=false,ColumnHeadersHeightSizeMode=DataGridViewColumnHeadersHeightSizeMode.DisableResizing,ColumnHeadersHeight=52,AutoGenerateColumns=false };
             string[] captions={"مانور","حجم\nFVC (L)","حجم ثانیه اول\nFEV1 (L)","نسبت\nFEV1/FVC (%)","جریان بیشینه\nPEF (L/s)","جریان میانی\nFEF25–75 (L/s)"};
-            float[] weights={9,13,14,14,13,15,11,11};
+            float[] weights={9,13,14,14,13,15,11};
             for(int i=0;i<captions.Length;i++) gridTrials.Columns.Add(new DataGridViewTextBoxColumn { Name="Metric"+i,HeaderText=captions[i],ReadOnly=true,FillWeight=weights[i],MinimumWidth=25,SortMode=DataGridViewColumnSortMode.NotSortable });
-            RadioColumn radio=new RadioColumn { Name="SiteSelection",HeaderText="ارسال به سامانه",FillWeight=weights[6],MinimumWidth=25 }; radio.SelectRow=delegate(int row) { ChangeChoice(row,6); }; gridTrials.Columns.Add(radio);
-            gridTrials.Columns.Add(new ReportColumn { Name="ReportSelection",HeaderText="نمایش در گزارش",ReadOnly=true,FillWeight=weights[7],MinimumWidth=25,SortMode=DataGridViewColumnSortMode.NotSortable,ToggleRow=delegate(int row) {ChangeChoice(row,7);} });
+            gridTrials.Columns.Add(new ReportColumn { Name="ReportSelection",HeaderText="نمایش در گزارش",ReadOnly=true,FillWeight=weights[6],MinimumWidth=25,SortMode=DataGridViewColumnSortMode.NotSortable,ToggleRow=delegate(int row) {ChangeChoice(row,ReportColumnIndex);} });
             gridTrials.RowTemplate.Height=31;
             gridTrials.ColumnHeadersDefaultCellStyle.BackColor=Color.FromArgb(236,242,246); gridTrials.ColumnHeadersDefaultCellStyle.ForeColor=ClinicalStyle.Ink; gridTrials.ColumnHeadersDefaultCellStyle.Alignment=DataGridViewContentAlignment.MiddleCenter; gridTrials.ColumnHeadersDefaultCellStyle.WrapMode=DataGridViewTriState.True;
             gridTrials.DefaultCellStyle.Alignment=DataGridViewContentAlignment.MiddleCenter; gridTrials.DefaultCellStyle.SelectionBackColor=Color.FromArgb(223,239,242); gridTrials.DefaultCellStyle.SelectionForeColor=ClinicalStyle.Ink; gridTrials.GridColor=Color.FromArgb(233,238,242); gridTrials.CellBorderStyle=DataGridViewCellBorderStyle.SingleHorizontal;
             gridTrials.SelectionChanged+=delegate { if(!_rendering && gridTrials.CurrentRow!=null) SelectTrial(gridTrials.CurrentRow.Index); };
             gridTrials.CellClick+=delegate(object sender,DataGridViewCellEventArgs e) { ChangeChoice(e.RowIndex,e.ColumnIndex); };
-            gridTrials.KeyDown+=delegate(object sender,KeyEventArgs e) { if(e.KeyCode==Keys.Space && gridTrials.CurrentCell!=null && gridTrials.CurrentCell.ColumnIndex>=6) { ChangeChoice(gridTrials.CurrentCell.RowIndex,gridTrials.CurrentCell.ColumnIndex); e.Handled=e.SuppressKeyPress=true; } };
+            gridTrials.KeyDown+=delegate(object sender,KeyEventArgs e) { if(e.KeyCode==Keys.Space && gridTrials.CurrentCell!=null && gridTrials.CurrentCell.OwningColumn.Name=="ReportSelection") { ChangeChoice(gridTrials.CurrentCell.RowIndex,ReportColumnIndex); e.Handled=e.SuppressKeyPress=true; } };
             history.Controls.Add(gridTrials); history.Controls.Add(lblSummary); root.Controls.Add(history,0,3);
             FlowLayoutPanel actions=new FlowLayoutPanel { Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft,RightToLeft=RightToLeft.No,WrapContents=false,Padding=new Padding(0,6,0,0) };
             btnStart=MakeButton("شروع تست",delegate { if(_developerMode) StartSimulation(); else StartTest(); },true); btnStop=MakeButton("توقف مانور",delegate { StopTest(); },false); btnReport=MakeButton("ارسال به سایت",async delegate { await SendSite(); },false);
@@ -199,13 +198,14 @@ namespace SpiroLab.Ui
             lblConnection.Text=_busy && _active!=null?"● در حال دریافت":_device.Connected?"● متصل":"● متصل نیست";
             lblConnection.ForeColor=_device.Connected?ClinicalStyle.Accent:Color.FromArgb(113,126,138);
             lblPatient.Enabled=_hasPatient && !_busy;
-            foreach(DataGridViewRow row in gridTrials.Rows) { row.Cells[6].Tag=row.Cells[7].Tag=editable; row.Cells[7].Style.ForeColor=editable?ClinicalStyle.Ink:Color.LightGray; }
+            foreach(DataGridViewRow row in gridTrials.Rows) { row.Cells[ReportColumnIndex].Tag=editable; row.Cells[ReportColumnIndex].Style.ForeColor=editable?ClinicalStyle.Ink:Color.LightGray; }
             }
         }
+        int ReportColumnIndex { get { return gridTrials.Columns["ReportSelection"].Index; } }
         bool CanReport()
         {
             if(ExamSummary.Build(_exam.Trials).Best==null) return false;
-            try { _exam.ValidateSelection(_exam.PrimarySelectionRequired); _exam.ValidateReportSelection(true); return true; } catch { return false; }
+            try { _exam.ValidateSelection(_exam.SelectionWorkflowVersion<3); _exam.ValidateReportSelection(true); return true; } catch { return false; }
         }
 
         private void ConnectDevice(bool startAfter,Action completed=null)
@@ -299,26 +299,40 @@ namespace SpiroLab.Ui
             _rendering=true; gridTrials.Rows.Clear();
             for(int i=0;i<_exam.Trials.Count;i++)
             {
-                Trial t=_exam.Trials[i]; AnalysisResult r=t.Result; string state=ManeuverAssessment.Assess(t).Status;
-                gridTrials.Rows.Add(t.AcquisitionSequence+(state.Length>0?" · "+state:""),Metric(r,0),Metric(r,1),Metric(r,2),Metric(r,3),Metric(r,7),t.ManeuverId==_exam.OperatorSelectedManeuverId,ReportIds().Contains(t.ManeuverId));
+                Trial t=_exam.Trials[i]; AnalysisResult r=t.Result; ManeuverAssessment assessment=ManeuverAssessment.Assess(t); string state=assessment.Status;
+                gridTrials.Rows.Add(t.AcquisitionSequence+(state.Length>0?" · "+state:""),MetricText(t,0),MetricText(t,1),MetricText(t,2),MetricText(t,3),MetricText(t,7),ReportIds().Contains(t.ManeuverId));
                 string info=ExamStore.Source(t)+" | "+t.When.ToString("o")+(t.EndReason.Length>0?" | "+t.EndReason:"");
                 if(r!=null) info+=" | "+r.InvalidReason;
-                info+=" | "+ManeuverAssessment.Assess(t).Status+" | "+ManeuverAssessment.Assess(t).Problem;
+                info+=" | "+assessment.Status+" | "+assessment.Problem;
+                MeasuredValue fvc=t.Measurements.Fvc,fev1=t.Measurements.Fev1,pef=t.Measurements.Pef;
+                info+=" | FVC: "+SourceFa(fvc)+" | FEV1: "+SourceFa(fev1)+" | PEF: "+SourceFa(pef);
                 foreach(DataGridViewCell cell in gridTrials.Rows[i].Cells) cell.ToolTipText=info;
                 if(!ExamSummary.CanReport(t)) gridTrials.Rows[i].DefaultCellStyle.ForeColor=Color.FromArgb(144,113,113);
             }
             _rendering=false; UpdateSummary(); UpdateComparisons(); UpdateControls();
         }
-        string Metric(AnalysisResult r,int index) { return r!=null && r.Valid?Fmt.N(SpiroReport.Value(r,index),index==2?1:2):"—"; }
-        List<string> ReportIds() { return _exam.SelectionWorkflowVersion>=2?_exam.ReportManeuverIds:_legacyReportIds; }
+        string SourceFa(MeasuredValue value) { return value.Available?(value.DeviceReported?"دستگاه":"محاسبه‌شده"):"ناموجود"; }
+        string MetricText(Trial t,int index)
+        {
+            MeasuredValue value=t.Measurements.Get(MetricNameForIndex(index));
+            return value.Available?Fmt.N(value.Value.Value,index==2?1:2):"—";
+        }
+        internal static string MetricNameForIndex(int index)
+        {
+            switch(index)
+            {
+                case 0:return Metric.Fvc;case 1:return Metric.Fev1;case 2:return Metric.Fev1Fvc;case 3:return Metric.Pef;
+                case 4:return Metric.Fef25;case 5:return Metric.Fef50;case 6:return Metric.Fef75;case 7:return Metric.Fef2575;default:return Metric.Bev;
+            }
+        }
+        List<string> ReportIds() { return _exam.SelectionWorkflowVersion>=3||_exam.SelectionWorkflowVersion>=2?_exam.ReportManeuverIds:_legacyReportIds; }
         void ChangeChoice(int row,int column)
         {
-            if(_rendering || _busy || _exam.FinalizedAt.HasValue || row<0 || row>=_exam.Trials.Count || (column!=6 && column!=7)) return;
+            if(_rendering || _busy || _exam.FinalizedAt.HasValue || row<0 || row>=_exam.Trials.Count || column!=ReportColumnIndex) return;
             Trial t=_exam.Trials[row];
             try
             {
-                if(column==6) _exam.SelectSiteManeuver(t.ManeuverId);
-                else _exam.SetReportManeuver(t.ManeuverId,!_exam.ReportManeuverIds.Contains(t.ManeuverId));
+                _exam.SetReportManeuver(t.ManeuverId,!_exam.ReportManeuverIds.Contains(t.ManeuverId));
                 _dirty=true; UpdateChoiceCells(); SaveExam(false);
             }
             catch(Exception ex) { Error(ex.Message); }
@@ -326,7 +340,7 @@ namespace SpiroLab.Ui
         void UpdateChoiceCells()
         {
             _rendering=true;
-            for(int i=0;i<_exam.Trials.Count;i++) { gridTrials.Rows[i].Cells[6].Value=_exam.Trials[i].ManeuverId==_exam.OperatorSelectedManeuverId; gridTrials.Rows[i].Cells[7].Value=ReportIds().Contains(_exam.Trials[i].ManeuverId); }
+            for(int i=0;i<_exam.Trials.Count;i++) gridTrials.Rows[i].Cells[ReportColumnIndex].Value=ReportIds().Contains(_exam.Trials[i].ManeuverId);
             _rendering=false; UpdateSummary(); UpdateComparisons(); UpdateControls();
         }
         void UpdateComparisons() { chart.ComparisonTrials=_exam.Trials.FindAll(delegate(Trial t) { return ReportIds().Contains(t.ManeuverId); }); }
@@ -341,15 +355,17 @@ namespace SpiroLab.Ui
         void SelectBest() { Trial t=ExamSummary.Build(_exam.Trials).BestTrial; if(t!=null) SelectTrial(_exam.Trials.IndexOf(t)); }
         void RestorePrimaryPreview()
         {
-            if(_exam.OperatorSelectedManeuver!=null) SelectTrial(_exam.Trials.IndexOf(_exam.OperatorSelectedManeuver));
-            else if(ExamSummary.Build(_exam.Trials).BestTrial!=null) SelectBest();
+            // Row preview never changes the aggregate. New workflow starts on the
+            // quality-ranked representative maneuver, not an operator primary.
+            if(ExamSummary.Build(_exam.Trials).BestTrial!=null) SelectBest();
             else if(_exam.Trials.Count>0) SelectTrial(_exam.Trials.Count-1);
         }
         void UpdateSummary()
         {
-            string site=_exam.OperatorSelectedManeuver==null?"—":_exam.OperatorSelectedManeuver.AcquisitionSequence.ToString();
+            ExamSummary s=ExamSummary.Build(_exam.Trials);
             List<string> numbers=new List<string>(); foreach(Trial t in _exam.Trials) if(ReportIds().Contains(t.ManeuverId)) numbers.Add(t.AcquisitionSequence.ToString());
-            lblSummary.Text="مانورها: "+_exam.Trials.Count+"     |     سامانه: "+site+"     |     گزارش: "+(numbers.Count==0?"—":string.Join("، ",numbers.ToArray()));
+            string best=s.FvcAvailable?"FVC "+Fmt.N(s.Fvc,2)+" L | FEV1 "+Fmt.N(s.Fev1,2)+" L | FEV1/FVC "+Fmt.N(s.Ratio,1)+"% | PEF "+Fmt.N(s.Pef,2)+" L/s":"مقادیر BEST VALUES کامل نیست";
+            lblSummary.Text="مانورها: "+_exam.Trials.Count+"     |     "+best+"     |     گزارش: "+(numbers.Count==0?"—":string.Join("، ",numbers.ToArray()));
         }
         private bool SaveExam(bool explicitSave)
         {
@@ -391,7 +407,14 @@ namespace SpiroLab.Ui
             if(loaded.SelectionWorkflowVersion<2)
             {
                 if(ExamSummary.Build(loaded.Trials).Best!=null) foreach(Trial t in ExaminationSnapshot.Capture(loaded).Summary.Trials) _legacyReportIds.Add(t.ManeuverId);
-                if(!loaded.FinalizedAt.HasValue) { loaded.SelectionWorkflowVersion=2; loaded.ReportManeuverIds=new List<string>(_legacyReportIds); loaded.MaintainSelections(); _dirty=true; }
+            }
+            if(loaded.SelectionWorkflowVersion<3 && !loaded.FinalizedAt.HasValue)
+            {
+                // Versioned, in-place draft migration. Historical fields are kept for
+                // reading; the normal workflow no longer needs a primary maneuver.
+                if(loaded.ReportManeuverIds.Count==0) loaded.ReportManeuverIds=new List<string>(_legacyReportIds);
+                loaded.SelectionWorkflowVersion=3; loaded.PrimarySelectionRequired=false;
+                loaded.MaintainSelections(); _dirty=true;
             }
             PopulateMetadata(); RenderTrials(); RestorePrimaryPreview(); lblStatus.Text="پرونده باز شد";
         }
@@ -454,7 +477,7 @@ namespace SpiroLab.Ui
         {
             if(_busy) return;
             if(!_hasPatient || _exam.Trials.Count==0) {Error("ابتدا معاینه و مانور را ثبت کنید.");return;}
-            try {_exam.ValidateSelection(true);_exam.ValidateReportSelection(true);} catch(Exception ex) {Error(ex.Message);return;}
+            try {_exam.ValidateSelection(_exam.SelectionWorkflowVersion<3);_exam.ValidateReportSelection(true);} catch(Exception ex) {Error(ex.Message);return;}
             if(!SaveExam(false)) return;
             _busy=true;UpdateControls();
             Exam submitting=_exam;string submittingPath=_path;

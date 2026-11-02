@@ -1,4 +1,4 @@
-> Current version5.2: use [ui52-delivery.md](ui52-delivery.md) and [ui52-schema.md](ui52-schema.md). The earlier phase record below is retained as history; explicit radio/checkbox selections supersede its UI instructions.
+> Historical report comparison. Current 5.3.1 aggregate/header behavior is in [best-values-531.md](best-values-531.md): the header shows `PRE | BEST VALUES` for workflow 3 and no primary/site radio is used.
 
 # Report comparison — 5.0 to 5.1
 
@@ -29,12 +29,16 @@ The JPG sheet now follows the clinic's printed MIR/Spirolab sheet instead of the
 
 | Area | Now printed |
 |---|---|
-| Header | Small centred centre name; left `ERS / ECCS 1993`; centre `PRE \| Site: #n`; right operator. No status banner. |
+| Header | Small centred centre name; left `ERS / ECCS 1993`; centre `PRE \| BEST VALUES` for workflow 3 (legacy records keep their historical primary label); right operator. No status banner. |
 | Patient block | `Test Date … BIPS 1.092 ATS/ERS`, `Name`, `Birth Date … #ID`, `Age … Height cm … Weight kg … Gender`, `Origin … Predicted ERS`, `PRE File N°`. |
 | Curves | Two white panels (flow–volume left, volume–time right), thin dotted grid, small ticks, `FLOW (L/s)`, `VOLUME (L)`, `TIME (s)`. Legend `PRE #1 PRE #2 PRE #3 Pred.`; no `[SITE]` marker. |
-| BEST VALUES | Parameter, `Pred.`, `Measured`, `%Pred.` — no UNIT column. |
+| BEST VALUES | Independent session aggregate: largest acceptable FVC, independent FEV1, ratio from those two, independent PEF, FEF25–75 from largest FVC+FEV1; parameter, `Pred.`, `Measured`, `%Pred.` — no UNIT column. |
 | Parameter table | `PARAMETER | Pred. | PRE#1 | %Pred. | PRE#2 | PRE#3`; units beside parameter names; no section title. |
 | Interpretation | `INTERPRETATION:` + one short line, `QUALITY CONTROL GRADE`, `EXHALE ALL air in the lungs`, `REPEATABILITY: FVC, FEV1`. |
 | Footer | `Made by spirolab    Ver 4.8` (report layout version) and `SN <actual device serial or —>`. |
 
 Development status banners, unvalidated/algorithmic labels, examination IDs, selection provenance lines and engineering notes are no longer printed. The predicted curve is a schematic envelope built only from the ERS predicted FVC, FEV1 and PEF (a reference shape, never presented as a recorded measurement). `QUALITY CONTROL GRADE` prints the reviewed grade only; when no grade was reviewed it prints `—` rather than an invented `A`. The footer keeps the real device serial (or `—`) and does not copy the reference photo's serial. An optional clinic stamp is drawn at the lower right when `%APPDATA%\SpiroLab\stamp.png` exists; otherwise the area stays blank without moving other blocks.
+
+## 5.3.1 — session BEST VALUES
+
+The report table and HLine fields are built from the single `SessionBestValues` aggregate, not from a radio-selected maneuver. Best FVC and best FEV1 may come from different maneuvers; the ratio is `best FEV1 / best FVC`; FEF25–75 is taken from the eligible maneuver with the largest `FVC + FEV1`. Up to three real curves are displayed, with manual report checkboxes affecting display only. The header uses `PRE | BEST VALUES` for workflow 3. Device-reported values are labelled only when capture-bound; reconstructed values stay separately labelled. See [best-values-531.md](best-values-531.md).

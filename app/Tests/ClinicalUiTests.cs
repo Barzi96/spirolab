@@ -64,14 +64,12 @@ internal static class ClinicalUiTests
             for(int count=1;count<=5;count++)
             {
                 Exam e=ExamWith(count);
-                Check(e.OperatorSelectedManeuverId==ExamSummary.Build(e.Trials).BestTrial.ManeuverId && e.SelectionMethod=="automatic","automatic single site default "+count);
+                Check(e.SelectionWorkflowVersion==3 && !e.PrimarySelectionRequired && string.IsNullOrEmpty(e.OperatorSelectedManeuverId),"no primary maneuver in workflow3 "+count);
                 Check(e.ReportManeuverIds.Count==Math.Min(count,3),"automatic report count "+count);
                 e.ValidateReportSelection(true);
             }
             Exam auto=ExamWith(1); auto.Trials[0].Result.Fvc=.8; auto.Trials[0].Result.Fev1=.5; auto.AddManeuver(Simulator.Build(auto.Patient,500));
-            Check(auto.OperatorSelectedManeuverId==auto.Trials[1].ManeuverId,"new better attempt updates only automatic radio");
-            auto.SelectSiteManeuver(auto.Trials[0].ManeuverId); auto.AddManeuver(Simulator.Build(auto.Patient,501));
-            Check(auto.OperatorSelectedManeuverId==auto.Trials[0].ManeuverId && auto.SelectionMethod=="manual","manual radio cannot be overridden by later attempts");
+            Check(ExamSummary.Build(auto.Trials).Fvc>=.8 && string.IsNullOrEmpty(auto.OperatorSelectedManeuverId),"new better attempt updates aggregate without creating a primary");
             Exam choices=ExamWith(5); string[] original=choices.ReportManeuverIds.ToArray();
             string fourth=choices.Trials.First(t=>!choices.ReportManeuverIds.Contains(t.ManeuverId)).ManeuverId;
             Refuses(delegate { choices.SetReportManeuver(fourth,true); },"fourth report checkbox refused");
@@ -81,20 +79,20 @@ internal static class ClinicalUiTests
             choices.ValidateReportSelection(true); Check(choices.ReportManeuverIds.Count==2,"operator may report fewer than three curves");
             foreach(string id in choices.ReportManeuverIds.ToArray()) choices.SetReportManeuver(id,false);
             foreach(int i in new int[] {0,2,4}) choices.SetReportManeuver(choices.Trials[i].ManeuverId,true);
-            choices.SelectSiteManeuver(choices.Trials[3].ManeuverId);
+            choices.SelectSiteManeuver(choices.Trials[3].ManeuverId); // legacy field remains writable but is inert in workflow3
             choices.ValidateReportSelection(true);
-            Check(!choices.ReportManeuverIds.Contains(choices.OperatorSelectedManeuverId),"site selection need not be a report curve");
+            Check(choices.ReportSelectionManual && !choices.ReportManeuverIds.Contains(choices.OperatorSelectedManeuverId),"report visibility and legacy primary field are independent");
             string saved=Path.Combine(root,"selection-roundtrip.spiro"); ExamStore.Save(saved,choices); Exam reopened=ExamStore.Load(saved);
-            Check(reopened.ReportManeuverIds.SequenceEqual(choices.ReportManeuverIds) && reopened.ReportSelectionManual && reopened.OperatorSelectedManeuverId==choices.Trials[3].ManeuverId,"both independent choices and manual provenance survive restart");
-            var doc=Json(ExaminationSnapshot.Capture(reopened)); var site=Obj(doc["siteExport"]); var measurements=Obj(site["measurements"]); Trial selected=reopened.Trials[3];
-            int[] indices={0,1,2,3,7}; string[] keys={"FVC","FEV1","FEV1_FVC","PEF","FEF25_75"};
-            for(int i=0;i<keys.Length;i++) Check(Math.Abs(Convert.ToDouble(Obj(measurements[keys[i]])["value"])-SpiroReport.Value(selected.Result,indices[i]))<1e-10 && Obj(measurements[keys[i]])["valueSource"].ToString()==selected.ManeuverId,"site field from one actual maneuver "+keys[i]);
+            Check(reopened.ReportManeuverIds.SequenceEqual(choices.ReportManeuverIds) && reopened.ReportSelectionManual && reopened.SelectionWorkflowVersion==3,"report choices and workflow survive restart without a required primary");
+            var doc=Json(ExaminationSnapshot.Capture(reopened)); var site=Obj(doc["siteExport"]);
+            Check(site["status"].ToString()=="retired_single_site_maneuver_use_bestValues" && Obj(site["measurements"]).Count==0,"workflow3 JSON retires the single-maneuver site export");
             var display=(object[])Obj(doc["report"])["displayedManeuvers"];
-            Check(display.Select(x=>Obj(x)["id"].ToString()).SequenceEqual(new string[] {reopened.Trials[0].ManeuverId,reopened.Trials[2].ManeuverId,reopened.Trials[4].ManeuverId}),"JPG selection is exactly1,3,5 while site is4");
-            double reportFvc=new int[] {0,2,4}.Max(i=>reopened.Trials[i].Result.Fvc);
-            Check(Convert.ToDouble(Obj(Obj(doc["bestReportedValues"])["FVC"])["value"])==reportFvc,"report aggregate uses selected report pool with existing formula");
-            Check(Convert.ToDouble(Obj(measurements["FVC"])["value"])!=reportFvc,"site and report preserve legitimate numeric differences");
-            Check(Obj(measurements["VEXT"])["value"]==null && Obj(doc["vextSelection"])["valueMl"]==null,"simulated-only examination yields no clinic VEXT and never zero");
+            Check(display.Select(x=>Obj(x)["id"].ToString()).SequenceEqual(new string[] {reopened.Trials[0].ManeuverId,reopened.Trials[2].ManeuverId,reopened.Trials[4].ManeuverId}),"JPG displays exactly the manual 1,3,5 report set");
+            ExamSummary all=ExamSummary.Build(reopened.Trials);
+            Check(Convert.ToDouble(Obj(Obj(doc["bestReportedValues"])["FVC"])["value"])==all.Fvc,"JSON best values use all eligible maneuvers, not the report display subset");
+            Check(Convert.ToDouble(Obj(Obj(doc["bestReportedValues"])["FEV1"])["value"])==all.Fev1 && Obj(Obj(doc["bestReportedValues"])["FVC"])["valueSource"].ToString()!="unavailable","best FEV1 is independent and sourced explicitly");
+            Check(Obj(doc["vextSelection"])["valueMl"]==null,"simulated-only examination yields no clinic VEXT and never zero");
+            Trial selected=reopened.Trials[3];
             using(ExaminationDetailsForm f=new ExaminationDetailsForm(reopened,selected))
             {
                 ((TextBox)Named(f,"ManeuverVext")).Text="132"; ((TextBox)Named(f,"ManeuverVextSource")).Text="reviewed development fixture";
@@ -103,10 +101,10 @@ internal static class ClinicalUiTests
                 Check(f.Apply(out problem),"reviewed maneuver VEXT saved in examination details");
             }
             doc=Json(ExaminationSnapshot.Capture(reopened));
-            Check(Obj(Obj(Obj(doc["siteExport"])["measurements"])["VEXT"])["value"]==null,"manual maneuver review never replaces the clinic VEXT rule");
+            Check(!Obj(Obj(doc["siteExport"])["measurements"]).ContainsKey("VEXT"),"manual maneuver review never replaces the clinic VEXT rule");
             Check(Convert.ToDouble(Obj(Obj(((object[])doc["maneuvers"])[3])["vextReview"])["valueMl"])==132,"manual review stays recorded locally for the operator");
             reopened.SelectSiteManeuver(reopened.Trials[0].ManeuverId);
-            Check(Obj(Obj(Obj(Json(ExaminationSnapshot.Capture(reopened))["siteExport"])["measurements"])["VEXT"])["value"]==null,"changing the site maneuver never fabricates a clinic VEXT");
+            Check(!Obj(Obj(Json(ExaminationSnapshot.Capture(reopened))["siteExport"])["measurements"]).ContainsKey("VEXT"),"changing the legacy site maneuver never fabricates a clinic VEXT");
             reopened.SelectSiteManeuver(selected.ManeuverId);
             DateTime date;
             Check(ExaminationDates.TryParse("۱۳۹۹/۱۲/۳۰",out date) && ExaminationDates.Jalali(date)=="1399/12/30","Jalali leap day round trip uses PersianCalendar");
@@ -133,16 +131,16 @@ internal static class ClinicalUiTests
                 Shot(form,"03-main-patient");
                 for(int i=0;i<5;i++) { Set(form,"_active",Simulator.Build(ui.Patient,100+i)); Call(form,"FinishTrial"); }
                 DataGridView grid=(DataGridView)Field(form,"gridTrials");
-                Check(grid.Rows.Count==5 && grid.Columns.Count==8 && grid.Columns[6] is RadioColumn && grid.Columns[7] is DataGridViewCheckBoxColumn,"compact history has exactly real radio and checkbox columns");
-                Check(grid.Rows.Cast<DataGridViewRow>().Count(r=>Convert.ToBoolean(r.Cells[6].Value))==1,"exactly one radio is selected");
-                foreach(string id in ui.ReportManeuverIds.ToArray()) Space(grid,ui.Trials.FindIndex(t=>t.ManeuverId==id),7);
-                Space(grid,0,7); Space(grid,2,7); Space(grid,4,7); Space(grid,3,6);
-                Check(ui.OperatorSelectedManeuverId==ui.Trials[3].ManeuverId && ui.ReportManeuverIds.SequenceEqual(new string[] {ui.Trials[0].ManeuverId,ui.Trials[2].ManeuverId,ui.Trials[4].ManeuverId}),"keyboard radio and checkboxes directly save independent4 versus1,3,5 choices");
-                Space(grid,3,7); Check(((Label)Field(form,"lblStatus")).Text=="برای گزارش حداکثر سه مانور قابل انتخاب است." && ui.ReportManeuverIds.Count==3,"fourth checkbox gives short Persian inline message");
-                Call(form,"SelectTrial",0); Check(ui.OperatorSelectedManeuverId==ui.Trials[3].ManeuverId,"row preview does not alter radio or checkboxes");
+                Check(grid.Rows.Count==5 && grid.Columns.Count==7 && grid.Columns["SiteSelection"]==null && grid.Columns["ReportSelection"] is ReportColumn,"compact history has no primary radio and one report checkbox column");
+                Check(grid.Rows.Cast<DataGridViewRow>().Count(r=>Convert.ToBoolean(r.Cells[6].Value))==3,"automatic report selection checks up to three real curves");
+                foreach(string id in ui.ReportManeuverIds.ToArray()) Space(grid,ui.Trials.FindIndex(t=>t.ManeuverId==id),6);
+                Space(grid,0,6); Space(grid,2,6); Space(grid,4,6);
+                Check(ui.SelectionWorkflowVersion==3 && ui.ReportManeuverIds.SequenceEqual(new string[] {ui.Trials[0].ManeuverId,ui.Trials[2].ManeuverId,ui.Trials[4].ManeuverId}),"keyboard report selection directly saves1,3,5 without a primary");
+                Space(grid,3,6); Check(((Label)Field(form,"lblStatus")).Text=="برای گزارش حداکثر سه مانور قابل انتخاب است." && ui.ReportManeuverIds.Count==3,"fourth checkbox gives short Persian inline message");
+                Call(form,"SelectTrial",0); Check(ui.OperatorSelectedManeuverId!=ui.Trials[0].ManeuverId && ui.ReportManeuverIds.Count==3,"row preview does not alter report choices or create a primary");
                 Call(form,"SelectTrial",3); Shot(form,"04-main-five");
                 string stableId=ui.ExaminationId; Call(form,"LoadExam",uiPath); ui=(Exam)Field(form,"_exam");
-                Check(ui.ExaminationId==stableId && ui.ReportManeuverIds.Count==3 && ui.OperatorSelectedManeuverId==ui.Trials[3].ManeuverId,"GUI reopens saved independent selections");
+                Check(ui.ExaminationId==stableId && ui.ReportManeuverIds.Count==3 && ui.SelectionWorkflowVersion==3,"GUI reopens saved report selections without a primary");
                 ((TextBox)Field(form,"txtExamDate")).Text="۱۴۰۵/۰۷/۲۷"; Check((bool)Call(form,"SyncMetadata") && (bool)Call(form,"SaveExam",false),"manual Jalali date edit validates and saves");
                 Call(form,"LoadExam",uiPath); ui=(Exam)Field(form,"_exam");
                 Check(ui.ExaminationDate==new DateTime(2026,10,19),"historical chosen date does not become today on reopen");

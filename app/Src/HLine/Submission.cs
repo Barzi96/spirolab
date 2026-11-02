@@ -30,18 +30,19 @@ namespace SpiroLab.HLine
         public readonly VextSelection Vext;
         public SubmissionDraft(ExaminationSnapshot snapshot,ResultPackage package)
         {
-            Snapshot=snapshot; Exam e=snapshot.Data; e.ValidateSelection(true); e.ValidateReportSelection(true);
-            Trial t=e.OperatorSelectedManeuver; AnalysisResult r=t.Result;
-            ExaminationId=e.ExaminationId;PersonId=e.Patient.HLinePersonId;NationalId=e.Patient.NationalId;RecordId=e.Patient.HLineRecordId;RecordDate=e.Patient.HLineRecordDate;RecordStatus=e.Patient.HLineRecordStatus;ManeuverId=t.ManeuverId;ExaminationDate=snapshot.TestedAt.Date;
+            Snapshot=snapshot; Exam e=snapshot.Data; e.ValidateSelection(e.SelectionWorkflowVersion<3); e.ValidateReportSelection(true);
+            SessionBestValues best=snapshot.Summary.BestValues;
+            if(best==null) throw new InvalidDataException("مقادیر BEST VALUES در دسترس نیست.");
+            ExaminationId=e.ExaminationId;PersonId=e.Patient.HLinePersonId;NationalId=e.Patient.NationalId;RecordId=e.Patient.HLineRecordId;RecordDate=e.Patient.HLineRecordDate;RecordStatus=e.Patient.HLineRecordStatus;ManeuverId=best.Fvc.SourceManeuverId;ExaminationDate=snapshot.TestedAt.Date;
             SimulatedOrReplay=e.Trials.Exists(delegate(Trial trial) {return trial.Simulated || trial.Imported;});
-            ParameterReviewRequired=!ManeuverAssessment.Assess(t).Fev1Usable || e.Patient.SexUnconfirmed;
-            fields["fvc_amount"]=r.Fvc;fields["fev1_amount"]=r.Fev1;fields["fev1_fvc_percent"]=r.Fev1Fvc;fields["fef2575_amount"]=r.Fef2575;fields["pef_amount"]=r.Pef;
+            ParameterReviewRequired=!best.Fvc.Available || !best.Fev1.Available || !best.Fev1Fvc.Available || e.Patient.SexUnconfirmed;
+            fields["fvc_amount"]=best.Fvc.Value;fields["fev1_amount"]=best.Fev1.Value;fields["fev1_fvc_percent"]=best.Fev1Fvc.Value;fields["fef2575_amount"]=best.Fef2575.Value;fields["pef_amount"]=best.Pef.Value;
             Vext=ClinicVext.Select(e.Trials);
             fields["vext"]=Vext.Available?(double?)Vext.ValueMl:null;
-            fields["fvc_percent"]=r.Ref!=null && r.Ref.Fvc>0?(double?)r.PctFvc:null;
-            fields["fev1_percent"]=r.Ref!=null && r.Ref.Fev1>0?(double?)r.PctFev1:null;
-            fields["pef_percent"]=r.Ref!=null && r.Ref.Pef>0?(double?)r.PctPef:null;
-            fields["fef2575_percent"]=r.Ref!=null && r.Ref.Fef2575>0?(double?)r.PctFef2575:null;
+            fields["fvc_percent"]=best.Fvc.PercentPredicted;
+            fields["fev1_percent"]=best.Fev1.PercentPredicted;
+            fields["pef_percent"]=best.Pef.PercentPredicted;
+            fields["fef2575_percent"]=best.Fef2575.PercentPredicted;
             JpegFilename=Path.GetFileName(package.ReportPath);
             if(package.SourceSnapshotId!=snapshot.SnapshotId || package.ReportBytes==null) throw new InvalidDataException("تصویر متعلق به snapshot همین معاینه نیست.");
             jpeg=(byte[])package.ReportBytes.Clone();

@@ -104,27 +104,31 @@ internal static class ManeuverSelectionTests
             {
                 form.Show(); Application.DoEvents(); Call(form,"LoadExam",saved);
                 Exam ui=(Exam)Field(form,"_exam");
-                Check(((DataGridView)Field(form,"gridTrials")).Rows.Count==128 && ((Trial)Field(form,"_selected")).ManeuverId==chosen.ManeuverId,"actual GUI reopen restores all history and previews saved manual primary");
-                Check(((ChartPanel)Field(form,"chart")).Trial.ManeuverId==chosen.ManeuverId && ((DataGridView)Field(form,"gridTrials")).Rows[chosen.AcquisitionSequence-1].Cells[5].Value.ToString()==Fmt.N(chosen.Result.Fef2575,2),"primary preview uses its curves and exposes all five requested core metrics");
+                ExamSummary uiSummary=ExamSummary.Build(ui.Trials);
+                DataGridView grid=(DataGridView)Field(form,"gridTrials");
+                Check(grid.Rows.Count==128 && ((Trial)Field(form,"_selected")).ManeuverId==uiSummary.BestTrial.ManeuverId,"actual GUI reopen restores all history and previews the automatic aggregate representative");
+                Check(((ChartPanel)Field(form,"chart")).Trial.ManeuverId==uiSummary.BestTrial.ManeuverId && grid.Rows[uiSummary.BestTrial.AcquisitionSequence-1].Cells[5].Value.ToString()==Fmt.N(uiSummary.BestTrial.Measurements.Fef2575.Value.Value,2),"automatic preview uses its curves and exposes all five requested core metrics");
+                Check(grid.Columns.Count==7 && grid.Columns["SiteSelection"]==null && grid.Columns["ReportSelection"]!=null,"new GUI has no primary radio column and retains report visibility");
                 Check((bool)Call(form,"CheckSource",true,false),"GUI sequential acquisition gate remains open beyond100");
                 Call(form,"SelectTrial",0);
-                Check(ui.OperatorSelectedManeuverId==chosen.ManeuverId && ExamStore.Load(saved).OperatorSelectedManeuverId==chosen.ManeuverId,"clicking a history row changes preview only, never the saved decision");
-                Call(form,"ChangeChoice",0,6);
-                Check(ExamStore.Load(saved).OperatorSelectedManeuverId==firstId && ui.SelectionMethod=="manual","radio selection persists the explicit decision immediately");
-                Check(!ui.FinalizedAt.HasValue && ((DataGridView)Field(form,"gridTrials")).Enabled,"selecting primary leaves examination open for further maneuvers");
+                Check(ui.SelectionWorkflowVersion==3 && !ui.PrimarySelectionRequired,"clicking a history row changes preview only and workflow3 requires no primary decision");
+                double[] aggregateBeforeUi=Aggregates(ui);
+                int reportColumn=grid.Columns["ReportSelection"].Index;
+                bool wasReported=ui.ReportManeuverIds.Contains(ui.Trials[0].ManeuverId);
+                Call(form,"ChangeChoice",0,reportColumn);
+                Check(ui.ReportManeuverIds.Contains(ui.Trials[0].ManeuverId)!=wasReported && ui.SelectionWorkflowVersion==3,"report checkbox persists independently of any primary selection");
+                Check(Aggregates(ui).SequenceEqual(aggregateBeforeUi),"manual report toggle never changes best-values aggregate");
+                Check(!ui.FinalizedAt.HasValue && grid.Enabled,"report selection leaves examination open for further maneuvers");
                 // Use the actual finish/save path for another completed acquisition.
                 Trial next=Blow(p,450); typeof(MainForm).GetField("_active",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(form,next);
                 Call(form,"FinishTrial");
-                Check(ui.Trials.Count==129 && ui.OperatorSelectedManeuverId==firstId && ExamStore.Load(saved).OperatorSelectedManeuverId==firstId,"new acquisition through FinishTrial preserves and saves manual selection");
-                Check(((Trial)Field(form,"_selected")).ManeuverId==firstId,"new acquisition restores saved primary preview instead of silently selecting recommendation");
+                Check(ui.Trials.Count==129 && ui.SelectionWorkflowVersion==3 && !ui.PrimarySelectionRequired,"new acquisition through FinishTrial still requires no primary");
+                Check(ui.ReportSelectionManual && ui.ReportManeuverIds.Contains(ui.Trials[0].ManeuverId)==!wasReported,"manual report override survives a new maneuver");
+                Check(((Trial)Field(form,"_selected")).ManeuverId==ExamSummary.Build(ui.Trials).BestTrial.ManeuverId,"new acquisition restores automatic best preview");
                 Call(form,"SelectTrial",125);
-                Check((bool)((DataGridView)Field(form,"gridTrials")).Rows[125].Cells[6].Tag && ((DataGridView)Field(form,"gridTrials")).Rows[125].Cells[0].ToolTipText.Contains(incomplete.EndReason),"incomplete attempt remains selectable for review with its precise warning");
-                Call(form,"SelectTrial",127); Check(((DataGridView)Field(form,"gridTrials")).Rows[127].Cells[0].Value.ToString().Contains("ردشده"),"rejected state visible in maneuver review");
+                Check((bool)grid.Rows[125].Cells[reportColumn].Tag && grid.Rows[125].Cells[0].ToolTipText.Contains(incomplete.EndReason),"incomplete attempt remains selectable for review with its precise warning");
+                Call(form,"SelectTrial",127); Check(grid.Rows[127].Cells[0].Value.ToString().Contains("ردشده"),"rejected state visible in maneuver review");
                 Call(form,"SelectTrial",0);
-                Call(form,"ChangeChoice",ui.Trials.IndexOf(ExamSummary.Build(ui.Trials).BestTrial),6);
-                Check(ui.SelectionMethod=="manual" && ui.OperatorSelectedManeuverId==ExamSummary.Build(ui.Trials).BestTrial.ManeuverId && ExamStore.Load(saved).SelectionMethod=="manual","clicking the recommended radio still records a manual choice");
-                Call(form,"SelectTrial",ui.Trials.FindIndex(t=>t.ManeuverId==chosen.ManeuverId));
-                Call(form,"ChangeChoice",ui.Trials.FindIndex(t=>t.ManeuverId==chosen.ManeuverId),6);
                 using(Bitmap image=new Bitmap(form.Width,form.Height)) { form.DrawToBitmap(image,new Rectangle(Point.Empty,form.Size)); image.Save(Path.Combine(root,"operator-selection-gui.png")); }
                 reopened=ui;
             }
@@ -137,12 +141,12 @@ internal static class ManeuverSelectionTests
             Check(File.ReadAllText(export.DataPath)==frozenJson,"JSON export is exactly the saved frozen selection snapshot");
             string expected=Path.Combine(root,"expected-primary.jpg"); using(Bitmap image=SpiroReport.Render(snapshot)) ResultExport.EncodeJpeg(image,expected,97);
             Check(File.ReadAllBytes(export.ReportPath).SequenceEqual(File.ReadAllBytes(expected)),"actual JPG bytes match rendering of the same operator-selected snapshot as JSON");
-            // Select a different primary in a draft copy; primary header pixels must change.
+            // The retired primary field cannot change a workflow-3 report header.
             Exam alternate=ExamStore.Load(saved); alternate.SelectPrimary(firstId,"manual",alternate.OperatorName,"");
             using(Bitmap selectedImage=SpiroReport.Render(snapshot)) using(Bitmap alternateImage=SpiroReport.Render(ExaminationSnapshot.Capture(alternate)))
             {
                 bool different=false; for(int y=140;y<190 && !different;y++) for(int x=900;x<1500;x++) if(selectedImage.GetPixel(x,y)!=alternateImage.GetPixel(x,y)) { different=true; break; }
-                Check(different,"JPG primary header visibly changes with explicit primary, not just a JSON field");
+                Check(!different && snapshot.PrimaryLabel=="BEST (aggregate)","workflow3 JPG header is best-values aggregate, not a primary maneuver");
             }
             // Saved attempt analysis is not silently re-derived at reopen.
             Exam cached=ExamStore.Load(saved); double stored=cached.Trials[0].Result.Fvc;

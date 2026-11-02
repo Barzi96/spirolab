@@ -1,0 +1,14 @@
+{
+  "kind": "anonymized_reference_inspired_synthetic_not_raw_signal",
+  "input": { "age": 35, "heightCm": 170, "weightKg": 70, "sex": "Female", "origin": "Caucasian" },
+  "predicted": [3.73, 3.24, 82.45, 7.19, 3.855],
+  "best": [4.30, 3.50, 81.4, 8.00, 4.20],
+  "percent": [115, 108, 99, 111, 109],
+  "maneuvers": [
+    { "FVC": 3.90, "FEV1": 3.50, "ratio": 89.7, "PEF": 7.10, "FEF25": 7.20, "FEF50": 4.10, "FEF75": 1.60, "FEF25_75": 3.60, "EVolMl": 80 },
+    { "FVC": 4.30, "FEV1": 2.90, "ratio": 67.4, "PEF": 7.80, "FEF25": 7.90, "FEF50": 3.20, "FEF75": 1.20, "FEF25_75": 2.90, "EVolMl": 190 },
+    { "FVC": 4.05, "FEV1": 3.45, "ratio": 85.2, "PEF": 8.00, "FEF25": 8.00, "FEF50": 4.40, "FEF75": 1.80, "FEF25_75": 4.20, "EVolMl": 199 },
+    { "FVC": 3.95, "FEV1": 3.45, "ratio": 87.3, "PEF": 7.50, "FEF25": 7.60, "FEF50": 4.20, "FEF75": 1.70, "FEF25_75": 3.90, "EVolMl": 0 }
+  ],
+  "limitations": "Synthetic case where best FVC, best FEV1 and best PEF come from different maneuvers; FEF25-75 must come from the largest FVC+FEV1 maneuver, not from the largest FEF25-75."
+}

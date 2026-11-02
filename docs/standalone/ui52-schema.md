@@ -1,5 +1,7 @@
 # Schema2 extension — SpiroLab5.2
 
+> Historical 5.2 schema. Current 5.3.1 uses `SelectionWorkflowVersion=3`: no primary/site radio, `bestValues` is the authoritative all-eligible aggregate, `siteExport` is retired, and report choices affect display only. See [best-values-531.md](best-values-531.md).
+
 No scientific equation or device decoder changed. SelectionWorkflowVersion=2 identifies the simplified workflow. Legacy0/1 finalized records retain their old selection/render behavior. When an old draft is opened for editing, saved site/primary choice is retained and report defaults preserve the prior visible subset; absent site choice is managed automatically. Current defaults never fill a historical center/operator.
 
 ## Two independent selections

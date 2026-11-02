@@ -1,0 +1,12 @@
+{
+  "kind": "anonymized_reference_inspired_synthetic_not_raw_signal",
+  "input": { "age": 62, "heightCm": 158, "weightKg": 61, "sex": "Female", "origin": "Unspecified" },
+  "predicted": [2.55, 1.95, 76.5, 5.80, 2.20],
+  "best": [3.20, null, null, 6.10, null],
+  "percent": [125, null, null, 105, null],
+  "maneuvers": [
+    { "FVC": 3.20, "FEV1": 0.80, "ratio": 25.0, "PEF": 6.10, "FEF25": 3.20, "FEF50": 0.90, "FEF75": 0.30, "FEF25_75": 0.70, "EVolMl": 150, "FET": 0.80 },
+    { "FVC": 3.10, "FEV1": 0.95, "ratio": 30.6, "PEF": 5.40, "FEF25": 2.90, "FEF50": 0.80, "FEF75": 0.25, "FEF25_75": 0.60, "EVolMl": 100, "FET": 0.95 }
+  ],
+  "limitations": "Synthetic short-expiration case. FVC must remain independently available while FEV1/FEF25-75 are unavailable; no value may be replaced by zero."
+}

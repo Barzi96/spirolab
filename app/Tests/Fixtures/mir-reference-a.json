@@ -1,0 +1,13 @@
+{
+  "kind": "anonymized_reference_inspired_synthetic_not_raw_signal",
+  "input": { "age": 41, "heightCm": 182, "weightKg": 78, "sex": "Male", "origin": "Caucasian" },
+  "predicted": [5.08, 4.15, 79.8, 9.56, 4.47],
+  "best": [5.10, 4.15, 81.4, 9.56, 5.00],
+  "percent": [100, 100, 102, 100, 112],
+  "maneuvers": [
+    { "FVC": 5.10, "FEV1": 3.80, "ratio": 74.5, "PEF": 7.90, "FEF25": 8.10, "FEF50": 4.90, "FEF75": 1.90, "FEF25_75": 4.40, "EVolMl": 90 },
+    { "FVC": 4.95, "FEV1": 4.15, "ratio": 83.8, "PEF": 8.60, "FEF25": 8.80, "FEF50": 5.40, "FEF75": 2.10, "FEF25_75": 5.00, "EVolMl": 132 },
+    { "FVC": 5.05, "FEV1": 3.60, "ratio": 71.3, "PEF": 9.56, "FEF25": 8.30, "FEF50": 4.70, "FEF75": 1.80, "FEF25_75": 4.30, "EVolMl": 105 }
+  ],
+  "limitations": "Synthetic anonymized regression case inspired by printed MIR-style outputs. It is not a paired raw acquisition, BTPS proof, firmware-behavior proof or clinical validation."
+}
