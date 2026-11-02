@@ -56,28 +56,23 @@ working tree root (mir): clean
 
 | مورد | مقدار |
 |---|---|
-| کامیت کد/مستندات | `TBD_CODE_COMMIT` |
-| کامیت ثبت تأیید | `TBD_FINAL_COMMIT` |
+| کامیت کد/مستندات | `985be027e3ea32edc24f0f00c41f2c1a90957efc` |
+| کامیت ثبت تأیید | HEAD همین فایل (کامیت دوم `test`) |
 | فایل‌های تغییریافته | فقط `mir-parity-lab/**` و `.gitignore` |
 | merge commit | ندارد |
 
 ## ۶. نتیجه بعد از commit
 
-پس از commit، این دستورها اجرا و خروجی ثبت می‌شود:
-
-```bat
-git -C C:\Users\Ali\Desktop\spirolab2-test rev-parse HEAD
-git -C C:\Users\Ali\Desktop\spirolab2-test rev-parse mir origin/main origin/mir
-git -C C:\Users\Ali\Desktop\spirolab2 status --short
-git -C C:\Users\Ali\Desktop\spirolab2-test status --short
+```text
+HEAD:        HEAD of `test` (this verification commit; run `git rev-parse test`)
+mir:         4d02c8f401e1d6c5c8045debea23ced35a2ffbf3
+origin/mir:  4d02c8f401e1d6c5c8045debea23ced35a2ffbf3
+origin/main: 87188b766eddb4f0ee68fb0ebdd3783b7dde06fe
 ```
 
-انتظار:
-
-- `HEAD` = کامیت نهایی `test`.
-- `mir` و `origin/mir` بدون تغییر = `4d02c8f...`.
-- `origin/main` بدون تغییر = `87188b7...`.
-- working tree هر دو worktree تمیز (به‌جز فایل‌های ignored).
+- `test` دقیقاً یک کامیت روی مبنا دارد (قبل از کامیت تأیید).
+- هیچ merge commit وجود ندارد.
+- `main` و `mir` هیچ تغییر محلی/دور جدیدی ندارند.
 
 ## ۷. push
 
