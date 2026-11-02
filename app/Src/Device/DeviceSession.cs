@@ -157,6 +157,11 @@ namespace SpiroLab.Device
                 if (digits >= 4 && digits > best.Length - 1) best = text.Substring(i, j - i);
             }
             if (best.Length > 0) { SerialNumber = best; Log("serial = " + best); }
+            else
+            {
+                SerialNumber = "";
+                Log("serial not reported by SDA; trial and cod_LAST serial stay empty for this session");
+            }
 
             if (text.IndexOf("SPIROLAB", StringComparison.OrdinalIgnoreCase) >= 0) ModelName = "spirolab";
             else if (text.IndexOf("SPIROBANK", StringComparison.OrdinalIgnoreCase) >= 0) ModelName = "spirobank";

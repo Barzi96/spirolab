@@ -7,7 +7,7 @@ if (-not (Test-Path -LiteralPath $releaseExe)) { throw 'Build the production rel
 if (-not (Test-Path -LiteralPath $testAssembly)) { throw 'Build the isolated test assembly first (app\build.bat test).' }
 $outRoot = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Force -Path $outRoot | Out-Null
-$packageId = 'SpiroLab-5.4.2-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture)
+$packageId = 'SpiroLab-5.4.3-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture)
 $packageRoot = Join-Path $outRoot $packageId
 New-Item -ItemType Directory -Path $packageRoot | Out-Null
 Copy-Item -LiteralPath $releaseExe -Destination $packageRoot
@@ -15,7 +15,7 @@ Copy-Item -LiteralPath (Join-Path $repoRoot 'app\release\SpiroLab.exe.config') -
 New-Item -ItemType Directory -Path (Join-Path $packageRoot 'Docs') | Out-Null
 Copy-Item -Path (Join-Path $repoRoot 'docs\operator\*') -Destination (Join-Path $packageRoot 'Docs') -Recurse
 $versionText = @(
-  'SpiroLab 5.4.2',
+  'SpiroLab 5.4.3',
   ('Build UTC: {0}' -f [DateTime]::UtcNow.ToString('o', [Globalization.CultureInfo]::InvariantCulture)),
   'Executable: SpiroLab.exe (x86, .NET Framework 4.x)',
   'No MIR driver, proprietary software, test data, test executable, source or logs are bundled.',
@@ -24,14 +24,14 @@ $versionText = @(
 ) -join "`r`n"
 $versionText | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $packageRoot 'Version.txt')
 $readme = @(
-  'SpiroLab 5.4.2 - Portable clinical workstation',
+  'SpiroLab 5.4.3 - Portable clinical workstation',
   '',
   'Run Launch.cmd. The app starts without an installer.',
   'Read Docs\README-fa.md first, then Docs\daily-workflow-fa.md.',
   'MIRUSB driver is NOT included; install the compatible driver from the official MIR distribution.',
   'Portable data is stored under %APPDATA%\SpiroLab.',
   '',
-  'Docs: README-fa.md, daily-workflow-fa.md, troubleshooting-fa.md, release-notes-542.md.',
+  'Docs: README-fa.md, daily-workflow-fa.md, troubleshooting-fa.md, release-notes-543.md.',
   'No simulated patient data, test executable, benchmark, log or source file is part of this package.',
   'Hardware, clean-PC, BTPS and production HLine validation remain PENDING.'
 ) -join "`r`n"

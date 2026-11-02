@@ -45,6 +45,83 @@ class DeviceProvenanceTests
         }
         return e;
     }
+    static bool EntryAccepted(Trial t)
+    {
+        MethodInfo method=typeof(MainForm).GetMethod("DeviceCoreAccepted",BindingFlags.Static|BindingFlags.NonPublic);
+        if(method==null) throw new MissingMethodException("MainForm.DeviceCoreAccepted");
+        return (bool)method.Invoke(null,new object[] {t});
+    }
+    static Exam NoSerialExam()
+    {
+        Exam e=ValidExam(3);SelectFirstThree(e);
+        foreach(Trial t in e.Trials) {t.DeviceSerial="";t.DeviceValues.SerialNumber="";}
+        return e;
+    }
+    static Exam SelectedThirdWithoutDevice()
+    {
+        Exam e=Base();
+        Trial first=Simulator.Build(e.Patient,201);first.Simulated=false;first.Imported=false;
+        first.Result=SpiroAnalysis.Analyze(first,e.Patient);
+        first.Result.BevAvailable=first.Result.BevOk=true;first.Result.Bev=0.100;
+        SyntheticDeviceEvidence.Attach(first,5.20,4.10,12.00,8.00,SyntheticDeviceEvidence.FixtureSerial,1);
+        e.AddManeuver(first);
+        Trial second=Simulator.Build(e.Patient,202);second.Simulated=false;second.Imported=false;
+        second.Result=SpiroAnalysis.Analyze(second,e.Patient);
+        second.Result.BevAvailable=second.Result.BevOk=true;second.Result.Bev=0.105;
+        SyntheticDeviceEvidence.Attach(second,4.90,4.20,11.00,8.10,SyntheticDeviceEvidence.FixtureSerial,2);
+        e.AddManeuver(second);
+        Trial third=Simulator.Build(e.Patient,300);third.Simulated=false;third.Imported=false;
+        third.DeviceSerial="";third.DeviceCaptureSequence=0;third.DeviceValues=null;
+        third.Result=SpiroAnalysis.Analyze(third,e.Patient);third.Result.BevAvailable=false;third.Result.Cough=false;
+        e.AddManeuver(third);
+        SelectFirstThree(e);
+        return e;
+    }
+    static void SerialPolicy()
+    {
+        Exam valid=ValidExam(3);SelectFirstThree(valid);
+        Check(EntryAccepted(valid.Trials[0]) && Validate(ExaminationSnapshot.Capture(valid)).Allowed,"S-01 matching device serial is accepted on capture and submission");
+
+        Exam mismatch=ValidExam(3);SelectFirstThree(mismatch);
+        ExaminationSnapshot mismatchSnap=ExaminationSnapshot.Capture(mismatch);
+        foreach(Trial t in mismatch.Trials) t.DeviceValues.SerialNumber="OTHER";
+        MutateAll(mismatchSnap,delegate(DeviceResults d){d.SerialNumber="OTHER";});
+        Check(!EntryAccepted(mismatch.Trials[0]),"S-02 capture rejects a mismatched device serial");
+        Reject("S-02 submission rejects a mismatched device serial",mismatchSnap,DeviceProvenanceCode.InvalidManeuverAssociation);
+
+        Exam noSerial=NoSerialExam();
+        Check(EntryAccepted(noSerial.Trials[0]),"S-03 capture accepts a capture-bound block when SDA reported no serial");
+        Check(Validate(ExaminationSnapshot.Capture(noSerial)).Allowed,"S-03 submission accepts the same no-serial session");
+    }
+    static void SelectedManeuverPolicy()
+    {
+        Exam e=SelectedThirdWithoutDevice();
+        Trial third=e.Trials[2];
+        Check(ExamSummary.CanReport(third),"P-01 the fixture third maneuver passes the unchanged reportability screen");
+        ExaminationSnapshot s=ExaminationSnapshot.Capture(e);
+        bool isBestSource=false;foreach(string id in Summary(s).BestValues.SourceManeuverIds) if(id==third.ManeuverId) isBestSource=true;
+        Check(!isBestSource,"P-01 the fixture third maneuver supplies no BEST VALUE");
+        Check(ClinicVext.Select(Data(s).Trials).ManeuverId!=third.ManeuverId,"P-01 the fixture third maneuver is not the VEXT source");
+        DeviceProvenanceResult result=Validate(s);
+        bool cited=false;foreach(DeviceProvenanceIssue issue in result.Issues) if(issue.ManeuverId==third.ManeuverId) cited=true;
+        Check(!result.Allowed && cited,"P-01 a selected maneuver without a valid device result is rejected and identified");
+
+        Exam inconsistent=SelectedThirdWithoutDevice();
+        Trial rawThird=inconsistent.Trials[2];
+        SyntheticDeviceEvidence.Attach(rawThird,rawThird.Result.Fvc,rawThird.Result.Fev1,rawThird.Result.Pef,rawThird.Result.Fet,SyntheticDeviceEvidence.FixtureSerial,3);
+        ExaminationSnapshot rawSnap=ExaminationSnapshot.Capture(inconsistent);
+        bool rawPresent=false;foreach(Trial t in Data(rawSnap).Trials) if(t.ManeuverId==rawThird.ManeuverId) {t.DeviceValues.Raw[0x14]^=0xFF;rawPresent=true;}
+        DeviceProvenanceResult rawResult=Validate(rawSnap);
+        bool rawCited=false;foreach(DeviceProvenanceIssue issue in rawResult.Issues) if(issue.ManeuverId==rawThird.ManeuverId) rawCited=true;
+        Check(rawPresent && !rawResult.Allowed && rawCited && rawResult.Code==DeviceProvenanceCode.RawBlockMismatch,"P-01 a selected maneuver with an inconsistent result block is rejected");
+
+        Exam unselected=ValidExam(3);SelectFirstThree(unselected);
+        Trial extra=Simulator.Build(unselected.Patient,300);extra.Simulated=false;extra.Imported=false;
+        extra.DeviceSerial="";extra.DeviceCaptureSequence=0;extra.DeviceValues=null;
+        extra.Result=SpiroAnalysis.Analyze(extra,unselected.Patient);extra.Result.BevAvailable=false;extra.Result.Cough=false;
+        unselected.AddManeuver(extra);SelectFirstThree(unselected);
+        Check(Validate(ExaminationSnapshot.Capture(unselected)).Allowed,"P-01 an unselected maneuver without device data does not block submission");
+    }
     static Exam LegacyExam()
     {
         Exam e=Base(); e.SelectionWorkflowVersion=3;
@@ -234,6 +311,8 @@ class DeviceProvenanceTests
             DeviceProvenanceResult rejected=Validate(missing);
             Check(rejected.OperatorMessage=="منشأ مقادیر اصلی این معاینه از دستگاه تأیید نشد. نتیجه به سامانه ارسال نشد. لطفاً دریافت دستگاه یا پرونده معاینه را بررسی کنید.","operator message is the prescribed Persian text");
 
+            SelectedManeuverPolicy();
+            SerialPolicy();
             Console.WriteLine("ALL "+checks+" CHECKS PASSED");return 0;
         }
         catch(Exception ex) {Console.WriteLine("FAIL "+ex);return 1;}

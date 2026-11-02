@@ -172,7 +172,7 @@ internal static class RefinementTests
             Check(mainType!=null && product.GetType("SpiroLab.Device.Simulator")==null && product.GetType("SpiroLab.DeploymentSelfTest")==null && product.GetType("SpiroLab.HLine.SubmissionTiming")==null,"production executable has no simulator, self-test or timing subsystem");
             Check(mainType.GetMethod("RunDemoForTest",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)==null && mainType.GetMethod("StartSimulation",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)==null,"production executable has no simulated acquisition entry point");
             Check(product.GetType("SpiroLab.Ui.SettingsForm").GetProperty("RunDevelopmentDemo")==null,"production settings has no development switch");
-            Check(FileVersionInfo.GetVersionInfo(productPath).FileVersion.StartsWith("5.4.2",StringComparison.Ordinal),"production executable carries the release version 5.4.2");
+            Check(FileVersionInfo.GetVersionInfo(productPath).FileVersion.StartsWith("5.4.3",StringComparison.Ordinal),"production executable carries the release version 5.4.3");
             Console.WriteLine("ALL "+checks+" REFINEMENT CHECKS PASSED"); return 0;
         }
         catch(Exception ex) { Console.WriteLine(ex); return 1; }

@@ -139,6 +139,11 @@ namespace SpiroLab
                         result.Reject(DeviceProvenanceCode.IncompleteOrInconsistentData, "selection", null, "selected_report_set_empty");
                     if (exam.ReportManeuverIds != null && exam.ReportManeuverIds.Count > 3)
                         result.Reject(DeviceProvenanceCode.IncompleteOrInconsistentData, "selection", null, "selected_report_set_larger_than_three");
+                    // The selected set is authoritative for the whole report, not only
+                    // for the BEST VALUES it happens to supply. Reuse the same trial
+                    // checks for every selected maneuver, including one that supplies
+                    // no BEST VALUE and is not the VEXT source.
+                    CheckSelectedManeuvers(result, exam);
                 }
             }
             catch (Exception ex)
@@ -301,14 +306,15 @@ namespace SpiroLab
                 result.Reject(DeviceProvenanceCode.InvalidManeuverAssociation, metric, trial, "capture_sequence_mismatch");
                 ok = false;
             }
-            if (string.IsNullOrEmpty(trial.DeviceSerial))
+            // A session whose SDA did not yield a serial carries an empty serial on
+            // both the trial and its cod_LAST block. That documented both-empty case
+            // is accepted (the capture token, natural completion, immediate single
+            // read and duplicate-block rejection carry the association); a serial on
+            // only one side or two different serials is still rejected.
+            if (!SerialConsistent(device.SerialNumber, trial.DeviceSerial))
             {
-                result.Reject(DeviceProvenanceCode.InvalidManeuverAssociation, metric, trial, "maneuver_serial_missing");
-                ok = false;
-            }
-            if (device.SerialNumber != trial.DeviceSerial)
-            {
-                result.Reject(DeviceProvenanceCode.InvalidManeuverAssociation, metric, trial, "serial_number_mismatch");
+                result.Reject(DeviceProvenanceCode.InvalidManeuverAssociation, metric, trial,
+                    (string.IsNullOrEmpty(device.SerialNumber) || string.IsNullOrEmpty(trial.DeviceSerial)) ? "serial_number_missing_on_one_side" : "serial_number_mismatch");
                 ok = false;
             }
             if (!HasCompletionPacket(trial))
@@ -428,6 +434,12 @@ namespace SpiroLab
             return true;
         }
 
+        static void CheckSelectedManeuvers(DeviceProvenanceResult result, Exam exam)
+        {
+            foreach (string id in exam.ReportManeuverIds)
+                CheckTrial(result, FindTrial(exam, id), "selection");
+        }
+
         static Trial FindTrial(Exam exam, string id)
         {
             if (exam == null || exam.Trials == null || string.IsNullOrEmpty(id)) return null;
@@ -451,6 +463,11 @@ namespace SpiroLab
         static int U16(byte[] bytes, int offset)
         {
             return (bytes[offset] << 8) | bytes[offset + 1];
+        }
+
+        static bool SerialConsistent(string deviceSerial, string trialSerial)
+        {
+            return string.Equals(deviceSerial ?? "", trialSerial ?? "", StringComparison.Ordinal);
         }
 
         static bool Finite(double value)

@@ -371,6 +371,9 @@ namespace SpiroLab.Ui
             if(!d.Present || !d.BlockValid || !d.Associated || d.Raw==null) return false;
             if(d.CaptureSequence!=t.DeviceCaptureSequence) return false;
             if(!d.FvcValid || !d.Fev1Valid || !d.PefValid || !d.FetValid) return false;
+            // Same rule as DeviceProvenanceValidator: a serial must match on both
+            // sides; the documented both-empty (SDA did not report one) case is the
+            // only accepted absence.
             if(d.SerialNumber!=t.DeviceSerial && !(d.SerialNumber.Length==0 && t.DeviceSerial.Length==0)) return false;
             ManeuverAssessment a=ManeuverAssessment.Assess(t);
             return a.TechnicalValid && t.Flow.Count>=5;
