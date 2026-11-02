@@ -27,6 +27,9 @@
 !/tools/package-release.ps1
 !/tools/Export-MirDriver.ps1
 !/tools/Install-MirDriver.ps1
+!/mir-parity-lab/
+!/mir-parity-lab/**
+/mir-parity-lab/release/
 *.sys
 *.cat
 *.inf

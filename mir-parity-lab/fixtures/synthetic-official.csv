@@ -1,0 +1,7 @@
+test_id,maneuver_key,sequence,pre_post,recorded_at,parameter,value,unit,source,precision,evidence,same_maneuver_attested,notes
+SYN-STRUCT-001,SYN-STRUCT-001-M1,1,PRE,2026-01-15T09:00:00Z,FVC,4.32,L,mir_device_print,0.01,SYNTHETIC official-style value; not a real MIR printout,yes,Fixture only; no patient data
+SYN-STRUCT-001,SYN-STRUCT-001-M1,1,PRE,2026-01-15T09:00:00Z,FEV1,3.51,L,mir_device_print,0.01,SYNTHETIC official-style value; not a real MIR printout,yes,Fixture only; no patient data
+SYN-STRUCT-001,SYN-STRUCT-001-M1,1,PRE,2026-01-15T09:00:00Z,PEF,8.76,L/s,mir_device_print,0.01,SYNTHETIC official-style value; not a real MIR printout,yes,Fixture only; no patient data
+SYN-STRUCT-001,SYN-STRUCT-001-M1,1,PRE,2026-01-15T09:00:00Z,FET,6.42,s,mir_device_print,0.01,SYNTHETIC official-style value; not a real MIR printout,yes,Fixture only; no patient data
+SYN-STRUCT-001,SYN-STRUCT-001-M1,1,PRE,2026-01-15T09:00:00Z,PEF time,0.12,s,mir_device_print,0.01,SYNTHETIC official-style value; not a real MIR printout,yes,Fixture only; no patient data
+SYN-STRUCT-001,SYN-STRUCT-001-M1,1,PRE,2026-01-15T09:00:00Z,FEV1/FVC,81.3,%,mir_device_print,0.1,SYNTHETIC official-style value; not a real MIR printout,yes,Fixture only; no patient data

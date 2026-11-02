@@ -1,0 +1,987 @@
+{
+  "schema": "mir-parity-capture/v1",
+  "test_id": "SYN-STRUCT-001",
+  "data_origin": "synthetic",
+  "capture": {
+    "recorded_at": "2026-01-15T09:00:00Z",
+    "device_model": "SYNTHETIC fixture — not a device",
+    "device_serial": "",
+    "notes": "Deterministic synthetic capture for UI, parser and arithmetic tests only."
+  },
+  "maneuvers": [
+    {
+      "maneuver_key": "SYN-STRUCT-001-M1",
+      "sequence": 1,
+      "pre_post": "PRE",
+      "recorded_at": "2026-01-15T09:00:00Z",
+      "association": "capture_bound_immediate_single_read",
+      "association_evidence": "SYNTHETIC fixture metadata; not a real capture token.",
+      "step_type": "0x40",
+      "step": 0.02,
+      "cod_last_hex": "A5A5A5A5A5A5A5A5A5A50001A5A5A5A501B0015F036CA5A5A5A50282A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5A5000CA5A5A5A5A5A5A5A5A5A5A5A5A5A5",
+      "cod_curve_hex": "A5000102030405060708090A0B0C0D0E0F",
+      "packets": [
+        {
+          "index": 0,
+          "seconds": 0.02,
+          "type": "0x10",
+          "raw": 30,
+          "hex": "10001E",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 1,
+          "seconds": 0.04,
+          "type": "0x10",
+          "raw": 60,
+          "hex": "10003C",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 2,
+          "seconds": 0.06,
+          "type": "0x10",
+          "raw": 90,
+          "hex": "10005A",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 3,
+          "seconds": 0.08,
+          "type": "0x10",
+          "raw": 120,
+          "hex": "100078",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 4,
+          "seconds": 0.1,
+          "type": "0x10",
+          "raw": 150,
+          "hex": "100096",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 5,
+          "seconds": 0.12,
+          "type": "0x10",
+          "raw": 180,
+          "hex": "1000B4",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 6,
+          "seconds": 0.14,
+          "type": "0x10",
+          "raw": 210,
+          "hex": "1000D2",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 7,
+          "seconds": 0.16,
+          "type": "0x10",
+          "raw": 240,
+          "hex": "1000F0",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 8,
+          "seconds": 0.18,
+          "type": "0x10",
+          "raw": 270,
+          "hex": "10010E",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 9,
+          "seconds": 0.2,
+          "type": "0x10",
+          "raw": 300,
+          "hex": "10012C",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 10,
+          "seconds": 0.22,
+          "type": "0x10",
+          "raw": 297,
+          "hex": "100129",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 11,
+          "seconds": 0.24,
+          "type": "0x10",
+          "raw": 295,
+          "hex": "100127",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 12,
+          "seconds": 0.26,
+          "type": "0x10",
+          "raw": 292,
+          "hex": "100124",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 13,
+          "seconds": 0.28,
+          "type": "0x10",
+          "raw": 289,
+          "hex": "100121",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 14,
+          "seconds": 0.3,
+          "type": "0x10",
+          "raw": 286,
+          "hex": "10011E",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 15,
+          "seconds": 0.32,
+          "type": "0x10",
+          "raw": 284,
+          "hex": "10011C",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 16,
+          "seconds": 0.34,
+          "type": "0x10",
+          "raw": 281,
+          "hex": "100119",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 17,
+          "seconds": 0.36,
+          "type": "0x10",
+          "raw": 278,
+          "hex": "100116",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 18,
+          "seconds": 0.38,
+          "type": "0x10",
+          "raw": 275,
+          "hex": "100113",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 19,
+          "seconds": 0.4,
+          "type": "0x10",
+          "raw": 273,
+          "hex": "100111",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 20,
+          "seconds": 0.42,
+          "type": "0x10",
+          "raw": 270,
+          "hex": "10010E",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 21,
+          "seconds": 0.44,
+          "type": "0x10",
+          "raw": 267,
+          "hex": "10010B",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 22,
+          "seconds": 0.46,
+          "type": "0x10",
+          "raw": 265,
+          "hex": "100109",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 23,
+          "seconds": 0.48,
+          "type": "0x10",
+          "raw": 262,
+          "hex": "100106",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 24,
+          "seconds": 0.5,
+          "type": "0x10",
+          "raw": 259,
+          "hex": "100103",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 25,
+          "seconds": 0.52,
+          "type": "0x10",
+          "raw": 256,
+          "hex": "100100",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 26,
+          "seconds": 0.54,
+          "type": "0x10",
+          "raw": 254,
+          "hex": "1000FE",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 27,
+          "seconds": 0.56,
+          "type": "0x10",
+          "raw": 251,
+          "hex": "1000FB",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 28,
+          "seconds": 0.58,
+          "type": "0x10",
+          "raw": 248,
+          "hex": "1000F8",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 29,
+          "seconds": 0.6,
+          "type": "0x10",
+          "raw": 245,
+          "hex": "1000F5",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 30,
+          "seconds": 0.62,
+          "type": "0x10",
+          "raw": 243,
+          "hex": "1000F3",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 31,
+          "seconds": 0.64,
+          "type": "0x10",
+          "raw": 240,
+          "hex": "1000F0",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 32,
+          "seconds": 0.66,
+          "type": "0x10",
+          "raw": 237,
+          "hex": "1000ED",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 33,
+          "seconds": 0.68,
+          "type": "0x10",
+          "raw": 235,
+          "hex": "1000EB",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 34,
+          "seconds": 0.7,
+          "type": "0x10",
+          "raw": 232,
+          "hex": "1000E8",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 35,
+          "seconds": 0.72,
+          "type": "0x10",
+          "raw": 229,
+          "hex": "1000E5",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 36,
+          "seconds": 0.74,
+          "type": "0x10",
+          "raw": 226,
+          "hex": "1000E2",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 37,
+          "seconds": 0.76,
+          "type": "0x10",
+          "raw": 224,
+          "hex": "1000E0",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 38,
+          "seconds": 0.78,
+          "type": "0x10",
+          "raw": 221,
+          "hex": "1000DD",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 39,
+          "seconds": 0.8,
+          "type": "0x10",
+          "raw": 218,
+          "hex": "1000DA",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 40,
+          "seconds": 0.82,
+          "type": "0x10",
+          "raw": 215,
+          "hex": "1000D7",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 41,
+          "seconds": 0.84,
+          "type": "0x10",
+          "raw": 213,
+          "hex": "1000D5",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 42,
+          "seconds": 0.86,
+          "type": "0x10",
+          "raw": 210,
+          "hex": "1000D2",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 43,
+          "seconds": 0.88,
+          "type": "0x10",
+          "raw": 207,
+          "hex": "1000CF",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 44,
+          "seconds": 0.9,
+          "type": "0x10",
+          "raw": 205,
+          "hex": "1000CD",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 45,
+          "seconds": 0.92,
+          "type": "0x10",
+          "raw": 202,
+          "hex": "1000CA",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 46,
+          "seconds": 0.94,
+          "type": "0x10",
+          "raw": 199,
+          "hex": "1000C7",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 47,
+          "seconds": 0.96,
+          "type": "0x10",
+          "raw": 196,
+          "hex": "1000C4",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 48,
+          "seconds": 0.98,
+          "type": "0x10",
+          "raw": 194,
+          "hex": "1000C2",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 49,
+          "seconds": 1.0,
+          "type": "0x10",
+          "raw": 191,
+          "hex": "1000BF",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 50,
+          "seconds": 1.02,
+          "type": "0x10",
+          "raw": 188,
+          "hex": "1000BC",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 51,
+          "seconds": 1.04,
+          "type": "0x10",
+          "raw": 185,
+          "hex": "1000B9",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 52,
+          "seconds": 1.06,
+          "type": "0x10",
+          "raw": 183,
+          "hex": "1000B7",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 53,
+          "seconds": 1.08,
+          "type": "0x10",
+          "raw": 180,
+          "hex": "1000B4",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 54,
+          "seconds": 1.1,
+          "type": "0x10",
+          "raw": 177,
+          "hex": "1000B1",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 55,
+          "seconds": 1.12,
+          "type": "0x10",
+          "raw": 175,
+          "hex": "1000AF",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 56,
+          "seconds": 1.14,
+          "type": "0x10",
+          "raw": 172,
+          "hex": "1000AC",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 57,
+          "seconds": 1.16,
+          "type": "0x10",
+          "raw": 169,
+          "hex": "1000A9",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 58,
+          "seconds": 1.18,
+          "type": "0x10",
+          "raw": 166,
+          "hex": "1000A6",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 59,
+          "seconds": 1.2,
+          "type": "0x10",
+          "raw": 164,
+          "hex": "1000A4",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 60,
+          "seconds": 1.22,
+          "type": "0x10",
+          "raw": 161,
+          "hex": "1000A1",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 61,
+          "seconds": 1.24,
+          "type": "0x10",
+          "raw": 158,
+          "hex": "10009E",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 62,
+          "seconds": 1.26,
+          "type": "0x10",
+          "raw": 155,
+          "hex": "10009B",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 63,
+          "seconds": 1.28,
+          "type": "0x10",
+          "raw": 153,
+          "hex": "100099",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 64,
+          "seconds": 1.3,
+          "type": "0x10",
+          "raw": 150,
+          "hex": "100096",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 65,
+          "seconds": 1.32,
+          "type": "0x10",
+          "raw": 147,
+          "hex": "100093",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 66,
+          "seconds": 1.34,
+          "type": "0x10",
+          "raw": 145,
+          "hex": "100091",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 67,
+          "seconds": 1.36,
+          "type": "0x10",
+          "raw": 142,
+          "hex": "10008E",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 68,
+          "seconds": 1.38,
+          "type": "0x10",
+          "raw": 139,
+          "hex": "10008B",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 69,
+          "seconds": 1.4,
+          "type": "0x10",
+          "raw": 136,
+          "hex": "100088",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 70,
+          "seconds": 1.42,
+          "type": "0x10",
+          "raw": 134,
+          "hex": "100086",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 71,
+          "seconds": 1.44,
+          "type": "0x10",
+          "raw": 131,
+          "hex": "100083",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 72,
+          "seconds": 1.46,
+          "type": "0x10",
+          "raw": 128,
+          "hex": "100080",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 73,
+          "seconds": 1.48,
+          "type": "0x10",
+          "raw": 125,
+          "hex": "10007D",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 74,
+          "seconds": 1.5,
+          "type": "0x10",
+          "raw": 123,
+          "hex": "10007B",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 75,
+          "seconds": 1.52,
+          "type": "0x10",
+          "raw": 120,
+          "hex": "100078",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 76,
+          "seconds": 1.54,
+          "type": "0x10",
+          "raw": 117,
+          "hex": "100075",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 77,
+          "seconds": 1.56,
+          "type": "0x10",
+          "raw": 115,
+          "hex": "100073",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 78,
+          "seconds": 1.58,
+          "type": "0x10",
+          "raw": 112,
+          "hex": "100070",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 79,
+          "seconds": 1.6,
+          "type": "0x10",
+          "raw": 109,
+          "hex": "10006D",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 80,
+          "seconds": 1.62,
+          "type": "0x10",
+          "raw": 106,
+          "hex": "10006A",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 81,
+          "seconds": 1.64,
+          "type": "0x10",
+          "raw": 104,
+          "hex": "100068",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 82,
+          "seconds": 1.66,
+          "type": "0x10",
+          "raw": 101,
+          "hex": "100065",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 83,
+          "seconds": 1.68,
+          "type": "0x10",
+          "raw": 98,
+          "hex": "100062",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 84,
+          "seconds": 1.7,
+          "type": "0x10",
+          "raw": 95,
+          "hex": "10005F",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 85,
+          "seconds": 1.72,
+          "type": "0x10",
+          "raw": 93,
+          "hex": "10005D",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 86,
+          "seconds": 1.74,
+          "type": "0x10",
+          "raw": 90,
+          "hex": "10005A",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 87,
+          "seconds": 1.76,
+          "type": "0x10",
+          "raw": 87,
+          "hex": "100057",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 88,
+          "seconds": 1.78,
+          "type": "0x10",
+          "raw": 85,
+          "hex": "100055",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 89,
+          "seconds": 1.8,
+          "type": "0x10",
+          "raw": 82,
+          "hex": "100052",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 90,
+          "seconds": 1.82,
+          "type": "0x10",
+          "raw": 79,
+          "hex": "10004F",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 91,
+          "seconds": 1.84,
+          "type": "0x10",
+          "raw": 76,
+          "hex": "10004C",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 92,
+          "seconds": 1.86,
+          "type": "0x10",
+          "raw": 74,
+          "hex": "10004A",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 93,
+          "seconds": 1.88,
+          "type": "0x10",
+          "raw": 71,
+          "hex": "100047",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 94,
+          "seconds": 1.9,
+          "type": "0x10",
+          "raw": 68,
+          "hex": "100044",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 95,
+          "seconds": 1.92,
+          "type": "0x10",
+          "raw": 65,
+          "hex": "100041",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 96,
+          "seconds": 1.94,
+          "type": "0x10",
+          "raw": 63,
+          "hex": "10003F",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 97,
+          "seconds": 1.96,
+          "type": "0x10",
+          "raw": 60,
+          "hex": "10003C",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 98,
+          "seconds": 1.98,
+          "type": "0x10",
+          "raw": 57,
+          "hex": "100039",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 99,
+          "seconds": 2.0,
+          "type": "0x10",
+          "raw": 55,
+          "hex": "100037",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 100,
+          "seconds": 2.02,
+          "type": "0x10",
+          "raw": 52,
+          "hex": "100034",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 101,
+          "seconds": 2.04,
+          "type": "0x10",
+          "raw": 49,
+          "hex": "100031",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 102,
+          "seconds": 2.06,
+          "type": "0x10",
+          "raw": 46,
+          "hex": "10002E",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 103,
+          "seconds": 2.08,
+          "type": "0x10",
+          "raw": 44,
+          "hex": "10002C",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 104,
+          "seconds": 2.1,
+          "type": "0x10",
+          "raw": 41,
+          "hex": "100029",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 105,
+          "seconds": 2.12,
+          "type": "0x10",
+          "raw": 38,
+          "hex": "100026",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 106,
+          "seconds": 2.14,
+          "type": "0x10",
+          "raw": 35,
+          "hex": "100023",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 107,
+          "seconds": 2.16,
+          "type": "0x10",
+          "raw": 33,
+          "hex": "100021",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 108,
+          "seconds": 2.18,
+          "type": "0x10",
+          "raw": 30,
+          "hex": "10001E",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 109,
+          "seconds": 2.2,
+          "type": "0x10",
+          "raw": 27,
+          "hex": "10001B",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 110,
+          "seconds": 2.22,
+          "type": "0x10",
+          "raw": 25,
+          "hex": "100019",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 111,
+          "seconds": 2.24,
+          "type": "0x10",
+          "raw": 22,
+          "hex": "100016",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 112,
+          "seconds": 2.26,
+          "type": "0x10",
+          "raw": 19,
+          "hex": "100013",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 113,
+          "seconds": 2.28,
+          "type": "0x10",
+          "raw": 16,
+          "hex": "100010",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 114,
+          "seconds": 2.3,
+          "type": "0x10",
+          "raw": 14,
+          "hex": "10000E",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 115,
+          "seconds": 2.32,
+          "type": "0x10",
+          "raw": 11,
+          "hex": "10000B",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 116,
+          "seconds": 2.34,
+          "type": "0x10",
+          "raw": 8,
+          "hex": "100008",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 117,
+          "seconds": 2.36,
+          "type": "0x10",
+          "raw": 5,
+          "hex": "100005",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 118,
+          "seconds": 2.38,
+          "type": "0x10",
+          "raw": 3,
+          "hex": "100003",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        },
+        {
+          "index": 119,
+          "seconds": 2.4,
+          "type": "0x10",
+          "raw": 0,
+          "hex": "100000",
+          "notes": "SYNTHETIC structural packet; not MIR data"
+        }
+      ]
+    }
+  ]
+}
