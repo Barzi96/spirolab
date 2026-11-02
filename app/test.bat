@@ -20,9 +20,11 @@ if defined CAPTURE if not exist "%CAPTURE%" echo WARNING: explicit capture file 
 
 call build.bat test
 if errorlevel 1 goto :buildfail
-copy /Y release-test\SpiroLab.Test.dll release\SpiroLab.Test.dll >nul
+REM build.bat creates release\ and its config; copy the test assembly after that
+REM so a fresh clone with no pre-existing release directory also works.
 call build.bat
 if errorlevel 1 goto :buildfail
+copy /Y release-test\SpiroLab.Test.dll release\SpiroLab.Test.dll >nul
 
 set /a TOTALSUITES=0
 set /a TOTALPASS=0
