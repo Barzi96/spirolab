@@ -57,7 +57,9 @@ working tree root (mir): clean
 | مورد | مقدار |
 |---|---|
 | کامیت کد/مستندات | `985be027e3ea32edc24f0f00c41f2c1a90957efc` |
-| کامیت ثبت تأیید | HEAD همین فایل (کامیت دوم `test`) |
+| کامیت ثبت تأیید | `01308b21720f06b2dbd11576bd93d131195600f0` |
+| کامیت ثبت clean-clone | `ad1b8101c91a1c48db9b7c15ed8954fdd10670e8` |
+| HEAD نهایی | همان HEAD شاخه `test` (با `git rev-parse test` بخوانید) |
 | فایل‌های تغییریافته | فقط `mir-parity-lab/**` و `.gitignore` |
 | merge commit | ندارد |
 
@@ -70,7 +72,7 @@ origin/mir:  4d02c8f401e1d6c5c8045debea23ced35a2ffbf3
 origin/main: 87188b766eddb4f0ee68fb0ebdd3783b7dde06fe
 ```
 
-- `test` دقیقاً یک کامیت روی مبنا دارد (قبل از کامیت تأیید).
+- `test` سه کامیت فاز ۱ روی مبنا دارد: کد، ثبت ایزوله‌سازی، و ثبت clean-clone.
 - هیچ merge commit وجود ندارد.
 - `main` و `mir` هیچ تغییر محلی/دور جدیدی ندارند.
 
