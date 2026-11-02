@@ -218,7 +218,10 @@ namespace SpiroLab.HLine
             if(Interlocked.CompareExchange(ref active,1,0)!=0) throw new InvalidOperationException("ارسال در حال انجام است.");
             try
             {
-                VerifyTestDestination(draft);gateway.VerifyDestination(draft);
+                // Production recheck is read-only and uses the same live destination
+                // verification as Submit. A designated test record is optional.
+                if(testRecord!=null) VerifyTestDestination(draft);
+                gateway.VerifyDestination(draft);
                 if(!journal.WriteAttempted) return false;
                 RemoteSpirometry remote=gateway.Read(draft);
                 if(remote==null || !SameResult(draft,remote)) return false;
