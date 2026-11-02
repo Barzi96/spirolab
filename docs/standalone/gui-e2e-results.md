@@ -5,9 +5,9 @@ Scope: real WinForms `MainForm`, real patient lookup dialog, real report rendere
 real «ارسال به سایت» button, production `SubmissionDraft → LiveSubmissionGateway →
 SubmissionCoordinator` pipeline, and a loopback mock HLine server.
 No live HLine write was performed in this phase.
-Authorization boundary: the live writer remains off unless the owner explicitly starts
-`--hline-test=<NID>:<RECORD>` or `--hline-write=all`; this test used a test host and a
-loopback server only.
+Authorization boundary: the released app exposes the normal one-click Send path under
+the same `LiveSubmissionGateway` verification; this test used a production-shaped
+`MainForm` with a loopback mock HLine server and no test-mode command-line scope.
 
 Maneuver provenance
 - Four completed maneuvers were copied from a locally saved MIRUSB-live examination
@@ -21,7 +21,7 @@ Maneuver provenance
 GUI path exercised
 1. Started the actual compiled `SpiroLab.exe --demo`; confirmed the real window title
    `اسپیرومتری طب کار — SpiroLab 5.3.1` and captured the screen.
-2. Opened the actual patient dialog, entered the dedicated test NID, waited for the
+2. Opened the actual patient dialog, entered the mock patient national ID, waited for the
    site lookup, verified sex and anthropometry were populated, and saved it.
 3. Loaded the four USB-live maneuvers into the actual `MainForm` grid.
 4. Clicked the primary column on a deliberately non-best maneuver and three report
@@ -30,7 +30,7 @@ GUI path exercised
 6. Read the mock server state and the locally rendered export back.
 
 Result: 27/27 GUI E2E checks PASS.
-- patient and record identity bound to the dedicated test destination
+- patient and record identity bound to the verified mock destination
 - four `usb_live` maneuvers loaded; no simulation/file replay
 - primary values came from the exact clicked maneuver, not the automatic best
 - report selection was exactly the three clicked maneuvers
@@ -50,6 +50,8 @@ Result: 27/27 GUI E2E checks PASS.
 Actual screenshots (local evidence, deliberately not committed because the maneuver
 signals are from a real device examination):
 - `app/gui-e2e-output/screens/00-actual-exe-demo.png` — actual compiled EXE.
+- `app/gui-e2e-output/screens/00-normal-startup.png` — actual compiled EXE started by
+  double-click/no switches, fully usable window (not `--demo`).
 - `app/gui-e2e-output/screens/01-main-before-patient.png`
 - `app/gui-e2e-output/screens/02-patient-lookup.png`
 - `app/gui-e2e-output/screens/03-maneuvers-loaded.png`
@@ -69,8 +71,8 @@ Safety checks (full list in HLineWriteTests / HLineIntegrationTests)
 - no eligible VEXT → null with a visible problem, never zero-filled
 - post-save spirometry module status must be complete/saved; `NoData` is a visible
   failure, even when the JSON payload readback matches
-- ordinary startup without a write scope refuses online send; combining
-  `--hline-test` and `--hline-write=all` is rejected; a partial test scope is rejected
+- ordinary startup exposes the normal send path with no test scope or production flag;
+  the mock integration confirms the current latest record is re-verified before write
 - PATCH/DELETE are not reachable from the normal send button
 
 Limits

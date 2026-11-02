@@ -22,6 +22,7 @@ class HLineIntegrationTests
     static void Check(bool ok,string name) {if(!ok) throw new Exception(name);checks++;Console.WriteLine("PASS "+name);}
     static void Refuses(Action a,string name) {bool refused=false;try {a();} catch(Exception) {refused=true;} Check(refused,name);}
     static object Field(object o,string name) {return o.GetType().GetField(name,BindingFlags.Instance|BindingFlags.NonPublic).GetValue(o);}
+    static object Call(object o,string name,params object[] args) {return o.GetType().GetMethod(name,BindingFlags.Instance|BindingFlags.NonPublic).Invoke(o,args);}
     static void PumpUntil(Func<bool> done)
     {var clock=System.Diagnostics.Stopwatch.StartNew();while(!done()) {if(clock.ElapsedMilliseconds>5000) throw new Exception("UI async timeout");Application.DoEvents();Thread.Sleep(5);}Application.DoEvents();}
     static MedicalRecord TestDestination() {return new MedicalRecord {Id="2",PersonId="TEST-P",NationalId="0000000001",DateText="2026/11/01",Status="complete"};}
@@ -487,6 +488,39 @@ class HLineIntegrationTests
         using(HLineClient fresh=new HLineClient(new MockServer()))
             Check(fresh.StatusText=="نیاز به ورود در فایرفاکس","compact disconnected status asks for a Firefox login");
     }
+    static void NormalMainTests()
+    {
+        using(var ordinary=new MainForm())
+        {
+            Check((bool)Field(ordinary,"_allowProductionWrites") && Field(ordinary,"_submissionGateway") is LiveSubmissionGateway && Field(ordinary,"_testRecord")==null,"ordinary MainForm default constructs the live production gateway");
+        }
+        var mock=new MockServer {Mode="vitals"};var client=new HLineClient(mock);client.Login("synthetic","synthetic","123456");
+        var gateway=new Gateway();
+        using(var form=new MainForm(client,gateway,null))
+        {
+            form.Size=new Size(1280,1000);form.Show();Application.DoEvents();
+            Check((bool)Field(form,"_allowProductionWrites") && string.IsNullOrEmpty((string)Field(form,"_testNationalId")) && string.IsNullOrEmpty((string)Field(form,"_testRecordId")) && Field(form,"_testRecord")==null,"ordinary startup exposes production submission with no test scope");
+            Check((Button)Field(form,"btnReport")!=null && ((Button)Field(form,"btnReport")).Text=="ارسال به سایت","ordinary startup exposes the normal send button");
+            Exam a=Exam(false);string ap=Path.Combine(root,"normal-a.spiro");
+            typeof(MainForm).GetField("_exam",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(form,a);
+            typeof(MainForm).GetField("_path",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(form,ap);
+            typeof(MainForm).GetField("_hasPatient",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(form,true);
+            foreach(string method in new string[] {"PopulateMetadata","RenderTrials","RestorePrimaryPreview"}) typeof(MainForm).GetMethod(method,BindingFlags.Instance|BindingFlags.NonPublic).Invoke(form,null);
+            using(var timer=new System.Windows.Forms.Timer {Interval=25})
+            {
+                bool extra=false;timer.Tick+=delegate {foreach(Form dialog in Application.OpenForms.Cast<Form>().ToArray()) if(dialog!=form) {extra=true;dialog.Close();}};timer.Start();
+                ((Button)Field(form,"btnReport")).PerformClick();PumpUntil(delegate {return !(bool)Field(form,"_busy");});timer.Stop();
+                Check(!extra && gateway.Uploads==1 && gateway.Creates==1 && a.ExportReferences.Count==1 && a.Submission.State==SubmissionState.Confirmed,"normal button submits the current verified patient without a test scope");
+                Check(gateway.Saved!=null && gateway.Saved.NationalId==a.Patient.NationalId && gateway.Saved.RecordId==a.Patient.HLineRecordId && gateway.Saved.PersonId==a.Patient.HLinePersonId,"normal submission targets only the displayed patient's exact record");
+            }
+            Exam b=Exam(false);b.Patient.NationalId="0000000002";b.Patient.HLinePersonId="TEST-P2";b.Patient.HLineRecordId="3";b.Patient.FirstName="مراجع دوم";
+            typeof(MainForm).GetField("_exam",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(form,b);
+            typeof(MainForm).GetField("_path",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(form,Path.Combine(root,"normal-b.spiro"));
+            typeof(MainForm).GetField("_hasPatient",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(form,true);Call(form,"PopulateMetadata");Call(form,"RenderTrials");
+            Check(gateway.Uploads==1 && gateway.Creates==1 && b.Submission.State==SubmissionState.Draft && b.ExportReferences.Count==0 && a.Submission.State==SubmissionState.Confirmed,"switching to Patient B never auto-submits A or a batch");
+            Check(!ReferenceEquals(a.Submission,b.Submission) && !ReferenceEquals(a.Trials,b.Trials) && b.Trials.Count==a.Trials.Count,"Patient A and B examinations remain isolated after switching");
+        }
+    }
     [STAThread] static int Main(string[] args)
     {
         try
@@ -527,6 +561,7 @@ class HLineIntegrationTests
             VextRuleTests();
             VextUiTests();
             OneClickMainTests();
+            NormalMainTests();
             Exam exam=Exam(false);exam.SelectSiteManeuver(exam.Trials[0].ManeuverId);SubmissionDraft draft=Draft(exam);
             VextSelection vx=ClinicVext.Select(exam.Trials);
             Check(draft.RecordId=="2" && draft.ExaminationDate==new DateTime(2026,10,19) && vx.Available && vx.ValueMl==132 && draft.Fields["vext"]==132 && draft.Fields["vext"]!=111 && draft.Vext.ManeuverId==vx.ManeuverId && draft.ManeuverId==exam.Trials[0].ManeuverId,"submission binds exact record, Gregorian date and clinic-selected VEXT without changing the site maneuver");
@@ -558,7 +593,8 @@ class HLineIntegrationTests
             var different=new Gateway {Saved=g.Saved};different.Saved.Fields=new Dictionary<string,double?>(different.Saved.Fields);different.Saved.Fields["fvc_amount"]=different.Saved.Fields["fvc_amount"]+0.1;Refuses(delegate {new SubmissionCoordinator(different,new SubmissionJournal(),delegate {},TestDestination()).Submit(draft);},"different existing clinical result never silently overwritten");Check(different.Uploads==0 && different.Creates==0,"conflicting existing result performs no writes");
             var unverified=new Gateway {Verified=false};Refuses(delegate {new SubmissionCoordinator(unverified,new SubmissionJournal(),delegate {},TestDestination()).Submit(draft);},"unverified write contract blocks all writes");
             var changed=new Gateway {ChangedDestination=true};Refuses(delegate {new SubmissionCoordinator(changed,new SubmissionJournal(),delegate {},TestDestination()).Submit(draft);},"wrong or changed destination blocks writes");
-            var restricted=new Gateway();Refuses(delegate {new SubmissionCoordinator(restricted,new SubmissionJournal(),delegate {},null).Submit(draft);},"no writes until dedicated test destination supplied");
+            var normalProduction=new Gateway();var normalCoordinator=new SubmissionCoordinator(normalProduction,new SubmissionJournal(),delegate {},null);normalCoordinator.Submit(draft);Check(normalCoordinator.State==SubmissionState.Confirmed && normalProduction.Uploads==1 && normalProduction.Creates==1,"normal production path submits only after gateway destination verification without a test record");
+            var restricted=new Gateway();
             var wrongTest=TestDestination();wrongTest.Id="OTHER";Refuses(delegate {new SubmissionCoordinator(restricted,new SubmissionJournal(),delegate {},wrongTest).Submit(draft);},"integration writes restricted to designated test medical record");
             wrongTest=TestDestination();wrongTest.PersonId="OTHER";Refuses(delegate {new SubmissionCoordinator(restricted,new SubmissionJournal(),delegate {},wrongTest).Submit(draft);},"test record must belong to exact designated person");
             wrongTest=TestDestination();wrongTest.NationalId="0000000002";Refuses(delegate {new SubmissionCoordinator(restricted,new SubmissionJournal(),delegate {},wrongTest).Submit(draft);},"test record must match exact designated national ID");Check(restricted.Uploads==0 && restricted.Creates==0,"test-scope rejection performs no writes");

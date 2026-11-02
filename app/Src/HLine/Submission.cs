@@ -68,8 +68,8 @@ namespace SpiroLab.HLine
         public IDictionary<string,double?> Fields;
         public byte[] Jpeg;
     }
-    // Live HTTP writer contract; the UI refuses it unless a designated test scope or
-    // the explicit owner-approved production scope is active.
+    // Live HTTP writer contract. Normal one-click submissions use the current patient's
+    // re-verified latest record; a designated test record is only an optional test harness.
     public interface ISubmissionGateway
     {
         bool ContractVerified {get;}
@@ -111,7 +111,10 @@ namespace SpiroLab.HLine
             try
             {
                 AlreadyPresent=false;
-                draft.ValidateForSubmission();VerifyTestDestination(draft);
+                draft.ValidateForSubmission();
+                // A designated test record is optional now: normal production submission
+                // is bound to the destination that the live gateway has just re-verified.
+                if(testRecord!=null) VerifyTestDestination(draft);
                 if(gateway==null || !gateway.ContractVerified) throw new InvalidOperationException("قرارداد ارسال هنوز تأیید نشده است.");
                 if(journal.WriteAttempted)
                 {

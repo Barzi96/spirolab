@@ -1,5 +1,10 @@
 # HLine contract evidence — 5.3
 
+> Historical phase evidence. The current normal release enables the one-click send path
+> for the displayed patient's re-verified latest record and has no public test-mode
+> switch; see [hline531-workflow.md](hline531-workflow.md) and
+> [hline-write-implementation.md](hline-write-implementation.md).
+
 Evidence is read-only. No clinical request was sent, no account credentials were supplied, and no patient or medical record was chosen for live testing.
 
 ## Sources and evidence level

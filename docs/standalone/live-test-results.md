@@ -48,7 +48,9 @@ Independent read-only verification
 
 Limits
 - This proves the write contract for this one designated historical record only.
-- Production writes remain disabled by default and require explicit owner approval.
+- The normal released app now exposes the one-click write path without a test scope;
+  this historical evidence still proves only this one record's contract. No new live
+  patient write was performed for the normal-release change.
 - The post-save module-status gate (`NoData` must fail) was added after this write and
   is proven against the loopback mock; the live record's status was observed as
   complete, but the gate itself was not re-run as part of a new live write.

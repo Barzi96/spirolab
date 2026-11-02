@@ -40,7 +40,7 @@ namespace SpiroLab.Ui
         LinkLabel lblPatient;
         Button btnStart,btnStop,btnReport,btnSettings,btnNew,btnOpen,btnLogin,btnCalendar;
         List<string> _legacyReportIds=new List<string>();
-        public MainForm():this(new HLineClient(),null,null) { }
+        public MainForm():this(new HLineClient(),null,null,true) { }
         public MainForm(HLineClient hline,string testNationalId,string testRecordId,bool allowProductionWrites):this(hline,null,null)
         {
             if(allowProductionWrites && (!string.IsNullOrEmpty(testNationalId) || !string.IsNullOrEmpty(testRecordId))) throw new ArgumentException("حالت تست و ارسال تولیدی را نمی‌توان هم‌زمان فعال کرد.");
@@ -51,6 +51,7 @@ namespace SpiroLab.Ui
         public MainForm(HLineClient hline,ISubmissionGateway submissionGateway,MedicalRecord designatedTestRecord)
         {
             _hline=hline;_submissionGateway=submissionGateway??(hline.CanWrite?new LiveSubmissionGateway(hline):null);_testRecord=designatedTestRecord;
+            _allowProductionWrites=designatedTestRecord==null;
             _settings=AppSettings.Load(); _exam=Exam.CreateNew(_settings); _hline.PreferredFirefoxProfile=_settings.FirefoxProfile;
             ClinicalStyle.Form(this,"اسپیرومتری طب کار — SpiroLab 5.3.1",new Size(1280,820));
             StartPosition=FormStartPosition.CenterScreen; MinimumSize=new Size(780,500);
@@ -456,10 +457,12 @@ namespace SpiroLab.Ui
             try {_exam.ValidateSelection(true);_exam.ValidateReportSelection(true);} catch(Exception ex) {Error(ex.Message);return;}
             if(!SaveExam(false)) return;
             _busy=true;UpdateControls();
+            Exam submitting=_exam;string submittingPath=_path;
             try
             {
-                ExaminationSnapshot snapshot=ExaminationSnapshot.Capture(_exam);
-                ResultPackage package=ResultExport.SaveToDirectory(Path.Combine(Path.GetDirectoryName(_path),"exports"),snapshot);RecordExport(package);
+                ExaminationSnapshot snapshot=ExaminationSnapshot.Capture(submitting);
+                ResultPackage package=ResultExport.SaveToDirectory(Path.Combine(Path.GetDirectoryName(submittingPath),"exports"),snapshot);
+                StoreExport(package,submitting,submittingPath);
                 SubmissionDraft draft=new SubmissionDraft(snapshot,package);
                 draft.ValidateForSubmission();
                 bool already=await Task.Factory.StartNew(delegate
@@ -468,9 +471,9 @@ namespace SpiroLab.Ui
                     bool designatedTest=_testRecord!=null || (!_allowProductionWrites && !string.IsNullOrEmpty(_testNationalId));
                     LiveSubmissionGateway live=_submissionGateway as LiveSubmissionGateway;
                     if(live!=null) live.AllowHistoricalRecord=designatedTest;
-                    if(live==null || !designatedTest) _hline.VerifyLatestRecord(_exam.Patient);
+                    if(live==null || !designatedTest) _hline.VerifyLatestRecord(submitting.Patient);
                     MedicalRecord allowed=SubmissionDestination(draft);
-                    SubmissionCoordinator coordinator=new SubmissionCoordinator(_submissionGateway,_exam.Submission,delegate {ExamStore.Save(_path,_exam);},allowed);
+                    SubmissionCoordinator coordinator=new SubmissionCoordinator(_submissionGateway,submitting.Submission,delegate {ExamStore.Save(submittingPath,submitting);},allowed);
                     coordinator.Submit(draft);
                     return coordinator.AlreadyPresent;
                 });
@@ -478,7 +481,7 @@ namespace SpiroLab.Ui
             }
             catch(HLineException ex) {Error(ex.Message);}
             catch(InvalidOperationException ex) {Error(ex.Message);}
-            catch {Error(_exam.Submission.WriteAttempted?"نتیجهٔ ارسال نامطمئن است؛ وضعیت سایت باید بازخوانی شود.":"ارسال انجام نشد؛ پروندهٔ محلی محفوظ است.");}
+            catch {Error(submitting.Submission.WriteAttempted?"نتیجهٔ ارسال نامطمئن است؛ وضعیت سایت باید بازخوانی شود.":"ارسال انجام نشد؛ پروندهٔ محلی محفوظ است.");}
             finally {_busy=false;UpdateControls();}
         }
         MedicalRecord SubmissionDestination(SubmissionDraft draft)
@@ -491,10 +494,11 @@ namespace SpiroLab.Ui
             }
             return new MedicalRecord {Id=draft.RecordId,PersonId=draft.PersonId,NationalId=draft.NationalId,DateText=draft.RecordDate,Status=draft.RecordStatus};
         }
-        void RecordExport(ResultPackage package)
+        void RecordExport(ResultPackage package) { StoreExport(package,_exam,_path); }
+        void StoreExport(ResultPackage package,Exam exam,string path)
         {
-            _exam.ExportReferences.Add(new ExportReference { SnapshotId=package.SourceSnapshotId,ReportPath=package.ReportPath,DataPath=package.DataPath,CreatedAt=DateTime.Now });
-            try { ExamStore.Save(_path,_exam); } catch(Exception ex) { _dirty=true; Error("فایل‌ها صادر شدند؛ ثبت مسیر خروجی در سابقه انجام نشد: "+ex.Message); }
+            exam.ExportReferences.Add(new ExportReference { SnapshotId=package.SourceSnapshotId,ReportPath=package.ReportPath,DataPath=package.DataPath,CreatedAt=DateTime.Now });
+            try { ExamStore.Save(path,exam); } catch(Exception ex) { _dirty=true; Error("فایل‌ها صادر شدند؛ ثبت مسیر خروجی در سابقه انجام نشد: "+ex.Message); }
         }
         void ClosingForm(object sender,FormClosingEventArgs args)
         {
