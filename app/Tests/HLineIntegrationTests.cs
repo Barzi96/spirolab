@@ -656,7 +656,7 @@ class HLineIntegrationTests
             Exam badSource=Exam(false);badSource.Trials[1].DeviceCaptureSequence=0;
             ExaminationSnapshot badSourceSnapshot=ExaminationSnapshot.Capture(badSource);
             DeviceProvenanceResult badSourceGate=DeviceProvenanceValidator.Validate(badSourceSnapshot);
-            Check(!badSourceGate.Allowed && badSourceGate.Issues.Any(i=>i.Metric=="VEXT" && i.ManeuverId==badSource.Trials[1].ManeuverId),"provenance rejects the exact selected VEXT source when its device block is not associated");
+            Check(!badSourceGate.Allowed && badSourceGate.Issues.Any(i=>i.Metric=="VEXT" && i.ManeuverId==badSource.Trials[1].ManeuverId),"provenance rejects the exact selected VEXT source when its device capture sequence is invalid");
             using(Image selectedJpeg=Image.FromStream(new MemoryStream(selectedDraft.JpegBytes)))
                 Check(selectedJpeg.Width==1800 && selectedJpeg.Height==2546 && ResultExport.JpegQuality==70,"selected VEXT patch keeps JPEG quality 70 and 1800x2546 dimensions");
 
