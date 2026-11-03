@@ -218,6 +218,64 @@ class HLineIntegrationTests
         t.Result=new AnalysisResult {BevAvailable=ml.HasValue,Bev=ml.HasValue?ml.Value/1000.0:0};
         return t;
     }
+    static Exam SelectionExam(int workflow, params Trial[] trials)
+    {
+        Exam e=SpiroLab.Exam.CreateNew(new AppSettings {OperatorName="بازبین آزمایشی"});
+        e.SelectionWorkflowVersion=workflow;
+        foreach(Trial t in trials) e.Trials.Add(t);
+        e.EnsureManeuverIdentities();
+        e.ReportManeuverIds.Clear();
+        e.ReportSelectionManual=true;
+        return e;
+    }
+    static VextSelection SelectedVext(Exam e, params string[] ids)
+    {
+        e.ReportManeuverIds.Clear();
+        foreach(string id in ids) e.ReportManeuverIds.Add(id);
+        return ClinicVext.SelectForExam(e);
+    }
+    static void SelectedVextTests()
+    {
+        Trial m1=VextTrial("m1",1,110),m2=VextTrial("m2",2,132),m3=VextTrial("m3",3,105),m4=VextTrial("m4",4,185);
+        Exam e=SelectionExam(4,m1,m2,m3,m4);
+        VextSelection chosen=SelectedVext(e,"m1","m2","m3");
+        Check(chosen.Available && chosen.ValueMl==132 && chosen.ManeuverId=="m2" && chosen.AcquisitionSequence==2,"selected 110/132/105 gives VEXT 132 with the correct source");
+        m4.Result.Bev=.185; chosen=SelectedVext(e,"m1","m2","m3");
+        Check(chosen.ValueMl==132 && chosen.ManeuverId=="m2","unselected fourth EVol 185 does not change VEXT 132");
+        m4.Result.Bev=.199; chosen=SelectedVext(e,"m1","m2","m3");
+        Check(chosen.ValueMl==132 && chosen.ManeuverId=="m2","unselected fourth EVol 199 does not change VEXT 132");
+        m4.OperatorRejected=true;m4.Result.Bev=.300;chosen=SelectedVext(e,"m1","m2","m4");
+        Check(chosen.ValueMl==132 && chosen.ManeuverId=="m2","a selected rejected maneuver with higher EVol is ignored");
+        m4.OperatorRejected=false;m4.Imported=true;chosen=SelectedVext(e,"m1","m2","m4");
+        Check(chosen.ValueMl==132 && chosen.ManeuverId=="m2","a selected replayed maneuver with higher EVol is ignored");
+
+        Trial d1=VextTrial("d1",1,110),d2=VextTrial("d2",2,132),d3=VextTrial("d3",3,105),d4=VextTrial("d4",4,300);
+        Exam discarded=SelectionExam(4,d1,d2,d3,d4);
+        SelectedVext(discarded,"d1","d2","d4");
+        discarded.DiscardManeuver("d4");
+        Check(ClinicVext.SelectForExam(discarded).ValueMl==132 && !discarded.ReportManeuverIds.Contains("d4"),"a discarded maneuver can neither remain selected nor supply VEXT");
+
+        Trial c1=VextTrial("c1",1,110),c2=VextTrial("c2",2,132),c3=VextTrial("c3",3,105),c4=VextTrial("c4",4,150);
+        Exam changed=SelectionExam(4,c1,c2,c3,c4);
+        Check(SelectedVext(changed,"c1","c2","c3").ValueMl==132,"initial selected set gives VEXT 132");
+        VextSelection replacement=SelectedVext(changed,"c1","c3","c4");
+        Check(replacement.ValueMl==150 && replacement.ManeuverId=="c4" && !changed.ReportManeuverIds.Contains("c2"),"changing the selected three immediately changes VEXT and its source");
+        Check(SelectedVext(changed,"c1","c2","c3").ValueMl==132,"restoring the previous selection restores VEXT 132 without a cached value");
+
+        Trial t1=VextTrial("t1",1,110),t2=VextTrial("t2",2,132),t3=VextTrial("t3",3,199);
+        Exam two=SelectionExam(4,t1,t2,t3);
+        Check(SelectedVext(two,"t1","t2").ValueMl==132,"two selected maneuvers are enough; VEXT uses the higher selected EVol");
+        Check(SelectedVext(two,"t2").ValueMl==132 && SelectedVext(two,"t1").ValueMl==110,"one selected maneuver supplies VEXT without requiring three");
+
+        Exam none=SelectionExam(4,VextTrial("n1",1,200),VextTrial("n2",2,0),VextTrial("n3",3,-5));
+        VextSelection missing=SelectedVext(none,"n1","n2","n3");
+        Check(!missing.Available && missing.ValueMl==0 && missing.ManeuverId.Length==0 && missing.Problem==VextSelection.NoEligibleSelectedProblem,"no eligible EVol in the selected set returns unavailable without a fake zero");
+
+        Exam legacy=SelectionExam(3,VextTrial("l1",1,110),VextTrial("l2",2,132),VextTrial("l3",3,105),VextTrial("l4",4,185));
+        SelectedVext(legacy,"l1","l2","l3");
+        VextSelection historical=ClinicVext.SelectForExam(legacy);
+        Check(historical.Available && historical.ValueMl==185 && historical.ManeuverId=="l4","workflow-3 VEXT keeps its historical all-active-maneuver scope");
+    }
     static void VextRuleTests()
     {
         // Clinic regression examples: highest EVol strictly below 200 mL.
@@ -339,7 +397,13 @@ class HLineIntegrationTests
         for(int i=0;i<5;i++) {e.Trials[i].Result.BevAvailable=evol[i].HasValue;e.Trials[i].Result.Bev=evol[i].HasValue?evol[i].Value/1000.0:0;}
         Trial site=ExamSummary.Build(e.Trials).BestTrial; site.Result.Fet=6;site.Result.Cough=false;
         site.ReviewedVextMl=111;site.ReviewedVextSource="synthetic mock fixture";site.VextReviewer="بازبین آزمایشی";site.VextManuallyReviewed=true;
-        e.SelectSiteManeuver(site.ManeuverId);return e;
+        e.SelectSiteManeuver(site.ManeuverId);
+        // Keep the fixture deterministic for selected-scope VEXT: the first three
+        // trials carry EVol 110/132/105 and the fourth carries 230.
+        e.ReportManeuverIds.Clear();
+        for(int i=0;i<3;i++) e.ReportManeuverIds.Add(e.Trials[i].ManeuverId);
+        e.ReportSelectionManual=true;
+        return e;
     }
     static SubmissionDraft Draft(Exam e) {var s=ExaminationSnapshot.Capture(e);return new SubmissionDraft(s,ResultExport.SaveToDirectory(root,s));}
     static void HttpCookieTest()
@@ -559,11 +623,12 @@ class HLineIntegrationTests
             using(var client=new HLineClient(new MockServer())) using(var login=new HLineLoginForm(client)) Shot(login,"02-hline-login");
             LoginUiTests();
             VextRuleTests();
+            SelectedVextTests();
             VextUiTests();
             OneClickMainTests();
             NormalMainTests();
             Exam exam=Exam(false);exam.SelectSiteManeuver(exam.Trials[0].ManeuverId);SubmissionDraft draft=Draft(exam);
-            VextSelection vx=ClinicVext.Select(exam.Trials); ExamSummary best=ExamSummary.BuildSelected(exam.Trials,exam.ReportManeuverIds);
+            VextSelection vx=ClinicVext.SelectForExam(exam); ExamSummary best=ExamSummary.BuildSelected(exam.Trials,exam.ReportManeuverIds);
             Check(draft.RecordId=="2" && draft.ExaminationDate==new DateTime(2026,10,19) && vx.Available && vx.ValueMl==132 && draft.Fields["vext"]==132 && draft.Fields["vext"]!=111 && draft.Vext.ManeuverId==vx.ManeuverId && draft.ManeuverId==best.BestValues.Fvc.SourceManeuverId,"submission binds exact record, Gregorian date, clinic VEXT and best-FVC source");
             var doc=Json(draft.Snapshot);var bestJson=Obj(doc["bestValues"]);var siteJson=Obj(doc["siteExport"]);var manualVext=Obj(Obj(doc["spirometry"])["VEXT"]);var selectionJson=Obj(doc["vextSelection"]);
             Check(N(Obj(bestJson["fvc"])["value"])==best.BestValues.Fvc.Value.Value && N(Obj(bestJson["fev1"])["value"])==best.BestValues.Fev1.Value.Value && N(Obj(bestJson["fev1Fvc"])["value"])==best.BestValues.Fev1Fvc.Value.Value,"JSON bestValues are the same independent aggregate used by the report");
@@ -571,6 +636,40 @@ class HLineIntegrationTests
             Check(siteJson["status"].ToString()=="retired_single_site_maneuver_use_bestValues" && Obj(siteJson["measurements"]).Count==0,"workflow4 retires the single site export");
             Check(manualVext["value"]==null && manualVext["verificationStatus"].ToString()=="not_validated","legacy per-maneuver review does not become an exam-level manual VEXT");
             Check(selectionJson["rule"].ToString().Contains("EVol") && selectionJson["qualityGate"].ToString().StartsWith("none") && N(selectionJson["valueMl"])==132 && selectionJson["sourceManeuverId"].ToString()==vx.ManeuverId,"clinic rule and quality separation are recorded with provenance");
+
+            // Workflow 4: HLine, JSON and the provenance gate all consume the same
+            // selected-three VEXT source, not the higher unselected EVol values.
+            Exam selectedExam=Exam(false);
+            selectedExam.Trials[3].Result.Bev=.185;selectedExam.Trials[4].Result.BevAvailable=true;selectedExam.Trials[4].Result.Bev=.199;
+            double bestBefore=ExamSummary.BuildSelected(selectedExam.Trials,selectedExam.ReportManeuverIds).Fvc;
+            ExaminationSnapshot selectedSnapshot=ExaminationSnapshot.Capture(selectedExam);
+            VextSelection selectedValue=ClinicVext.SelectForExam(selectedExam);
+            Check(selectedValue.Available && selectedValue.ValueMl==132 && selectedExam.ReportManeuverIds.Contains(selectedValue.ManeuverId),"VEXT is extracted only from the selected three even with higher unselected EVol 185 and 199");
+            Check(Math.Abs(ExamSummary.BuildSelected(selectedExam.Trials,selectedExam.ReportManeuverIds).Fvc-bestBefore)<1e-12,"VEXT selection never changes the selected BEST VALUES");
+            SubmissionDraft selectedDraft=new SubmissionDraft(selectedSnapshot,ResultExport.SaveToDirectory(Path.Combine(root,"selected-vext"),selectedSnapshot));
+            Check(selectedDraft.Fields["vext"]==132 && selectedDraft.Vext.ManeuverId==selectedValue.ManeuverId && selectedDraft.Vext.AcquisitionSequence==selectedValue.AcquisitionSequence,"HLine VEXT matches the selected-three calculation and source");
+            var selectedDoc=Json(selectedSnapshot);var selectedJson=Obj(selectedDoc["vextSelection"]);
+            object[] exportedSelection=(object[])Obj(selectedDoc["reportSelection"])["maneuverIds"];
+            Check(N(selectedJson["valueMl"])==132 && selectedJson["sourceManeuverId"].ToString()==selectedValue.ManeuverId && exportedSelection.Any(x=>Convert.ToString(x)==selectedValue.ManeuverId),"workflow-4 JSON records VEXT value and source from the selected maneuver");
+            Check(selectedJson["scope"].ToString().Contains("selected_max_three") && selectedJson["rule"].ToString().Contains("selected"),"workflow-4 JSON metadata declares selected_max_three scope");
+            Check(DeviceProvenanceValidator.Validate(selectedSnapshot).Allowed,"provenance accepts the selected-three VEXT source");
+            Exam badSource=Exam(false);badSource.Trials[1].DeviceCaptureSequence=0;
+            ExaminationSnapshot badSourceSnapshot=ExaminationSnapshot.Capture(badSource);
+            DeviceProvenanceResult badSourceGate=DeviceProvenanceValidator.Validate(badSourceSnapshot);
+            Check(!badSourceGate.Allowed && badSourceGate.Issues.Any(i=>i.Metric=="VEXT" && i.ManeuverId==badSource.Trials[1].ManeuverId),"provenance rejects the exact selected VEXT source when its device block is not associated");
+            using(Image selectedJpeg=Image.FromStream(new MemoryStream(selectedDraft.JpegBytes)))
+                Check(selectedJpeg.Width==1800 && selectedJpeg.Height==2546 && ResultExport.JpegQuality==70,"selected VEXT patch keeps JPEG quality 70 and 1800x2546 dimensions");
+
+            Exam unselectedInvalid=Exam(false);
+            unselectedInvalid.Trials[3].Result.Bev=.185;unselectedInvalid.Trials[3].DeviceValues=null;
+            ExaminationSnapshot unselectedInvalidSnapshot=ExaminationSnapshot.Capture(unselectedInvalid);
+            Check(ClinicVext.SelectForExam(unselectedInvalid).ValueMl==132 && DeviceProvenanceValidator.Validate(unselectedInvalidSnapshot).Allowed,"an invalid unselected maneuver with higher EVol neither supplies VEXT nor blocks submission");
+
+            Exam legacyExam=Exam(false);legacyExam.SelectionWorkflowVersion=3;legacyExam.Trials[3].Result.Bev=.185;
+            ExaminationSnapshot legacySnapshot=ExaminationSnapshot.Capture(legacyExam);
+            var legacyJson=Obj(Json(legacySnapshot)["vextSelection"]);
+            Check(N(legacyJson["valueMl"])==185 && legacyJson["scope"].ToString()=="active_real_usb_live_maneuvers_only" && legacyJson["rule"].ToString().Contains("real maneuvers of this examination"),"workflow-3 JSON keeps its historical all-active VEXT scope and value");
+
             Check(Math.Abs(draft.Fields["fvc_amount"].Value-best.BestValues.Fvc.Value.Value)<1e-12 && Math.Abs(draft.Fields["fev1_amount"].Value-best.BestValues.Fev1.Value.Value)<1e-12 && Math.Abs(draft.Fields["fev1_fvc_percent"].Value-best.BestValues.Fev1Fvc.Value.Value)<1e-12 && Math.Abs(draft.Fields["fef2575_amount"].Value-best.BestValues.Fef2575.Value.Value)<1e-12 && Math.Abs(draft.Fields["pef_amount"].Value-best.BestValues.Pef.Value.Value)<1e-12,"all five HLine fields use independent session best values, not one radio maneuver");
             byte[] image=draft.JpegBytes;image[0]=0;Check(draft.JpegBytes[0]==255,"exact JPEG bytes retained immutably");
             var other=ExaminationSnapshot.Capture(Exam(false));var otherPackage=ResultExport.SaveToDirectory(root,other);Refuses(delegate {new SubmissionDraft(draft.Snapshot,otherPackage);},"JPG from another snapshot cannot be attached to selected examination");

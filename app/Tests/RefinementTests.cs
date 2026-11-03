@@ -84,7 +84,7 @@ internal static class RefinementTests
             e.DiscardManeuver(removed);
             Check(e.Trials.Count==5 && e.DiscardedTrials.Count==1 && !e.ReportManeuverIds.Contains(removed),"delete removes the maneuver from active collection and final selection");
             Check(e.Trials.All(x=>x.ManeuverId!=removed) && ExamSummary.BuildSelected(e.Trials,e.ReportManeuverIds).Fvc!=4.0,"deleted maneuver cannot contribute to aggregate");
-            Check(ClinicVext.Select(e.Trials).Available==false,"deleted maneuver cannot provide clinic VEXT");
+            Check(ClinicVext.SelectForExam(e).Available==false,"deleted maneuver cannot provide clinic VEXT");
             string archived=Path.Combine(root,"refine-archive.spiro"); ExamStore.Save(archived,e);
             Exam reopened=ExamStore.Load(archived);
             Check(reopened.DiscardedTrials.Count==1 && reopened.DiscardedTrials[0].ManeuverId==removed && reopened.DiscardedTrials[0].DiscardedAt.HasValue,"discarded evidence survives restart outside the active collection");
@@ -112,12 +112,12 @@ internal static class RefinementTests
             Exam vexam=Exam.CreateNew(new AppSettings {OperatorName="refine operator"}); vexam.Patient=p;
             Trial v1=Blow(p,300,3.0,2.0),v2=Blow(p,301,3.2,2.1),v3=Blow(p,302,2.9,1.9);
             foreach(Trial t in new Trial[] {v1,v2,v3}) { t.Simulated=false; t.Imported=false; t.Result.BevAvailable=true; t.Result.Bev=(t==v1?0.110:(t==v2?0.132:0.105)); vexam.AddManeuver(t); }
-            VextSelection beforeDelete=ClinicVext.Select(vexam.Trials);
-            Check(beforeDelete.Available && beforeDelete.ValueMl==132,"active real maneuvers provide clinic VEXT 132");
+            VextSelection beforeDelete=ClinicVext.SelectForExam(vexam);
+            Check(beforeDelete.Available && beforeDelete.ValueMl==132,"selected real maneuvers provide clinic VEXT 132");
             vexam.DiscardManeuver(v2.ManeuverId);
-            Check(ClinicVext.Select(vexam.Trials).ValueMl==110,"deleted VEXT source is excluded without refusing the remaining real maneuvers");
+            Check(ClinicVext.SelectForExam(vexam).ValueMl==110,"deleted VEXT source is excluded without refusing the remaining real maneuvers");
             vexam.RestoreLastDiscarded();
-            Check(ClinicVext.Select(vexam.Trials).ValueMl==132,"undo restores the deleted VEXT source");
+            Check(ClinicVext.SelectForExam(vexam).ValueMl==132,"undo restores the deleted VEXT source");
 
             Exam seqExam=Exam.CreateNew(new AppSettings {OperatorName="sequence operator"}); seqExam.Patient=p;
             Trial s1=Blow(p,400,3.0,2.0),s2=Blow(p,401,3.4,2.3),s3=Blow(p,402,3.8,2.6);
@@ -172,7 +172,7 @@ internal static class RefinementTests
             Check(mainType!=null && product.GetType("SpiroLab.Device.Simulator")==null && product.GetType("SpiroLab.DeploymentSelfTest")==null && product.GetType("SpiroLab.HLine.SubmissionTiming")==null,"production executable has no simulator, self-test or timing subsystem");
             Check(mainType.GetMethod("RunDemoForTest",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)==null && mainType.GetMethod("StartSimulation",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)==null,"production executable has no simulated acquisition entry point");
             Check(product.GetType("SpiroLab.Ui.SettingsForm").GetProperty("RunDevelopmentDemo")==null,"production settings has no development switch");
-            Check(FileVersionInfo.GetVersionInfo(productPath).FileVersion.StartsWith("5.4.3",StringComparison.Ordinal),"production executable carries the release version 5.4.3");
+            Check(FileVersionInfo.GetVersionInfo(productPath).FileVersion.StartsWith("5.4.4",StringComparison.Ordinal),"production executable carries the release version 5.4.4");
             Console.WriteLine("ALL "+checks+" REFINEMENT CHECKS PASSED"); return 0;
         }
         catch(Exception ex) { Console.WriteLine(ex); return 1; }

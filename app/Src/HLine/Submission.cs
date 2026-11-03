@@ -37,7 +37,7 @@ namespace SpiroLab.HLine
             SimulatedOrReplay=e.Trials.Exists(delegate(Trial trial) {return trial.Simulated || trial.Imported;});
             ParameterReviewRequired=!best.Fvc.Available || !best.Fev1.Available || !best.Fev1Fvc.Available || e.Patient.SexUnconfirmed;
             fields["fvc_amount"]=best.Fvc.Value;fields["fev1_amount"]=best.Fev1.Value;fields["fev1_fvc_percent"]=best.Fev1Fvc.Value;fields["fef2575_amount"]=best.Fef2575.Value;fields["pef_amount"]=best.Pef.Value;
-            Vext=ClinicVext.Select(e.Trials);
+            Vext=ClinicVext.SelectForExam(e);
             fields["vext"]=Vext.Available?(double?)Vext.ValueMl:null;
             fields["fvc_percent"]=best.Fvc.PercentPredicted;
             fields["fev1_percent"]=best.Fev1.PercentPredicted;

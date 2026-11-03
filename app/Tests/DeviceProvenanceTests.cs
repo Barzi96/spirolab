@@ -101,7 +101,7 @@ class DeviceProvenanceTests
         ExaminationSnapshot s=ExaminationSnapshot.Capture(e);
         bool isBestSource=false;foreach(string id in Summary(s).BestValues.SourceManeuverIds) if(id==third.ManeuverId) isBestSource=true;
         Check(!isBestSource,"P-01 the fixture third maneuver supplies no BEST VALUE");
-        Check(ClinicVext.Select(Data(s).Trials).ManeuverId!=third.ManeuverId,"P-01 the fixture third maneuver is not the VEXT source");
+        Check(ClinicVext.SelectForExam(Data(s)).ManeuverId!=third.ManeuverId,"P-01 the fixture third maneuver is not the VEXT source");
         DeviceProvenanceResult result=Validate(s);
         bool cited=false;foreach(DeviceProvenanceIssue issue in result.Issues) if(issue.ManeuverId==third.ManeuverId) cited=true;
         Check(!result.Allowed && cited,"P-01 a selected maneuver without a valid device result is rejected and identified");
@@ -238,18 +238,19 @@ class DeviceProvenanceTests
             Reject("SoftwareCalculated primary values are rejected",missing,DeviceProvenanceCode.MissingDirectDeviceData);
             Check(Summary(vs).BestValues.Fef2575.Source==MeasurementSource.SoftwareCalculated && Validate(vs).Allowed,"FEF25-75 may remain a software calculation from the valid curve");
 
-            // 16/17. VEXT from a valid fourth maneuver is allowed; an invalid
-            // fourth-maneuver source stops the write.
+            // 16/17. Workflow 4 draws VEXT only from the selected three. A higher
+            // fourth EVol, valid or invalid, can neither raise VEXT nor block a
+            // submission whose selected three are complete.
             Exam four=ValidExam(4);SelectFirstThree(four);Trial outside=four.Trials[3];outside.Result.Bev=0.180;
             ExaminationSnapshot fourSnap=ExaminationSnapshot.Capture(four);
-            VextSelection selectedVext=ClinicVext.Select(Data(fourSnap).Trials);
-            Check(Data(fourSnap).ReportManeuverIds.Count==3 && selectedVext.ManeuverId==outside.ManeuverId,"VEXT can come from a valid active maneuver outside the selected three");
-            Check(Validate(fourSnap).Allowed,"valid out-of-three VEXT source passes");
+            VextSelection selectedVext=ClinicVext.SelectForExam(Data(fourSnap));
+            Check(Data(fourSnap).ReportManeuverIds.Count==3 && selectedVext.Available && selectedVext.ValueMl==110 && selectedVext.ManeuverId!=outside.ManeuverId,"workflow-4 VEXT ignores a higher fourth EVol outside the selected three");
+            Check(Validate(fourSnap).Allowed,"a valid unselected fourth maneuver does not affect the selected-three gate");
 
             Exam badVext=ValidExam(4);SelectFirstThree(badVext);Trial badOutside=badVext.Trials[3];badOutside.Result.Bev=0.180;badOutside.DeviceValues=null;
             ExaminationSnapshot badVextSnap=ExaminationSnapshot.Capture(badVext);
-            Check(ClinicVext.Select(Data(badVextSnap).Trials).ManeuverId==badOutside.ManeuverId,"invalid VEXT source is still selected by the unchanged clinic rule");
-            Reject("unverified VEXT source stops the submission",badVextSnap,null);
+            Check(ClinicVext.SelectForExam(Data(badVextSnap)).ManeuverId!=badOutside.ManeuverId,"an invalid unselected fourth maneuver is never the VEXT source");
+            Check(Validate(badVextSnap).Allowed,"an unselected maneuver without device data cannot block an otherwise valid three-maneuver submission");
 
             // 18-20. The gate runs before any upload/POST and before the journal
             // is durably marked as write-attempted.

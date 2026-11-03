@@ -224,7 +224,7 @@ namespace SpiroLab
 
         static void CheckVext(DeviceProvenanceResult result, Exam exam)
         {
-            VextSelection vext = ClinicVext.Select(exam.Trials);
+            VextSelection vext = ClinicVext.SelectForExam(exam);
             if (!vext.Available)
             {
                 result.Reject(DeviceProvenanceCode.IncompleteOrInconsistentData, "VEXT", null, "vext_unavailable");
