@@ -179,7 +179,7 @@ namespace SpiroLab.Ui
 #endif
             btnStop=MakeButton("لغو مانور",delegate { StopTest(); },false); btnReport=MakeButton("ارسال به سایت",async delegate { await SendSite(); },false);
             ContextMenuStrip localMenu=new ContextMenuStrip();localMenu.Items.Add("ذخیره JPG + JSON",null,delegate {ShowReport();});btnReport.ContextMenuStrip=localMenu; _tips.SetToolTip(btnReport,"بازبینی ارسال؛ کلیک راست برای خروجی محلی JPG + JSON");
-            _tips.SetToolTip(btnStop,"دریافت مانور را با فرمان ESC لغو می‌کند؛ دادهٔ ناقص فقط برای مشاهده نگه داشته می‌شود.");
+            _tips.SetToolTip(btnStop,"دریافت مانور را با فرمان ESC لغو می‌کند؛ پایان معتبر و ثبت نتیجه نیست. دادهٔ خام در سابقهٔ تشخیصی نگه داشته می‌شود.");
             actions.Controls.AddRange(new Control[] {btnStart,btnStop,btnReport}); root.Controls.Add(actions,0,4);
             lblStatus=ClinicalStyle.Label("آماده"); lblStatus.Font=new Font("Tahoma",8.5f); lblStatus.ForeColor=Color.FromArgb(104,121,137); root.Controls.Add(lblStatus,0,5);
             root.Layout+=delegate
@@ -356,14 +356,12 @@ namespace SpiroLab.Ui
                 // Keep the raw attempt only as separate local diagnostic evidence.
                 _exam.RecordFailedCapture(t);
                 _dirty=true;
-                bool showCurve=t.Flow!=null && t.Flow.Count>=2 && SpiroLab.Expiration.From(t).Count>=2;
-                if(showCurve) { chart.Trial=t; chart.Result=null; chart.VisibleSamples=-1; }
-                else { chart.Trial=null; chart.Result=null; chart.VisibleSamples=0; }
-                RenderTrials(); SaveExam(false); UpdateControls();
+                chart.Trial=null; chart.Result=null; chart.VisibleSamples=0;
+                RenderTrials(); RestorePrimaryPreview(); SaveExam(false); UpdateControls();
                 if(t.OperatorStopped)
-                    Error(showCurve?"مانور متوقف شد. نمودار ناقص فقط برای مشاهده حفظ شده و نتیجه معتبر دستگاه دریافت نشده است.":"مانور متوقف شد؛ نمونهٔ کافی برای رسم منحنی دریافت نشد و نتیجه معتبر دستگاه هم ثبت نشد.");
+                    Error("مانور لغو شد؛ نتیجه معتبر دستگاه ثبت نشد. دادهٔ خام فقط در سابقهٔ تشخیصی نگهداری شد و این تلاش قابل ارسال نیست.");
                 else
-                    Error(showCurve?"نتیجه معتبر دستگاه دریافت نشد. نمودار ناقص فقط برای مشاهده حفظ شده و این مانور قابل ارسال نیست؛ لطفاً مانور را تکرار کنید.":"نتیجه مانور از دستگاه دریافت نشد و نمونهٔ کافی برای نمایش منحنی وجود ندارد؛ لطفاً مانور را تکرار کنید.");
+                    Error("نتیجه مانور از دستگاه دریافت نشد؛ لطفاً مانور را تکرار کنید.");
                 return;
             }
             _exam.AddManeuver(t); _dirty=true; _selected=t;

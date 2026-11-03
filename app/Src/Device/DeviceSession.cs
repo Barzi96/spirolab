@@ -253,8 +253,8 @@ namespace SpiroLab.Device
             }
         }
 
-        // Called exclusively by the acquisition worker. ESC is an abort,
-        // never an end-of-test command: it discards the device result buffer.
+        // Called exclusively by the acquisition worker. Treat ESC as abort:
+        // completion and LAST association after ESC have not been established.
         public CaptureOutcome Capture(Trial trial, Func<bool> stop, Action<DevicePacket> packet)
         {
             CaptureOutcome outcome = new CaptureOutcome();
@@ -307,7 +307,7 @@ namespace SpiroLab.Device
             return outcome;
         }
 
-        /// <summary>Abort a running maneuver (Cod_ESC). Results are discarded.</summary>
+        /// <summary>Abort a running maneuver (Cod_ESC). No result is accepted after abort.</summary>
         public void AbortTest()
         {
             lock (_lock)

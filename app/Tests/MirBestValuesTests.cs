@@ -16,6 +16,8 @@ namespace MirBestValuesTests
         public bool IsOpen {get;private set;}
         public string DevicePath {get{return "fixture";}}
         public byte[] Block;
+        public int PacketReads, Aborts, ResultReads;
+        public Action Completing;
         int packet;
         public bool Open(out string error) { error=null; IsOpen=true; return true; }
         public void Close() { IsOpen=false; }
@@ -26,26 +28,29 @@ namespace MirBestValuesTests
             byte[] text=System.Text.Encoding.ASCII.GetBytes("SPIROLAB J22889");
             Array.Copy(text,b,text.Length); return b;
         }
-        public bool WaitReady(int timeoutMs) { packet=0; return true; }
+        public bool WaitReady(int timeoutMs) { packet=0; PacketReads=0; return true; }
         public byte[] Get(byte command,int length)
         {
             if(command==0x08) return new byte[] {0x40,0,0x14};
             if(command==0x01)
             {
+                PacketReads++;
                 if(packet++==0) return new byte[] {0x10,0,200};
                 if(packet==2) return new byte[] {0x10,0,210};
+                if(Completing!=null) Completing();
                 return new byte[] {0x04,0,0};
             }
             return null;
         }
-        public bool Send(byte command) { return true; }
-        public byte[] ReadBlock(byte command,int attempts,int delayMs) { return Block; }
+        public bool Send(byte command) { if(command==0x1B) Aborts++; return true; }
+        public byte[] ReadBlock(byte command,int attempts,int delayMs) { ResultReads++; return Block; }
     }
 
     static class Program
     {
         static int checks;
         static string root;
+        static bool requirePendingEnd;
         static void Check(bool ok,string name) { checks++; if(!ok) throw new Exception(name); Console.WriteLine("PASS "+name); }
         static void Near(double? actual,double expected,string name) { Check(actual.HasValue && Math.Abs(actual.Value-expected)<0.05,name+" ("+(actual.HasValue?actual.Value.ToString("R"):"null")+")"); }
         static Dictionary<string,object> Obj(object o) { return (Dictionary<string,object>)o; }
@@ -91,6 +96,7 @@ namespace MirBestValuesTests
             try
             {
                 root=Path.GetFullPath(args[0]); Directory.CreateDirectory(root);
+                requirePendingEnd=args.Length>1 && args[1]=="--require-pending-end";
                 Patient p=new Patient { Age=41,HeightCm=182,WeightKg=78,Sex=Sex.Male,Origin=Origin.Caucasian,NationalId="0000000001",FirstName="synthetic",LastName="fixture",HLinePersonId="P-TEST",HLineRecordId="R-TEST",HLineRecordDate="2026/11/01",HLineRecordStatus="complete" };
                 FixtureTests(p);
                 IndependentBestTests(p);
@@ -201,6 +207,32 @@ namespace MirBestValuesTests
 
         static void DeviceSessionTests()
         {
+            FixtureTransport pending=new FixtureTransport {Block=DeviceBlock(4.78,1.81,1.92,7.20)};
+            using(DeviceSession session=new DeviceSession(pending))
+            {
+                string error; Check(session.Connect(out error),"pending-end fixture connects");
+                Trial trial=new Trial();
+                CaptureOutcome stopped=session.Capture(trial,delegate {return pending.PacketReads>=2;},trial.Packets.Add);
+                // Characterization of an unresolved bug; the opt-in acceptance must stay red until it is fixed.
+                Check(!stopped.Completed && stopped.Results==null && pending.Aborts==1 && pending.ResultReads==0 && pending.PacketReads==2,
+                    "LIMITATION reproduced: stop skips queued 0x04 and aborts without reading LAST");
+                Check(!session.ReadResults().Present && pending.ResultReads==0,
+                    "ReadResults after abort cannot associate a stale block with this capture");
+                if(requirePendingEnd)
+                    Check(stopped.Completed && stopped.Results!=null && stopped.Results.Present && pending.Aborts==0,
+                        "acceptance: stop before polling queued 0x04 preserves the completed maneuver");
+            }
+            bool stop=false;
+            FixtureTransport completing=new FixtureTransport {Block=DeviceBlock(4.78,1.81,1.92,7.20),Completing=delegate {stop=true;}};
+            using(DeviceSession session=new DeviceSession(completing))
+            {
+                string error; Check(session.Connect(out error),"in-flight-end fixture connects");
+                Trial trial=new Trial();
+                CaptureOutcome completed=session.Capture(trial,delegate {return stop;},trial.Packets.Add);
+                Check(stop && completed.Completed && completed.Results.Present && completed.Results.CaptureSequence==trial.DeviceCaptureSequence && completing.Aborts==0 && completing.ResultReads==1,
+                    "stop during the read returning 0x04 preserves the capture-bound four-field result");
+                Check(trial.Packets.Exists(delegate(DevicePacket p) {return p.Type==0x04;}),"in-flight completion packet is retained in raw evidence");
+            }
             FixtureTransport usb=new FixtureTransport();
             using(DeviceSession session=new DeviceSession(usb))
             {
