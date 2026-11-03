@@ -19,8 +19,11 @@ namespace MirBestValuesTests
         public byte[] Block;
         public int PacketReads, Aborts, ResultReads;
         public Action Completing;
-        public bool Idle, FailReads;
-        int packet;
+        public bool Idle, FailReads, RequireFinishEsc, FailEsc;
+        public bool Ready=true;
+        public int Starts, EmptyPollsAfterEsc;
+        public List<byte> Commands=new List<byte>();
+        int packet, escAtStart;
         public bool Open(out string error) { error=null; IsOpen=true; return true; }
         public void Close() { IsOpen=false; }
         public byte State() { return 0; }
@@ -30,24 +33,26 @@ namespace MirBestValuesTests
             byte[] text=System.Text.Encoding.ASCII.GetBytes("SPIROLAB J22889");
             Array.Copy(text,b,text.Length); return b;
         }
-        public bool WaitReady(int timeoutMs) { packet=0; PacketReads=0; return true; }
+        public bool WaitReady(int timeoutMs) { if(!Ready) return false; packet=0; PacketReads=0; escAtStart=Aborts; return true; }
         public byte[] Get(byte command,int length)
         {
-            if(command==0x08) return new byte[] {0x40,0,0x14};
+            Commands.Add(command);
+            if(command==0x08) {Starts++; return new byte[] {0x40,0,0x14};}
             if(command==0x01)
             {
                 PacketReads++;
                 if(FailReads) return null;
                 if(packet++==0) return new byte[] {0x10,0,200};
                 if(packet==2) return new byte[] {0x10,0,210};
-                if(Idle) return new byte[] {0xFF,0,0};
+                if(Idle || (RequireFinishEsc && Aborts==escAtStart)) return new byte[] {0xFF,0,0};
+                if(Aborts>escAtStart && EmptyPollsAfterEsc-->0) return new byte[] {0xFF,0,0};
                 if(Completing!=null) Completing();
                 return new byte[] {0x04,0,0};
             }
             return null;
         }
-        public bool Send(byte command) { if(command==0x1B) Aborts++; return true; }
-        public byte[] ReadBlock(byte command,int attempts,int delayMs) { ResultReads++; return Block; }
+        public bool Send(byte command) { Commands.Add(command); if(command==0x1B) {Aborts++;return !FailEsc;} return true; }
+        public byte[] ReadBlock(byte command,int attempts,int delayMs) { Commands.Add(command); ResultReads++; return Block; }
     }
 
     static class Program
@@ -211,21 +216,39 @@ namespace MirBestValuesTests
 
         static void DeviceSessionTests()
         {
-            FixtureTransport pending=new FixtureTransport {Block=DeviceBlock(4.78,1.81,1.92,7.20)};
+            FixtureTransport pending=new FixtureTransport {RequireFinishEsc=true,Block=DeviceBlock(4.78,1.81,1.92,7.20)};
             using(DeviceSession session=new DeviceSession(pending))
             {
                 string error; Check(session.Connect(out error),"pending-end fixture connects");
                 Trial trial=new Trial();
                 CaptureOutcome stopped=session.Capture(trial,delegate {return pending.PacketReads>=2;},delegate {return false;},trial.Packets.Add);
-                Check(stopped.Completed && !stopped.Cancelled && stopped.Results.Present && pending.Aborts==0 && pending.ResultReads==1 && pending.PacketReads==3,
-                    "finish request reads queued 0x04 and the same capture LAST without ESC");
+                Check(stopped.Completed && !stopped.Cancelled && stopped.Results!=null && stopped.Results.Present && pending.Aborts==1 && pending.ResultReads==1 && pending.PacketReads==3,
+                    "manual finish sends one ESC, keeps polling for real 0x04 and reads capture-bound LAST");
                 Near(stopped.Results.Fvc,4.78,"pending-end FVC comes from LAST"); Near(stopped.Results.Fev1,1.81,"pending-end FEV1 comes from LAST");
                 Near(stopped.Results.Pef,1.92,"pending-end PEF comes from LAST"); Near(stopped.Results.Fet,7.20,"pending-end FET comes from LAST");
                 Check(!session.ReadResults().Present && pending.ResultReads==1,
                     "pending-end LAST remains a single read for this capture");
+                Check(pending.Commands.Count==6 && pending.Commands[3]==0x1B && pending.Commands[4]==0x01 && pending.Commands[5]==0xA2,
+                    "manual finish command order is ESC, packet read, then LAST after completion");
                 if(requirePendingEnd)
-                    Check(stopped.Completed && stopped.Results!=null && stopped.Results.Present && pending.Aborts==0,
-                        "acceptance: stop before polling queued 0x04 preserves the completed maneuver");
+                    Check(stopped.Completed && stopped.Results!=null && stopped.Results.Present && pending.Aborts==1,
+                        "acceptance: finish ESC followed by real 0x04 preserves the completed maneuver");
+                CaptureOutcome duplicate=session.Capture(new Trial(),delegate {return true;},delegate {return false;},delegate(DevicePacket p) {});
+                Check(duplicate.Completed && !duplicate.Results.Present && duplicate.Results.InvalidReason=="stale_duplicate_cod_LAST_block" && pending.Aborts==2,
+                    "manual finish rejects the previous maneuver duplicate LAST without another finish ESC");
+                pending.Block=DeviceBlock(4.95,2.15,2.60,8.10);
+                CaptureOutcome next=session.Capture(new Trial(),delegate {return true;},delegate {return false;},delegate(DevicePacket p) {});
+                Check(next.Completed && next.Results.Present && next.Results.CaptureSequence==3 && pending.Aborts==3 && pending.Starts==3,
+                    "next ready maneuver gets its own fresh LAST after manual finish");
+            }
+            FixtureTransport repeated=new FixtureTransport {RequireFinishEsc=true,EmptyPollsAfterEsc=4,Block=DeviceBlock(4.78,1.81,1.92,7.20)};
+            using(DeviceSession session=new DeviceSession(repeated))
+            {
+                string error; session.Connect(out error); int finishRequests=0;
+                CaptureOutcome result=session.Capture(new Trial(),delegate {finishRequests++;return true;},delegate {return false;},delegate(DevicePacket p) {});
+                Check(result.Completed && result.Results.Present && finishRequests>4 && repeated.Aborts==1 && repeated.ResultReads==1,
+                    "repeated finish requests across delayed polls send exactly one ESC");
+                Check(repeated.Commands.TrueForAll(delegate(byte c) {return c==0x08 || c==0x01 || c==0x1B || c==0xA2;}),"manual finish adds no CAN or unknown USB command");
             }
             bool stop=false;
             FixtureTransport completing=new FixtureTransport {Block=DeviceBlock(4.78,1.81,1.92,7.20),Completing=delegate {stop=true;}};
@@ -245,16 +268,31 @@ namespace MirBestValuesTests
                 CaptureOutcome timedOut=session.Capture(trial,delegate {return idle.PacketReads>=2;},delegate {return false;},trial.Packets.Add);
                 Check(!timedOut.Completed && timedOut.Cancelled && timedOut.Results==null && idle.Aborts==1 && idle.ResultReads==0 && trial.Packets.Count==2,
                     "no 0x04 expires finish wait, aborts and preserves raw samples without fabricated LAST");
-                Check(watch.Elapsed.TotalSeconds>=4.8 && watch.Elapsed.TotalSeconds<9,"finish wait is bounded to five seconds with responsive mock transport");
+                Check(watch.Elapsed.TotalSeconds>=9.8 && watch.Elapsed.TotalSeconds<14 && !idle.IsOpen,"finish wait is bounded to ten seconds after ESC and closes an unconfirmed session");
                 Check(!session.ReadResults().Present && idle.ResultReads==0,"timeout cannot associate stale LAST with cancelled maneuver");
+                idle.Ready=false; session.Connect(out error);
+                CaptureOutcome notReady=session.Capture(new Trial(),delegate {return false;},delegate(DevicePacket p) {});
+                Check(!notReady.Completed && idle.Starts==1 && idle.ResultReads==0,"after failed finish a device that is not ready cannot start the next FVC");
+                idle.Ready=true; idle.Idle=false; idle.RequireFinishEsc=true; idle.Block=DeviceBlock(4.95,2.15,2.60,8.10);
+                CaptureOutcome recovered=session.Capture(new Trial(),delegate {return true;},delegate {return false;},delegate(DevicePacket p) {});
+                Check(recovered.Completed && recovered.Results.Present && recovered.Results.CaptureSequence==2 && idle.Starts==2,
+                    "after reconnect and ready confirmation a new maneuver can complete with fresh LAST");
             }
             FixtureTransport cancelled=new FixtureTransport {Idle=true};
             using(DeviceSession session=new DeviceSession(cancelled))
             {
                 string error; session.Connect(out error);
                 CaptureOutcome aborted=session.Capture(new Trial(),delegate {return true;},delegate {return cancelled.PacketReads>=4;},delegate(DevicePacket p) {});
-                Check(aborted.Cancelled && !aborted.Completed && aborted.Results==null && cancelled.Aborts==1 && cancelled.ResultReads==0 && cancelled.PacketReads==4,
+                Check(aborted.Cancelled && !aborted.Completed && aborted.Results==null && cancelled.Aborts==2 && cancelled.ResultReads==0 && cancelled.PacketReads==4,
                     "immediate cancel remains available during finish wait without waiting for its deadline");
+            }
+            FixtureTransport sendFailure=new FixtureTransport {FailEsc=true};
+            using(DeviceSession session=new DeviceSession(sendFailure))
+            {
+                string error; session.Connect(out error);
+                CaptureOutcome failed=session.Capture(new Trial(),delegate {return true;},delegate {return false;},delegate(DevicePacket p) {});
+                Check(!failed.Completed && failed.Results==null && failed.Reason.Contains("ارسال فرمان پایان دستی") && sendFailure.Aborts==1 && sendFailure.ResultReads==0 && !sendFailure.IsOpen,
+                    "failed manual ESC send reports the cause and disconnects without retry or fabricated result");
             }
             FixtureTransport disconnected=new FixtureTransport {FailReads=true};
             using(DeviceSession session=new DeviceSession(disconnected))

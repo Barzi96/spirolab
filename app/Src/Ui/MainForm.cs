@@ -59,7 +59,7 @@ namespace SpiroLab.Ui
             _hline=hline;_submissionGateway=submissionGateway??(hline.CanWrite?new LiveSubmissionGateway(hline):null);_testRecord=designatedTestRecord;
             _allowProductionWrites=designatedTestRecord==null;
             _settings=AppSettings.Load(); _exam=Exam.CreateNew(_settings); _hline.PreferredFirefoxProfile=_settings.FirefoxProfile;
-            ClinicalStyle.Form(this,"اسپیرومتری طب کار — SpiroLab "+SpiroReport.ProductVersion+" — آماده آزمون میدانی پایان مانور",new Size(1280,820));
+            ClinicalStyle.Form(this,"اسپیرومتری طب کار — SpiroLab "+SpiroReport.ProductVersion,new Size(1280,820));
             StartPosition=FormStartPosition.CenterScreen; MinimumSize=new Size(780,500);
             BuildUi(); PopulateMetadata(); _device.Line+=AppendLog;
             _timer=new System.Windows.Forms.Timer { Interval=50 }; _timer.Tick+=Tick;
@@ -181,7 +181,7 @@ namespace SpiroLab.Ui
             btnStop=MakeButton("لغو",delegate { StopTest(); },false); btnReport=MakeButton("ارسال به سایت",async delegate { await SendSite(); },false);
             ContextMenuStrip localMenu=new ContextMenuStrip();localMenu.Items.Add("ذخیره JPG + JSON",null,delegate {ShowReport();});btnReport.ContextMenuStrip=localMenu; _tips.SetToolTip(btnReport,"بازبینی ارسال؛ کلیک راست برای خروجی محلی JPG + JSON");
             _tips.SetToolTip(btnStop,"دریافت مانور را با فرمان ESC لغو می‌کند؛ پایان معتبر و ثبت نتیجه نیست. دادهٔ خام در سابقهٔ تشخیصی نگه داشته می‌شود.");
-            _tips.SetToolTip(btnFinish,"تا ۵ ثانیه در انتظار پایان رسمی دستگاه می‌ماند؛ فرمان USB جدیدی ارسال نمی‌شود و لغو در دسترس می‌ماند.");
+            _tips.SetToolTip(btnFinish,"فرمان ESC یک بار ارسال می‌شود؛ تا ۱۰ ثانیه منتظر پیام پایان دستگاه می‌ماند. لغو فعال است.");
             actions.Controls.AddRange(new Control[] {btnStart,btnFinish,btnStop,btnReport}); root.Controls.Add(actions,0,4);
             lblStatus=ClinicalStyle.Label("آماده"); lblStatus.Font=new Font("Tahoma",8.5f); lblStatus.ForeColor=Color.FromArgb(104,121,137); root.Controls.Add(lblStatus,0,5);
             root.Layout+=delegate
@@ -368,7 +368,22 @@ namespace SpiroLab.Ui
                 _dirty=true;
                 chart.Trial=null; chart.Result=null; chart.VisibleSamples=0;
                 RenderTrials(); RestorePrimaryPreview(); SaveExam(false); UpdateControls();
-                if(t.OperatorStopped)
+                if(_finishRequested && !_stop)
+                {
+                    string reason=!string.IsNullOrEmpty(t.CaptureError)?t.CaptureError:t.EndReason;
+                    if(string.IsNullOrEmpty(reason))
+                    {
+                        string code=t.DeviceValues==null?"cod_LAST_not_available":t.DeviceValues.InvalidReason;
+                        if(code=="stale_duplicate_cod_LAST_block") reason="بلوک نتیجه با مانور قبلی یکسان است و به این مانور نسبت داده نشد.";
+                        else if(code=="truncated_cod_LAST_block") reason="بلوک نتیجه دستگاه ناقص دریافت شد.";
+                        else if(code=="cod_LAST_not_available") reason="پس از پیام پایان، بلوک نتیجه از دستگاه دریافت نشد.";
+                        else if(code=="cod_LAST_required_core_field_missing_or_outside_supported_ranges") reason="حداقل یکی از چهار مقدار اصلی دستگاه موجود یا در دامنهٔ معتبر نیست.";
+                        else if(code!=null && code.StartsWith("result_read_window_expired",StringComparison.Ordinal)) reason="بلوک نتیجه در مهلت معتبر خواندن دریافت نشد.";
+                        else { reason=ManeuverAssessment.Assess(t).Problem; if(string.IsNullOrEmpty(reason)) reason="انتساب نتیجه یا سلامت دادهٔ این مانور تأیید نشد."; }
+                    }
+                    Error("پایان دستی ناموفق: "+reason+" این تلاش فقط برای عیب‌یابی نگه داشته شد و قابل ارسال نیست.");
+                }
+                else if(t.OperatorStopped)
                     Error("مانور لغو شد؛ نتیجه معتبر دستگاه ثبت نشد. دادهٔ خام فقط در سابقهٔ تشخیصی نگهداری شد و این تلاش قابل ارسال نیست.");
                 else
                     Error("نتیجه مانور از دستگاه دریافت نشد؛ لطفاً مانور را تکرار کنید.");

@@ -213,6 +213,16 @@ internal static class RefinementTests
                 Check(!ManeuverAssessment.Assess(limited).QualityScreenPassed,"four device values do not override the unchanged scientific quality screen");
                 limited.Completed=false; plot.Trial=limited; plot.Result=limited.Result;
                 Check(Call(plot,"MarkerValue",Metric.Pef)==null && Call(plot,"MarkerValue",Metric.Fev1)==null,"cancelled maneuver has no official chart markers even if a block is attached");
+                Trial staleManual=official.Clone(); staleManual.ManeuverId=Guid.NewGuid().ToString("N"); staleManual.EndReason="";
+                staleManual.DeviceValues.Present=false; staleManual.DeviceValues.InvalidReason="stale_duplicate_cod_LAST_block";
+                Set(form,"_finishRequested",true); Set(form,"_active",staleManual); Call(form,"FinishTrial");
+                Check(ui.Trials.Count==1 && ui.FailedCaptures.Contains(staleManual) && ((Label)Field(form,"lblStatus")).Text.Contains("بلوک نتیجه با مانور قبلی یکسان") && ((Label)Field(form,"lblStatus")).Text.Contains("قابل ارسال نیست"),
+                    "manual duplicate LAST gives a precise Persian cause and stays outside the clinical table");
+                Trial timedOutManual=official.Clone(); timedOutManual.ManeuverId=Guid.NewGuid().ToString("N"); timedOutManual.Completed=false; timedOutManual.OperatorStopped=true; timedOutManual.DeviceValues=null;
+                timedOutManual.EndReason="تا ۱۰ ثانیه پس از فرمان پایان دستی، پیام پایان دستگاه دریافت نشد.";
+                Set(form,"_active",timedOutManual); Call(form,"FinishTrial");
+                Check(ui.Trials.Count==1 && ui.FailedCaptures.Contains(timedOutManual) && ((Label)Field(form,"lblStatus")).Text.Contains(timedOutManual.EndReason),
+                    "manual finish timeout shows the exact protocol failure cause and retains diagnostics only");
             }
             string productPath=Path.GetFullPath(Path.Combine("release","SpiroLab.exe"));
             Assembly product=Assembly.LoadFile(productPath);
@@ -220,7 +230,7 @@ internal static class RefinementTests
             Check(mainType!=null && product.GetType("SpiroLab.Device.Simulator")==null && product.GetType("SpiroLab.DeploymentSelfTest")==null && product.GetType("SpiroLab.HLine.SubmissionTiming")==null,"production executable has no simulator, self-test or timing subsystem");
             Check(mainType.GetMethod("RunDemoForTest",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)==null && mainType.GetMethod("StartSimulation",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)==null,"production executable has no simulated acquisition entry point");
             Check(product.GetType("SpiroLab.Ui.SettingsForm").GetProperty("RunDevelopmentDemo")==null,"production settings has no development switch");
-            Check(FileVersionInfo.GetVersionInfo(productPath).FileVersion.StartsWith("5.4.5",StringComparison.Ordinal),"production executable carries the release version 5.4.5");
+            Check(FileVersionInfo.GetVersionInfo(productPath).FileVersion.StartsWith("5.4.6",StringComparison.Ordinal),"production executable carries the release version 5.4.6");
             Console.WriteLine("ALL "+checks+" REFINEMENT CHECKS PASSED"); return 0;
         }
         catch(Exception ex) { Console.WriteLine(ex); return 1; }

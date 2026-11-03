@@ -253,8 +253,8 @@ namespace SpiroLab.Device
             }
         }
 
-        // Called exclusively by the acquisition worker. Treat ESC as abort:
-        // completion and LAST association after ESC have not been established.
+        // The acquisition worker owns USB: manual finish sends ESC and keeps
+        // polling for 0x04; cancellation discards the result independently.
         public CaptureOutcome Capture(Trial trial, Func<bool> stop, Action<DevicePacket> packet)
         { return Capture(trial,delegate { return false; },stop,packet); }
 
@@ -262,6 +262,7 @@ namespace SpiroLab.Device
         {
             CaptureOutcome outcome = new CaptureOutcome();
             bool started = false;
+            bool finishEscSent = false;
             bool communicationFailed = false;
             try
             {
@@ -279,11 +280,21 @@ namespace SpiroLab.Device
                 while (true)
                 {
                     if(stop()) { outcome.Cancelled=true; outcome.Reason="توقف توسط کاربر"; break; }
-                    if(finish() && double.IsPositiveInfinity(finishDeadline)) finishDeadline=watch.Elapsed.TotalSeconds+5;
-                    if(watch.Elapsed.TotalSeconds>=Math.Min(45,finishDeadline))
+                    if(finish() && !finishEscSent)
                     {
-                        outcome.Cancelled=!double.IsPositiveInfinity(finishDeadline);
-                        outcome.Reason=outcome.Cancelled?"دستگاه پایان مانور را در مهلت انتظار اعلام نکرد؛ مانور لغو شد.":"پایان مهلت ۴۵ ثانیه‌ای";
+                        lock(_lock)
+                        {
+                            finishEscSent=true;
+                            Log("manual finish ESC send capture="+captureSequence);
+                            if(!_usb.Send(0x1B)) throw new IOException("ارسال فرمان پایان دستی به دستگاه موفق نشد.");
+                            Log("manual finish ESC sent; continuing packet reads capture="+captureSequence);
+                        }
+                        finishDeadline=watch.Elapsed.TotalSeconds+10;
+                    }
+                    if(watch.Elapsed.TotalSeconds>=(finishEscSent?finishDeadline:45))
+                    {
+                        outcome.Cancelled=finishEscSent;
+                        outcome.Reason=finishEscSent?"تا ۱۰ ثانیه پس از فرمان پایان دستی، پیام پایان دستگاه دریافت نشد؛ تلاش ناموفق است و اتصال باید دوباره بررسی شود.":"پایان مهلت ۴۵ ثانیه‌ای";
                         break;
                     }
                     byte type; int raw;
@@ -312,7 +323,20 @@ namespace SpiroLab.Device
             catch (Exception ex) { outcome.Completed = false; outcome.Reason = ex.Message; communicationFailed = ex is IOException; Log("capture error: " + ex); }
             finally
             {
-                if (started && !outcome.Completed) { try { AbortTest(); } catch { } }
+                if (started && !outcome.Completed)
+                {
+                    try
+                    {
+                        if(!finishEscSent || stop()) AbortTest();
+                        else
+                        {
+                            lock(_lock) _captureCompletedUtc=DateTime.MinValue;
+                            Log("manual finish failed; closing connection without repeating ESC");
+                            communicationFailed=true;
+                        }
+                    }
+                    catch { }
+                }
                 if (communicationFailed) Disconnect();
             }
             return outcome;
