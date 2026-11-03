@@ -162,9 +162,22 @@ internal static class RefinementTests
                 Check(grid.Columns["ReportSelection"].HeaderText=="انتخاب نهایی" && grid.Columns["ReportSelection"].ToolTipText.Contains("حداکثر سه"),"final-selection control has the required Persian label and tooltip");
                 Check(grid.Rows[0].Cells[0].Value.ToString()==ui.Trials[0].AcquisitionSequence.ToString() && !grid.Rows[0].Cells[0].Value.ToString().Contains("·"),"first column keeps only the maneuver number and no long quality suffix");
                 Check(((ManeuverColumn)grid.Columns[0]).HitDelete(grid.Columns[0].Width,grid.Columns[0].Width-5) && !((ManeuverColumn)grid.Columns[0]).HitDelete(grid.Columns[0].Width,5),"compact delete action is hit-tested inside the existing first column");
+                Button stop=(Button)Field(form,"btnStop"); ToolTip tips=(ToolTip)Field(form,"_tips");
+                Check(stop.Text=="لغو مانور" && tips.GetToolTip(stop).Contains("ESC") && tips.GetToolTip(stop).Contains("لغو"),"stop button states the real ESC cancellation meaning and explains the retained incomplete trace");
+                ChartPanel plot=(ChartPanel)Field(form,"chart");
                 int active=ui.Trials.Count; Trial bad=Blow(p,999,4.0,2.5); bad.Simulated=false; bad.DeviceCaptureSequence=1; bad.DeviceSerial="J22889"; bad.DeviceValues=null;
                 Set(form,"_active",bad); Call(form,"FinishTrial");
-                Check(ui.Trials.Count==active && ui.FailedCaptures.Count==1 && ((Label)Field(form,"lblStatus")).Text=="نتیجه مانور از دستگاه دریافت نشد؛ لطفاً مانور را تکرار کنید.","failed real finish shows the exact Persian retry message and does not append a row");
+                Check(ui.Trials.Count==active && ui.FailedCaptures.Count==1 && ((Label)Field(form,"lblStatus")).Text=="نتیجه معتبر دستگاه دریافت نشد. نمودار ناقص فقط برای مشاهده حفظ شده و این مانور قابل ارسال نیست؛ لطفاً مانور را تکرار کنید.","failed real finish shows the exact Persian retry message and does not append a row");
+                Check(plot.Trial==bad && plot.Result==null && plot.VisibleSamples==-1 && bad.Flow.Count>=2,"failed real finish keeps the real incomplete curve visible without device markers");
+                Trial stopped=Blow(p,998,4.1,2.6); stopped.Simulated=false; stopped.Completed=false; stopped.OperatorStopped=true; stopped.DeviceCaptureSequence=1; stopped.DeviceSerial="J22889"; stopped.DeviceValues=null;
+                Set(form,"_active",stopped); Call(form,"FinishTrial");
+                Check(ui.FailedCaptures.Count==2 && ((Label)Field(form,"lblStatus")).Text=="مانور متوقف شد. نمودار ناقص فقط برای مشاهده حفظ شده و نتیجه معتبر دستگاه دریافت نشده است." && plot.Trial==stopped && plot.Result==null,"manual stop keeps the curve and reports the required stop message");
+                Check(!ui.Trials.Contains(stopped) && !ui.ReportManeuverIds.Contains(stopped.ManeuverId),"stopped incomplete maneuver stays outside the clinical table and final selection");
+                Trial emptyCurve=new Trial {Simulated=false,Completed=false,OperatorStopped=true,DeviceCaptureSequence=1,DeviceSerial="J22889",Flow=new List<double>{0},Time=new List<double>{0},Volume=new List<double>{0}};
+                Set(form,"_active",emptyCurve); Call(form,"FinishTrial");
+                Check(ui.FailedCaptures.Count==3 && plot.Trial==null && ((Label)Field(form,"lblStatus")).Text=="مانور متوقف شد؛ نمونهٔ کافی برای رسم منحنی دریافت نشد و نتیجه معتبر دستگاه هم ثبت نشد.","stop without enough samples uses a separate message and an empty chart");
+                Check(ui.Trials.Count==active && ui.Trials.All(x=>x.ManeuverId!=bad.ManeuverId && x.ManeuverId!=stopped.ManeuverId && x.ManeuverId!=emptyCurve.ManeuverId),"no failed or stopped attempt enters the active clinical table");
+                Call(form,"SelectTrial",0); Check(plot.Trial==ui.Trials[0] && plot.Result==ui.Trials[0].Result,"selecting a recorded maneuver restores normal chart behavior after a stop");
             }
             string productPath=Path.GetFullPath(Path.Combine("release","SpiroLab.exe"));
             Assembly product=Assembly.LoadFile(productPath);
@@ -172,7 +185,7 @@ internal static class RefinementTests
             Check(mainType!=null && product.GetType("SpiroLab.Device.Simulator")==null && product.GetType("SpiroLab.DeploymentSelfTest")==null && product.GetType("SpiroLab.HLine.SubmissionTiming")==null,"production executable has no simulator, self-test or timing subsystem");
             Check(mainType.GetMethod("RunDemoForTest",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)==null && mainType.GetMethod("StartSimulation",BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic)==null,"production executable has no simulated acquisition entry point");
             Check(product.GetType("SpiroLab.Ui.SettingsForm").GetProperty("RunDevelopmentDemo")==null,"production settings has no development switch");
-            Check(FileVersionInfo.GetVersionInfo(productPath).FileVersion.StartsWith("5.4.4",StringComparison.Ordinal),"production executable carries the release version 5.4.4");
+            Check(FileVersionInfo.GetVersionInfo(productPath).FileVersion.StartsWith("5.4.5",StringComparison.Ordinal),"production executable carries the release version 5.4.5");
             Console.WriteLine("ALL "+checks+" REFINEMENT CHECKS PASSED"); return 0;
         }
         catch(Exception ex) { Console.WriteLine(ex); return 1; }
