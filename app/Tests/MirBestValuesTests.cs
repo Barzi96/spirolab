@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Web.Script.Serialization;
@@ -18,6 +19,7 @@ namespace MirBestValuesTests
         public byte[] Block;
         public int PacketReads, Aborts, ResultReads;
         public Action Completing;
+        public bool Idle, FailReads;
         int packet;
         public bool Open(out string error) { error=null; IsOpen=true; return true; }
         public void Close() { IsOpen=false; }
@@ -35,8 +37,10 @@ namespace MirBestValuesTests
             if(command==0x01)
             {
                 PacketReads++;
+                if(FailReads) return null;
                 if(packet++==0) return new byte[] {0x10,0,200};
                 if(packet==2) return new byte[] {0x10,0,210};
+                if(Idle) return new byte[] {0xFF,0,0};
                 if(Completing!=null) Completing();
                 return new byte[] {0x04,0,0};
             }
@@ -212,12 +216,13 @@ namespace MirBestValuesTests
             {
                 string error; Check(session.Connect(out error),"pending-end fixture connects");
                 Trial trial=new Trial();
-                CaptureOutcome stopped=session.Capture(trial,delegate {return pending.PacketReads>=2;},trial.Packets.Add);
-                // Characterization of an unresolved bug; the opt-in acceptance must stay red until it is fixed.
-                Check(!stopped.Completed && stopped.Results==null && pending.Aborts==1 && pending.ResultReads==0 && pending.PacketReads==2,
-                    "LIMITATION reproduced: stop skips queued 0x04 and aborts without reading LAST");
-                Check(!session.ReadResults().Present && pending.ResultReads==0,
-                    "ReadResults after abort cannot associate a stale block with this capture");
+                CaptureOutcome stopped=session.Capture(trial,delegate {return pending.PacketReads>=2;},delegate {return false;},trial.Packets.Add);
+                Check(stopped.Completed && !stopped.Cancelled && stopped.Results.Present && pending.Aborts==0 && pending.ResultReads==1 && pending.PacketReads==3,
+                    "finish request reads queued 0x04 and the same capture LAST without ESC");
+                Near(stopped.Results.Fvc,4.78,"pending-end FVC comes from LAST"); Near(stopped.Results.Fev1,1.81,"pending-end FEV1 comes from LAST");
+                Near(stopped.Results.Pef,1.92,"pending-end PEF comes from LAST"); Near(stopped.Results.Fet,7.20,"pending-end FET comes from LAST");
+                Check(!session.ReadResults().Present && pending.ResultReads==1,
+                    "pending-end LAST remains a single read for this capture");
                 if(requirePendingEnd)
                     Check(stopped.Completed && stopped.Results!=null && stopped.Results.Present && pending.Aborts==0,
                         "acceptance: stop before polling queued 0x04 preserves the completed maneuver");
@@ -228,10 +233,46 @@ namespace MirBestValuesTests
             {
                 string error; Check(session.Connect(out error),"in-flight-end fixture connects");
                 Trial trial=new Trial();
-                CaptureOutcome completed=session.Capture(trial,delegate {return stop;},trial.Packets.Add);
+                CaptureOutcome completed=session.Capture(trial,delegate {return stop;},delegate {return false;},trial.Packets.Add);
                 Check(stop && completed.Completed && completed.Results.Present && completed.Results.CaptureSequence==trial.DeviceCaptureSequence && completing.Aborts==0 && completing.ResultReads==1,
                     "stop during the read returning 0x04 preserves the capture-bound four-field result");
                 Check(trial.Packets.Exists(delegate(DevicePacket p) {return p.Type==0x04;}),"in-flight completion packet is retained in raw evidence");
+            }
+            FixtureTransport idle=new FixtureTransport {Idle=true,Block=DeviceBlock(4.78,1.81,1.92,7.20)};
+            using(DeviceSession session=new DeviceSession(idle))
+            {
+                string error; session.Connect(out error); Trial trial=new Trial(); Stopwatch watch=Stopwatch.StartNew();
+                CaptureOutcome timedOut=session.Capture(trial,delegate {return idle.PacketReads>=2;},delegate {return false;},trial.Packets.Add);
+                Check(!timedOut.Completed && timedOut.Cancelled && timedOut.Results==null && idle.Aborts==1 && idle.ResultReads==0 && trial.Packets.Count==2,
+                    "no 0x04 expires finish wait, aborts and preserves raw samples without fabricated LAST");
+                Check(watch.Elapsed.TotalSeconds>=4.8 && watch.Elapsed.TotalSeconds<9,"finish wait is bounded to five seconds with responsive mock transport");
+                Check(!session.ReadResults().Present && idle.ResultReads==0,"timeout cannot associate stale LAST with cancelled maneuver");
+            }
+            FixtureTransport cancelled=new FixtureTransport {Idle=true};
+            using(DeviceSession session=new DeviceSession(cancelled))
+            {
+                string error; session.Connect(out error);
+                CaptureOutcome aborted=session.Capture(new Trial(),delegate {return true;},delegate {return cancelled.PacketReads>=4;},delegate(DevicePacket p) {});
+                Check(aborted.Cancelled && !aborted.Completed && aborted.Results==null && cancelled.Aborts==1 && cancelled.ResultReads==0 && cancelled.PacketReads==4,
+                    "immediate cancel remains available during finish wait without waiting for its deadline");
+            }
+            FixtureTransport disconnected=new FixtureTransport {FailReads=true};
+            using(DeviceSession session=new DeviceSession(disconnected))
+            {
+                string error; session.Connect(out error);
+                CaptureOutcome failed=session.Capture(new Trial(),delegate {return true;},delegate {return false;},delegate(DevicePacket p) {});
+                Check(!failed.Completed && failed.Results==null && !disconnected.IsOpen && disconnected.Aborts==1 && disconnected.ResultReads==0,
+                    "USB loss during finish wait aborts and disconnects without a clinical result");
+            }
+            bool cancelOnEnd=false;
+            FixtureTransport emergency=new FixtureTransport {Block=DeviceBlock(4.78,1.81,1.92,7.20),Completing=delegate {cancelOnEnd=true;}};
+            using(DeviceSession session=new DeviceSession(emergency))
+            {
+                string error; session.Connect(out error);
+                CaptureOutcome cancelledEnd=session.Capture(new Trial(),delegate {return false;},delegate {return cancelOnEnd;},delegate(DevicePacket p) {});
+                Check(cancelledEnd.Cancelled && !cancelledEnd.Completed && cancelledEnd.Results==null && emergency.Aborts==1 && emergency.ResultReads==0,
+                    "emergency cancellation at completion does not register a clinical result");
+                Check(!session.ReadResults().Present && emergency.ResultReads==0,"emergency cancel invalidates completed-capture association");
             }
             FixtureTransport usb=new FixtureTransport();
             using(DeviceSession session=new DeviceSession(usb))

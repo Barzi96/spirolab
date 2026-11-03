@@ -52,6 +52,11 @@ namespace SpiroLab.Ui
             set { _visible = value; Invalidate(); }
         }
 
+        private MeasuredValue MarkerValue(string metric)
+        {
+            return _trial!=null && _trial.Completed && _visible<0 && _result!=null && _result.Valid?_trial.Measurements.Get(metric):null;
+        }
+
         // ------------------------------------------------------------------
         private Expiration _signal;
         private double[] BuildVolume(out int count)
@@ -109,6 +114,14 @@ namespace SpiroLab.Ui
             }
             if (fvc < 0.2) fvc = 0.2;
             if (pef < 0.5) pef = 0.5;
+            foreach(string metric in new string[] {Metric.Fvc,Metric.Fev1,Metric.Pef,Metric.Fet})
+            {
+                MeasuredValue value=MarkerValue(metric);
+                if(value==null || !value.Available) continue;
+                if(metric==Metric.Pef) pef=Math.Max(pef,value.Value.Value);
+                else if(metric==Metric.Fet) fet=Math.Max(fet,value.Value.Value);
+                else fvc=Math.Max(fvc,value.Value.Value);
+            }
             _comparisons.Clear();
             if(_visible<0) foreach(Trial t in _comparisonTrials)
             {
@@ -165,17 +178,17 @@ namespace SpiroLab.Ui
                 g.DrawLines(pen, pts);
             }
 
-            if (_result != null && _result.Valid)
+            MeasuredValue marker=MarkerValue(Metric.Pef);
+            if (marker!=null && marker.Available)
             {
                 // PEF marker
-                double px = MapX(0, plot, 0, xMax);
-                double py = MapY(_result.Pef, plot, yMin, yMax);
+                double py = MapY(marker.Value.Value, plot, yMin, yMax);
                 using (Pen pen = new Pen(Marker, 1.2f) { DashStyle = DashStyle.Dot })
                 {
                     g.DrawLine(pen, plot.Left, (float)py, plot.Right, (float)py);
                 }
                 using (Brush b = new SolidBrush(Marker))
-                    g.DrawString("PEF " + Fmt.N(_result.Pef, 2), Font, b, plot.Left + 4, (float)py - 15);
+                    g.DrawString("PEF " + Fmt.N(marker.Value.Value, 2), Font, b, plot.Left + 4, (float)py - 15);
             }
         }
 
@@ -202,18 +215,19 @@ namespace SpiroLab.Ui
                 g.DrawLines(pen, pts);
             }
 
-            if (_result != null && _result.Valid)
+            MeasuredValue marker=MarkerValue(Metric.Fev1);
+            if (marker!=null && marker.Available)
             {
                 // FEV1 marker
                 float x1 = (float)MapX(1.0, plot, 0, xMax);
-                float y1 = (float)MapY(_result.Fev1, plot, 0, yMax);
+                float y1 = (float)MapY(marker.Value.Value, plot, 0, yMax);
                 using (Pen pen = new Pen(Marker, 1.2f) { DashStyle = DashStyle.Dot })
                 {
                     g.DrawLine(pen, x1, y1, x1, plot.Bottom);
                     g.DrawLine(pen, plot.Left, y1, x1, y1);
                 }
                 using (Brush b = new SolidBrush(Marker))
-                    g.DrawString("FEV1 " + Fmt.N(_result.Fev1, 2), Font, b, x1 + 3, y1 - 14);
+                    g.DrawString("FEV1 " + Fmt.N(marker.Value.Value, 2), Font, b, x1 + 3, y1 - 14);
             }
         }
 

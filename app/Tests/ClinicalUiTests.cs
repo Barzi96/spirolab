@@ -131,12 +131,13 @@ internal static class ClinicalUiTests
                 Shot(form,"03-main-patient");
                 for(int i=0;i<5;i++) { Set(form,"_active",Simulator.Build(ui.Patient,100+i)); Call(form,"FinishTrial"); }
                 DataGridView grid=(DataGridView)Field(form,"gridTrials");
-                Check(grid.Rows.Count==5 && grid.Columns.Count==7 && grid.Columns["SiteSelection"]==null && grid.Columns["ReportSelection"] is ReportColumn,"compact history has no primary radio and one report checkbox column");
-                Check(grid.Rows.Cast<DataGridViewRow>().Count(r=>Convert.ToBoolean(r.Cells[6].Value))==3,"automatic report selection checks up to three real curves");
-                foreach(string id in ui.ReportManeuverIds.ToArray()) Space(grid,ui.Trials.FindIndex(t=>t.ManeuverId==id),6);
-                Space(grid,0,6); Space(grid,2,6); Space(grid,4,6);
+                Check(grid.Rows.Count==5 && grid.Columns.Count==8 && grid.Columns["SiteSelection"]==null && grid.Columns["ReportSelection"] is ReportColumn,"compact history includes FET and one report checkbox column");
+                Check(grid.Rows.Cast<DataGridViewRow>().Count(r=>Convert.ToBoolean(r.Cells["ReportSelection"].Value))==3,"automatic report selection checks up to three real curves");
+                int reportColumn=grid.Columns["ReportSelection"].Index;
+                foreach(string id in ui.ReportManeuverIds.ToArray()) Space(grid,ui.Trials.FindIndex(t=>t.ManeuverId==id),reportColumn);
+                Space(grid,0,reportColumn); Space(grid,2,reportColumn); Space(grid,4,reportColumn);
                 Check(ui.SelectionWorkflowVersion==4 && ui.ReportManeuverIds.SequenceEqual(new string[] {ui.Trials[0].ManeuverId,ui.Trials[2].ManeuverId,ui.Trials[4].ManeuverId}),"keyboard final-selection directly saves1,3,5 without a primary");
-                Space(grid,3,6); Check(((Label)Field(form,"lblStatus")).Text=="برای گزارش حداکثر سه مانور قابل انتخاب است." && ui.ReportManeuverIds.Count==3,"fourth checkbox gives short Persian inline message");
+                Space(grid,3,reportColumn); Check(((Label)Field(form,"lblStatus")).Text=="برای گزارش حداکثر سه مانور قابل انتخاب است." && ui.ReportManeuverIds.Count==3,"fourth checkbox gives short Persian inline message");
                 Call(form,"SelectTrial",0); Check(ui.OperatorSelectedManeuverId!=ui.Trials[0].ManeuverId && ui.ReportManeuverIds.Count==3,"row preview does not alter report choices or create a primary");
                 Call(form,"SelectTrial",3); Shot(form,"04-main-five");
                 string stableId=ui.ExaminationId; Call(form,"LoadExam",uiPath); ui=(Exam)Field(form,"_exam");
@@ -176,13 +177,13 @@ internal static class ClinicalUiTests
                         DataGridView table=(DataGridView)Field(form,"gridTrials"); ChartPanel plot=(ChartPanel)Field(form,"chart");
                         Check(table.Columns.Cast<DataGridViewColumn>().Sum(c=>c.Width)<=table.ClientSize.Width && table.HorizontalScrollingOffset==0,"no horizontal column overflow "+size+" scale"+scale);
                         Check(plot.Height>120 && plot.Width>700 && ((Button)Field(form,"btnReport")).Bounds.Right<=((Button)Field(form,"btnReport")).Parent.ClientSize.Width,"usable plot and contained actions "+size+" scale"+scale);
-                        Rectangle[] buttons=new string[] {"btnStart","btnStop","btnReport"}.Select(k=>((Control)Field(form,k)).Bounds).ToArray();
+                        Rectangle[] buttons=new string[] {"btnStart","btnFinish","btnStop","btnReport"}.Select(k=>((Control)Field(form,k)).Bounds).ToArray();
                         Check(!buttons[0].IntersectsWith(buttons[1]) && !buttons[1].IntersectsWith(buttons[2]),"no action button overlap "+size+" scale"+scale);
-                        Check(new string[] {"btnStart","btnStop","btnReport","btnNew","btnOpen","btnSettings","btnLogin"}.All(k=> { Button b=(Button)Field(form,k); Size text=TextRenderer.MeasureText(b.Text,b.Font); return text.Width+b.Padding.Horizontal<=b.ClientSize.Width+3 && text.Height+b.Padding.Vertical<=b.ClientSize.Height+3; }),"button captions fit at scaled text size "+size+" scale"+scale);
-                        Check(form.ClientRectangle.Contains(form.RectangleToClient(table.RectangleToScreen(table.ClientRectangle))) && new string[] {"btnStart","btnStop","btnReport","btnNew","btnOpen","btnSettings","btnLogin"}.All(k=> { Control c=(Control)Field(form,k); return form.ClientRectangle.Contains(form.RectangleToClient(c.RectangleToScreen(c.ClientRectangle))); }),"table and toolbar stay inside actual window "+size+" scale"+scale);
+                        Check(new string[] {"btnStart","btnFinish","btnStop","btnReport","btnNew","btnOpen","btnSettings","btnLogin"}.All(k=> { Button b=(Button)Field(form,k); Size text=TextRenderer.MeasureText(b.Text,b.Font); return text.Width+b.Padding.Horizontal<=b.ClientSize.Width+3 && text.Height+b.Padding.Vertical<=b.ClientSize.Height+3; }),"button captions fit at scaled text size "+size+" scale"+scale);
+                        Check(form.ClientRectangle.Contains(form.RectangleToClient(table.RectangleToScreen(table.ClientRectangle))) && new string[] {"btnStart","btnFinish","btnStop","btnReport","btnNew","btnOpen","btnSettings","btnLogin"}.All(k=> { Control c=(Control)Field(form,k); return form.ClientRectangle.Contains(form.RectangleToClient(c.RectangleToScreen(c.ClientRectangle))); }),"table and toolbar stay inside actual window "+size+" scale"+scale);
                         Check(table.Columns.Cast<DataGridViewColumn>().All(c=>TextRenderer.MeasureText(c.HeaderText,table.ColumnHeadersDefaultCellStyle.Font??table.Font,new Size(c.Width-8,1000),TextFormatFlags.WordBreak|TextFormatFlags.NoPadding).Height+4<=table.ColumnHeadersHeight),"wrapped table headers fit "+size+" scale"+scale);
                         Check(table.ClientSize.Height-table.ColumnHeadersHeight>=table.RowTemplate.Height,"at least one complete data row is readable "+size+" scale"+scale);
-                        Check(new string[] {"lblPatient","txtExamDate","btnNew","btnStart","btnReport","btnLogin"}.All(k=>InsideParents((Control)Field(form,k),form)) && ((Control)Field(form,"lblPatient")).Height>=((Control)Field(form,"lblPatient")).Font.Height,"patient date and actions are not clipped by parent panels "+size+" scale"+scale);
+                        Check(new string[] {"lblPatient","txtExamDate","btnNew","btnStart","btnFinish","btnStop","btnReport","btnLogin"}.All(k=>InsideParents((Control)Field(form,k),form)) && ((Control)Field(form,"lblPatient")).Height>=((Control)Field(form,"lblPatient")).Font.Height,"patient date and actions are not clipped by parent panels "+size+" scale"+scale);
                         Check((plot.SideBySide?plot.Height:plot.Height/2)>100*scale,"responsive plot orientation preserves readable axis height "+size+" scale"+scale);
                         Shot(form,"layout-"+size.Width+"x"+size.Height+"-"+(int)(scale*100));
                     }

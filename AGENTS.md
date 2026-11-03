@@ -15,7 +15,7 @@ Persian README and phase evidence live in [README.md](README.md), [docs/operator
 
 - `app\build.bat` — compiles `app\release\SpiroLab.exe` with the in-box `csc.exe` (no SDK needed); no simulation or test route is compiled into it.
 - `app\build.bat test` — compiles the isolated `app\release-test\SpiroLab.Test.dll` with `SPIROLAB_TEST` for automated tests only.
-- `app\test.bat` — builds both, then runs all eleven check suites (they open real WinForms windows). Current total: **933 PASS + 10 SKIPPED** without the optional external MIR capture; the real-capture checks run only when its path is supplied as the first argument. The separate opt-in pending-end acceptance still fails; see `docs/standalone/mir-maneuver-end-investigation.md`.
+- `app\test.bat` — builds both, then runs all eleven check suites (they open real WinForms windows). Current total: **954 PASS + 10 SKIPPED** without the optional external MIR capture; the real-capture checks run only when its path is supplied as the first argument. The separate opt-in pending-end acceptance now passes; see `docs/operator/release-notes-mir-maneuver-end.md`. This build is ready for maneuver-end field testing, not hardware validated.
 - Operator docs live in [docs/operator](docs/operator); historical GUI evidence is [docs/standalone/gui-e2e-results.md](docs/standalone/gui-e2e-results.md) (not a live write).
 - `tools\package-release.ps1` — portable package + self-test + SHA256 into `dist\`.
 - Suite logs land in `app\*-test-output\` and are ignored by Git; do not commit them.

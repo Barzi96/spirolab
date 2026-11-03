@@ -43,6 +43,7 @@ namespace SpiroLab.Device
     public sealed class CaptureOutcome
     {
         public bool Completed;
+        public bool Cancelled;
         public string Reason;
         public DeviceResults Results;
     }

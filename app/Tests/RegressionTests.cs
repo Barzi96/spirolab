@@ -183,7 +183,7 @@ internal static class RegressionTests
                 for(int i=0;i<20 && (bool)Field(form,"_busy");i++) Call(form,"Tick",null,EventArgs.Empty);
                 Exam demo=(Exam)Field(form,"_exam"); Check(demo.Trials.Count==1 && demo.Trials[0].Simulated && demo.Trials[0].Completed,"GUI simulation completes and is labelled");
                 Check(form.Controls.Find("FirstName",true).Length==0 && demo.Patient.FirstName=="مراجع","patient snapshot preserved outside main screen");
-                Check(((DataGridView)Field(form,"gridTrials")).Columns.Count==7 && ((DataGridView)Field(form,"gridTrials")).Columns["ReportSelection"]!=null,"GUI renders core metrics and one report-selection control");
+                Check(((DataGridView)Field(form,"gridTrials")).Columns.Count==8 && ((DataGridView)Field(form,"gridTrials")).Columns["ReportSelection"]!=null,"GUI renders core metrics including FET and one report-selection control");
                 Check(demo.Patient.Origin==Origin.Caucasian,"GUI defaults to Caucasian");
                 Check(Ers93.Compute(demo.Patient).Applicable,"reference remains available without a main-screen technical field");
                 Check(File.Exists(Path.Combine(output,"ui-demo.spiro")),"GUI autosaves completed trial");

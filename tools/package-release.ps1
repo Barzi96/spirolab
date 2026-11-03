@@ -1,4 +1,4 @@
-param([string]$OutputDirectory = (Join-Path $PSScriptRoot '..\dist'))
+﻿param([string]$OutputDirectory = (Join-Path $PSScriptRoot '..\dist'))
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $releaseExe = Join-Path $repoRoot 'app\release\SpiroLab.exe'
@@ -7,7 +7,7 @@ if (-not (Test-Path -LiteralPath $releaseExe)) { throw 'Build the production rel
 if (-not (Test-Path -LiteralPath $testAssembly)) { throw 'Build the isolated test assembly first (app\build.bat test).' }
 $outRoot = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Force -Path $outRoot | Out-Null
-$packageId = 'SpiroLab-5.4.5-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture)
+$packageId = 'SpiroLab-5.4.5-MIR-ManeuverEnd-FieldTest-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture)
 $packageRoot = Join-Path $outRoot $packageId
 New-Item -ItemType Directory -Path $packageRoot | Out-Null
 Copy-Item -LiteralPath $releaseExe -Destination $packageRoot
@@ -16,6 +16,8 @@ New-Item -ItemType Directory -Path (Join-Path $packageRoot 'Docs') | Out-Null
 Copy-Item -Path (Join-Path $repoRoot 'docs\operator\*') -Destination (Join-Path $packageRoot 'Docs') -Recurse
 $versionText = @(
   'SpiroLab 5.4.5',
+  'آماده آزمون میدانی پایان مانور',
+  ('Source commit: {0}' -f (& git -C $repoRoot rev-parse HEAD)),
   ('Build UTC: {0}' -f [DateTime]::UtcNow.ToString('o', [Globalization.CultureInfo]::InvariantCulture)),
   'Executable: SpiroLab.exe (x86, .NET Framework 4.x)',
   'No MIR driver, proprietary software, test data, test executable, source or logs are bundled.',
@@ -24,14 +26,15 @@ $versionText = @(
 ) -join "`r`n"
 $versionText | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $packageRoot 'Version.txt')
 $readme = @(
-  'SpiroLab 5.4.5 - Portable clinical workstation',
+  'SpiroLab 5.4.5 - MIR maneuver-end field test',
+  'آماده آزمون میدانی پایان مانور',
   '',
   'Run Launch.cmd. The app starts without an installer.',
   'Read Docs\README-fa.md first, then Docs\daily-workflow-fa.md.',
   'MIRUSB driver is NOT included; install the compatible driver from the official MIR distribution.',
   'Portable data is stored under %APPDATA%\SpiroLab.',
   '',
-  'Docs: README-fa.md, daily-workflow-fa.md, troubleshooting-fa.md, release-notes-545.md.',
+  'Docs: README-fa.md, daily-workflow-fa.md, troubleshooting-fa.md, release-notes-mir-maneuver-end.md.',
   'No simulated patient data, test executable, benchmark, log or source file is part of this package.',
   'Hardware, clean-PC, BTPS and production HLine validation remain PENDING.'
 ) -join "`r`n"

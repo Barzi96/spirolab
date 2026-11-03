@@ -108,7 +108,7 @@ internal static class ManeuverSelectionTests
                 DataGridView grid=(DataGridView)Field(form,"gridTrials");
                 Check(grid.Rows.Count==128 && ((Trial)Field(form,"_selected")).ManeuverId==uiSummary.BestTrial.ManeuverId,"actual GUI reopen restores all history and previews the automatic aggregate representative");
                 Check(((ChartPanel)Field(form,"chart")).Trial.ManeuverId==uiSummary.BestTrial.ManeuverId && grid.Rows[uiSummary.BestTrial.AcquisitionSequence-1].Cells[5].Value.ToString()==Fmt.N(uiSummary.BestTrial.Measurements.Fef2575.Value.Value,2),"automatic preview uses its curves and exposes all five requested core metrics");
-                Check(grid.Columns.Count==7 && grid.Columns["SiteSelection"]==null && grid.Columns["ReportSelection"]!=null,"new GUI has no primary radio column and retains report visibility");
+                Check(grid.Columns.Count==8 && grid.Columns["SiteSelection"]==null && grid.Columns["ReportSelection"]!=null,"new GUI includes FET and retains report visibility");
                 Check((bool)Call(form,"CheckSource",true,false),"GUI sequential acquisition gate remains open beyond100");
                 Call(form,"SelectTrial",0);
                 Check(ui.SelectionWorkflowVersion==3 && !ui.PrimarySelectionRequired,"clicking a history row changes preview only and workflow3 requires no primary decision");

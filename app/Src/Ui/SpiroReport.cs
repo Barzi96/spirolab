@@ -297,11 +297,6 @@ namespace SpiroLab.Ui
         {
             return value!=null && value.PercentPredicted.HasValue && value.PercentPredicted.Value>0?Fmt.N(value.PercentPredicted.Value,0):"—";
         }
-        private static MeasuredValue ValueOf(Trial trial,int i)
-        {
-            if(trial==null) return null;
-            return trial.Measurements.Get(MetricNameForIndex(i));
-        }
         private static string MetricNameForIndex(int i)
         {
             switch(i)
@@ -324,14 +319,14 @@ namespace SpiroLab.Ui
             List<string[]> rows=new List<string[]>();
             // Session maxima are shown once in BEST VALUES. The detailed table is
             // exclusively actual measurements from the displayed real maneuvers.
-            for(int i=0;i<8;i++)
+            for(int i=0;i<(snapshot.Data.SelectionWorkflowVersion>=4?9:8);i++)
             {
-                string metric=MetricNameForIndex(i);
+                string metric=i==8?Metric.Fet:MetricNameForIndex(i);
                 MeasuredValue reference=s.BestValues==null?null:s.BestValues.Get(metric);
                 List<string> row=new List<string> {Label(metric),reference!=null && reference.Predicted.HasValue && reference.Predicted.Value>0?Fmt.N(reference.Predicted.Value,metric==Metric.Fev1Fvc?1:2):"—"};
                 for(int j=0;j<3;j++)
                 {
-                    MeasuredValue value=j<s.Trials.Count?ValueOf(s.Trials[j],i):null;
+                    MeasuredValue value=j<s.Trials.Count?s.Trials[j].Measurements.Get(metric):null;
                     row.Add(Number(value));
                     if(j==0) row.Add(Percent(value));
                 }

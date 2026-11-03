@@ -24,7 +24,7 @@ namespace SpiroLab.Ui
 #if SPIROLAB_TEST
         bool _fast,_simulating,_developerMode;
 #endif
-        volatile bool _stop;
+        volatile bool _stop, _finishRequested;
         Trial _active,_selected;
         PacketDecoder _decoder;
         readonly Queue<DevicePacket> _pending=new Queue<DevicePacket>();
@@ -44,7 +44,7 @@ namespace SpiroLab.Ui
         TextBox txtExamDate;
         Label lblConnection,lblSiteConnection,lblStatus,lblLive,lblSummary;
         LinkLabel lblPatient;
-        Button btnStart,btnStop,btnReport,btnSettings,btnNew,btnOpen,btnLogin,btnCalendar;
+        Button btnStart,btnFinish,btnStop,btnReport,btnSettings,btnNew,btnOpen,btnLogin,btnCalendar;
         List<string> _legacyReportIds=new List<string>();
         public MainForm():this(new HLineClient(),null,null,true) { }
         public MainForm(HLineClient hline,string testNationalId,string testRecordId,bool allowProductionWrites):this(hline,null,null)
@@ -59,7 +59,7 @@ namespace SpiroLab.Ui
             _hline=hline;_submissionGateway=submissionGateway??(hline.CanWrite?new LiveSubmissionGateway(hline):null);_testRecord=designatedTestRecord;
             _allowProductionWrites=designatedTestRecord==null;
             _settings=AppSettings.Load(); _exam=Exam.CreateNew(_settings); _hline.PreferredFirefoxProfile=_settings.FirefoxProfile;
-            ClinicalStyle.Form(this,"اسپیرومتری طب کار — SpiroLab "+SpiroReport.ProductVersion,new Size(1280,820));
+            ClinicalStyle.Form(this,"اسپیرومتری طب کار — SpiroLab "+SpiroReport.ProductVersion+" — آماده آزمون میدانی پایان مانور",new Size(1280,820));
             StartPosition=FormStartPosition.CenterScreen; MinimumSize=new Size(780,500);
             BuildUi(); PopulateMetadata(); _device.Line+=AppendLog;
             _timer=new System.Windows.Forms.Timer { Interval=50 }; _timer.Tick+=Tick;
@@ -138,14 +138,14 @@ namespace SpiroLab.Ui
             Panel history=new Panel { Dock=DockStyle.Fill,Margin=new Padding(0) };
             lblSummary=ClinicalStyle.Label("مانورها"); lblSummary.Dock=DockStyle.Top; lblSummary.Height=27; lblSummary.Font=new Font("Tahoma",9,FontStyle.Bold);
             gridTrials=new DataGridView { Name="ManeuverHistory",Dock=DockStyle.Fill,ReadOnly=false,AllowUserToAddRows=false,AllowUserToDeleteRows=false,AllowUserToResizeRows=false,RowHeadersVisible=false,MultiSelect=false,SelectionMode=DataGridViewSelectionMode.FullRowSelect,AutoSizeColumnsMode=DataGridViewAutoSizeColumnsMode.Fill,ScrollBars=ScrollBars.Vertical,BackgroundColor=Color.White,BorderStyle=BorderStyle.None,RightToLeft=RightToLeft.Yes,EnableHeadersVisualStyles=false,ColumnHeadersHeightSizeMode=DataGridViewColumnHeadersHeightSizeMode.DisableResizing,ColumnHeadersHeight=52,AutoGenerateColumns=false };
-            string[] captions={"مانور","حجم\nFVC (L)","حجم ثانیه اول\nFEV1 (L)","نسبت\nFEV1/FVC (%)","جریان بیشینه\nPEF (L/s)","جریان میانی\nFEF25–75 (L/s)"};
-            float[] weights={9,13,14,14,13,15,11};
+            string[] captions={"مانور","حجم\nFVC (L)","حجم ثانیه اول\nFEV1 (L)","نسبت\nFEV1/FVC (%)","جریان بیشینه\nPEF (L/s)","جریان میانی\nFEF25–75 (L/s)","زمان بازدم\nFET (s)"};
+            float[] weights={9,13,14,14,13,15,10,11};
             for(int i=0;i<captions.Length;i++)
             {
                 if(i==0) gridTrials.Columns.Add(new ManeuverColumn { Name="Metric0",HeaderText=captions[0],ReadOnly=true,FillWeight=weights[0],MinimumWidth=44,DeleteRow=delegate(int row) {DeleteManeuver(row);} });
                 else gridTrials.Columns.Add(new DataGridViewTextBoxColumn { Name="Metric"+i,HeaderText=captions[i],ReadOnly=true,FillWeight=weights[i],MinimumWidth=25,SortMode=DataGridViewColumnSortMode.NotSortable });
             }
-            ReportColumn reportColumn=new ReportColumn { Name="ReportSelection",HeaderText="انتخاب نهایی",ReadOnly=true,FillWeight=weights[6],MinimumWidth=40,SortMode=DataGridViewColumnSortMode.NotSortable,ToggleRow=delegate(int row) {ChangeChoice(row,ReportColumnIndex);} };
+            ReportColumn reportColumn=new ReportColumn { Name="ReportSelection",HeaderText="انتخاب نهایی",ReadOnly=true,FillWeight=weights[7],MinimumWidth=40,SortMode=DataGridViewColumnSortMode.NotSortable,ToggleRow=delegate(int row) {ChangeChoice(row,ReportColumnIndex);} };
             reportColumn.ToolTipText="حداکثر سه مانور؛ بهترین مقادیر گزارش و سایت از همین مانورها انتخاب می‌شوند.";
             gridTrials.Columns.Add(reportColumn);
             gridTrials.RowTemplate.Height=31;
@@ -177,10 +177,12 @@ namespace SpiroLab.Ui
 #else
             btnStart=MakeButton("شروع تست",delegate { StartTest(); },true);
 #endif
-            btnStop=MakeButton("لغو مانور",delegate { StopTest(); },false); btnReport=MakeButton("ارسال به سایت",async delegate { await SendSite(); },false);
+            btnFinish=MakeButton("پایان بازدم",delegate { RequestFinish(); },false);
+            btnStop=MakeButton("لغو",delegate { StopTest(); },false); btnReport=MakeButton("ارسال به سایت",async delegate { await SendSite(); },false);
             ContextMenuStrip localMenu=new ContextMenuStrip();localMenu.Items.Add("ذخیره JPG + JSON",null,delegate {ShowReport();});btnReport.ContextMenuStrip=localMenu; _tips.SetToolTip(btnReport,"بازبینی ارسال؛ کلیک راست برای خروجی محلی JPG + JSON");
             _tips.SetToolTip(btnStop,"دریافت مانور را با فرمان ESC لغو می‌کند؛ پایان معتبر و ثبت نتیجه نیست. دادهٔ خام در سابقهٔ تشخیصی نگه داشته می‌شود.");
-            actions.Controls.AddRange(new Control[] {btnStart,btnStop,btnReport}); root.Controls.Add(actions,0,4);
+            _tips.SetToolTip(btnFinish,"تا ۵ ثانیه در انتظار پایان رسمی دستگاه می‌ماند؛ فرمان USB جدیدی ارسال نمی‌شود و لغو در دسترس می‌ماند.");
+            actions.Controls.AddRange(new Control[] {btnStart,btnFinish,btnStop,btnReport}); root.Controls.Add(actions,0,4);
             lblStatus=ClinicalStyle.Label("آماده"); lblStatus.Font=new Font("Tahoma",8.5f); lblStatus.ForeColor=Color.FromArgb(104,121,137); root.Controls.Add(lblStatus,0,5);
             root.Layout+=delegate
             {
@@ -227,7 +229,7 @@ namespace SpiroLab.Ui
             btnStart.Enabled=editable && _hasPatient && _device.Connected;
             btnStart.Text=_exam.Trials.Count>0?"تست بعدی":"شروع تست";
 #endif
-            btnStop.Enabled=_busy && _active!=null; gridTrials.Enabled=true;
+            btnStop.Enabled=_busy && _active!=null && !_stop; btnFinish.Enabled=btnStop.Enabled && !_finishRequested; gridTrials.Enabled=true;
             txtExamDate.Enabled=btnCalendar.Enabled=editable && _hasPatient;
             btnReport.Enabled=!_busy && _hasPatient && _exam.Trials.Count>0;
 #if SPIROLAB_TEST
@@ -286,13 +288,13 @@ namespace SpiroLab.Ui
             Patient p=ReadPatient(); if(p==null) return; if(!_device.Connected) { ConnectDevice(true); return; }
             if(!SyncMetadata()) return;
             _receivedLiveSamples=false; _decodedLiveSamples=0;
-            _exam.Patient=p; _stop=false; _decoder=new PacketDecoder(); _active=new Trial { Completed=false }; _selected=null; _busy=true;
+            _exam.Patient=p; _stop=false; _finishRequested=false; _decoder=new PacketDecoder(); _active=new Trial { Completed=false }; _selected=null; _busy=true;
             lock(_queueLock) _pending.Clear(); chart.Trial=_active; chart.Result=null; lblLive.Text="آماده‌سازی دستگاه…";
              UpdateControls(); _timer.Start(); Trial capturing=_active;
             Thread worker=new Thread(delegate()
             {
-                CaptureOutcome outcome=_device.Capture(capturing,delegate { return _stop; },delegate(DevicePacket packet) { lock(_queueLock) _pending.Enqueue(packet); });
-                Post(delegate { DrainPackets(); _decodedLiveSamples=capturing.Flow.Count; _receivedLiveSamples=_decodedLiveSamples>0; _safeError=_receivedLiveSamples?"none":"no_valid_live_samples"; capturing.Completed=outcome.Completed && capturing.CaptureError.Length==0; capturing.OperatorStopped=!outcome.Completed && outcome.Reason=="توقف توسط کاربر"; if(!outcome.Completed && !capturing.OperatorStopped) capturing.CaptureError=outcome.Reason??"capture_failed"; capturing.EndReason=outcome.Reason??capturing.EndReason; capturing.DeviceValues=outcome.Results; FinishTrial(); });
+                CaptureOutcome outcome=_device.Capture(capturing,delegate { return _finishRequested; },delegate { return _stop; },delegate(DevicePacket packet) { lock(_queueLock) _pending.Enqueue(packet); });
+                Post(delegate { DrainPackets(); _decodedLiveSamples=capturing.Flow.Count; _receivedLiveSamples=_decodedLiveSamples>0; _safeError=_receivedLiveSamples?"none":"no_valid_live_samples"; capturing.Completed=outcome.Completed && capturing.CaptureError.Length==0 && !_stop; capturing.OperatorStopped=!capturing.Completed && (outcome.Cancelled || _stop); if(!outcome.Completed && !capturing.OperatorStopped) capturing.CaptureError=outcome.Reason??"capture_failed"; capturing.EndReason=_stop?"توقف توسط کاربر":outcome.Reason??capturing.EndReason; capturing.DeviceValues=_stop?null:outcome.Results; FinishTrial(); });
             }) { IsBackground=true }; worker.Start();
         }
 #if SPIROLAB_TEST
@@ -300,7 +302,7 @@ namespace SpiroLab.Ui
         {
             if(_busy || !CheckSource(true,false)) return; Patient p=ReadPatient(); if(p==null) return;
             if(!SyncMetadata()) return;
-            _exam.Patient=p; _active=Simulator.Build(p,Environment.TickCount); _active.Completed=false;
+            _exam.Patient=p; _stop=false; _finishRequested=false; _active=Simulator.Build(p,Environment.TickCount); _active.Completed=false;
             _developerMode=true; _simPos=0; _simulating=true; _busy=true; _selected=null; chart.Trial=_active; chart.Result=null; chart.VisibleSamples=0;
             lblLive.Text="نمایشی — دادهٔ ساختگی";  UpdateControls(); _timer.Start();
         }
@@ -323,12 +325,20 @@ namespace SpiroLab.Ui
             }
 #endif
             DrainPackets(); chart.Invalidate();
+            if(_finishRequested && !_stop) { lblLive.Text="در انتظار اعلام پایان مانور از دستگاه…"; return; }
+            if(_stop) return;
             if(_active.Flow.Count>0)
             {
                 Expiration s=Expiration.From(_active);
                 lblLive.Text="در حال ثبت | جریان "+Fmt.N(_active.Flow[_active.Flow.Count-1],2)+" L/s | حجم بازدم "+Fmt.N(s.Count>0?s.Volume[s.Count-1]:0,2)+" L";
             }
             else lblLive.Text="منتظر فوت؛ دم کامل و سپس بازدم سریع و پیوسته انجام دهید.";
+        }
+        private void RequestFinish()
+        {
+            if(!_busy || _active==null || _stop) return;
+            _finishRequested=true; btnFinish.Enabled=false;
+            lblLive.Text="در انتظار اعلام پایان مانور از دستگاه…";
         }
         private void StopTest()
         {
@@ -340,7 +350,7 @@ namespace SpiroLab.Ui
                 _active.EndReason="توقف نمایش توسط کاربر"; FinishTrial(); return;
             }
 #endif
-            _stop=true; btnStop.Enabled=false; lblLive.Text="در حال توقف و ذخیرهٔ داده‌های ناقص…";
+            _stop=true; btnFinish.Enabled=btnStop.Enabled=false; lblLive.Text="در حال لغو و ذخیرهٔ داده‌های ناقص…";
         }
         private void FinishTrial()
         {
@@ -388,7 +398,7 @@ namespace SpiroLab.Ui
             for(int i=0;i<_exam.Trials.Count;i++)
             {
                 Trial t=_exam.Trials[i]; AnalysisResult r=t.Result; ManeuverAssessment assessment=ManeuverAssessment.Assess(t); string state=assessment.Status;
-                gridTrials.Rows.Add(t.AcquisitionSequence.ToString(),MetricText(t,0),MetricText(t,1),MetricText(t,2),MetricText(t,3),MetricText(t,7),ReportIds().Contains(t.ManeuverId));
+                gridTrials.Rows.Add(t.AcquisitionSequence.ToString(),MetricText(t,0),MetricText(t,1),MetricText(t,2),MetricText(t,3),MetricText(t,7),MetricText(t,9),ReportIds().Contains(t.ManeuverId));
                 string info=ExamStore.Source(t)+" | "+t.When.ToString("o")+(t.EndReason.Length>0?" | "+t.EndReason:"");
                 if(r!=null) info+=" | "+r.InvalidReason;
                 info+=" | "+assessment.Status+" | "+assessment.Problem;
@@ -411,7 +421,7 @@ namespace SpiroLab.Ui
             switch(index)
             {
                 case 0:return Metric.Fvc;case 1:return Metric.Fev1;case 2:return Metric.Fev1Fvc;case 3:return Metric.Pef;
-                case 4:return Metric.Fef25;case 5:return Metric.Fef50;case 6:return Metric.Fef75;case 7:return Metric.Fef2575;default:return Metric.Bev;
+                case 4:return Metric.Fef25;case 5:return Metric.Fef50;case 6:return Metric.Fef75;case 7:return Metric.Fef2575;case 9:return Metric.Fet;default:return Metric.Bev;
             }
         }
         List<string> ReportIds() { return _exam.SelectionWorkflowVersion>=2?_exam.ReportManeuverIds:_legacyReportIds; }

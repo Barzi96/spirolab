@@ -158,12 +158,21 @@ internal static class RefinementTests
                 for(int i=0;i<5;i++) ui.AddManeuver(Blow(p,200+i,3.0+i*.2,2.0+i*.1));
                 Call(form,"RenderTrials");
                 DataGridView grid=(DataGridView)Field(form,"gridTrials");
-                Check(grid.Columns.Count==7 && grid.Columns[0] is ManeuverColumn && grid.Columns["ReportSelection"] is ReportColumn,"compact history uses the existing first column for delete and the final-selection control");
+                Check(grid.Columns.Count==8 && grid.Columns[0] is ManeuverColumn && grid.Columns["ReportSelection"] is ReportColumn,"compact history includes FET and keeps delete and final selection");
                 Check(grid.Columns["ReportSelection"].HeaderText=="انتخاب نهایی" && grid.Columns["ReportSelection"].ToolTipText.Contains("حداکثر سه"),"final-selection control has the required Persian label and tooltip");
                 Check(grid.Rows[0].Cells[0].Value.ToString()==ui.Trials[0].AcquisitionSequence.ToString() && !grid.Rows[0].Cells[0].Value.ToString().Contains("·"),"first column keeps only the maneuver number and no long quality suffix");
                 Check(((ManeuverColumn)grid.Columns[0]).HitDelete(grid.Columns[0].Width,grid.Columns[0].Width-5) && !((ManeuverColumn)grid.Columns[0]).HitDelete(grid.Columns[0].Width,5),"compact delete action is hit-tested inside the existing first column");
                 Button stop=(Button)Field(form,"btnStop"); ToolTip tips=(ToolTip)Field(form,"_tips");
-                Check(stop.Text=="لغو مانور" && tips.GetToolTip(stop).Contains("ESC") && tips.GetToolTip(stop).Contains("پایان معتبر و ثبت نتیجه نیست"),"stop button states ESC cancellation and does not promise a valid finish");
+                Check(stop.Text=="لغو" && tips.GetToolTip(stop).Contains("ESC") && tips.GetToolTip(stop).Contains("پایان معتبر و ثبت نتیجه نیست"),"cancel button states ESC cancellation and does not promise a valid finish");
+                Button finish=(Button)Field(form,"btnFinish");
+                Trial waiting=Blow(p,290,4.1,2.8); waiting.Completed=false;
+                Set(form,"_active",waiting); Set(form,"_busy",true); Call(form,"UpdateControls");
+                Stopwatch requestWatch=Stopwatch.StartNew(); finish.PerformClick(); Call(form,"Tick",null,EventArgs.Empty); Application.DoEvents();
+                Check(finish.Text=="پایان بازدم" && (bool)Field(form,"_finishRequested") && !(bool)Field(form,"_stop") && !finish.Enabled && stop.Enabled && requestWatch.Elapsed.TotalSeconds<1,
+                    "finish click is nonblocking, requests no abort and keeps immediate cancellation enabled");
+                Check(((Label)Field(form,"lblLive")).Text=="در انتظار اعلام پایان مانور از دستگاه…","waiting message survives acquisition timer ticks");
+                stop.PerformClick(); Check((bool)Field(form,"_stop") && !stop.Enabled,"cancel click during finish wait requests immediate abort");
+                Set(form,"_active",null); Set(form,"_busy",false); Set(form,"_finishRequested",false); Set(form,"_stop",false); Call(form,"UpdateControls");
                 ChartPanel plot=(ChartPanel)Field(form,"chart");
                 Trial preview=((ExamSummary)Call(form,"CurrentSummary")).BestTrial;
                 int active=ui.Trials.Count; Trial bad=Blow(p,999,4.0,2.5); bad.Simulated=false; bad.DeviceCaptureSequence=1; bad.DeviceSerial="J22889"; bad.DeviceValues=null;
@@ -184,6 +193,26 @@ internal static class RefinementTests
                 Check(diagnosticExam.FailedCaptures.Count==3 && diagnosticExam.FailedCaptures[1].Flow.SequenceEqual(stopped.Flow) && diagnosticExam.FailedCaptures[1].OperatorStopped && !diagnosticExam.FailedCaptures[1].Completed,"cancelled raw samples and cancellation state survive save/reopen outside clinical maneuvers");
                 Call(form,"BeginExam",p,true); Set(form,"_active",stopped.Clone()); Call(form,"FinishTrial");
                 Check(plot.Trial==null && plot.Result==null && ((Exam)Field(form,"_exam")).FailedCaptures.Count==1,"first cancelled maneuver leaves the chart empty and retains diagnostic evidence");
+                Trial official=Blow(p,291,4.1,2.8);
+                SyntheticDeviceEvidence.Attach(official,4.78,3.21,8.76,7.20,SyntheticDeviceEvidence.FixtureSerial,2);
+                double[] rawFlow=official.Flow.ToArray(),rawVolume=official.Volume.ToArray();
+                Set(form,"_active",official); Call(form,"FinishTrial"); ui=(Exam)Field(form,"_exam");
+                Check(ui.Trials.Count==1 && grid.Rows[0].Cells[1].Value.ToString()=="4.78" && grid.Rows[0].Cells[2].Value.ToString()=="3.21" && grid.Rows[0].Cells[4].Value.ToString()=="8.76" && grid.Rows[0].Cells[6].Value.ToString()=="7.20",
+                    "completed device fixture displays direct LAST FVC FEV1 PEF and FET in the clinical table");
+                foreach(string metric in new string[] {Metric.Pef,Metric.Fev1})
+                    Check(((MeasuredValue)Call(plot,"MarkerValue",metric)).Value==official.Measurements.Get(metric).Value,"chart marker uses the same authoritative value as table: "+metric);
+                ui.OperatorName="synthetic operator"; ExaminationSnapshot officialSnapshot=ExaminationSnapshot.Capture(ui);
+                ExamSummary officialSummary=ExamSummary.BuildSelected(ui.Trials,ui.ReportManeuverIds);
+                var detail=(List<string[]>)typeof(SpiroReport).GetMethod("DetailRows",BindingFlags.Static|BindingFlags.NonPublic).Invoke(null,new object[] {officialSummary,officialSnapshot});
+                Check(detail.Single(row=>row[0]=="FET (s)")[2]=="7.20" && detail.Single(row=>row[0]=="FVC (L)")[2]=="4.78" && detail.Single(row=>row[0]=="FEV1 (L)")[2]=="3.21" && detail.Single(row=>row[0]=="PEF (L/s)")[2]=="8.76",
+                    "JPG detail rows display the same four direct device values");
+                using(Bitmap report=SpiroReport.Render(officialSnapshot)) report.Save(Path.Combine(root,"fieldtest-device-fixture-report.png"));
+                Application.DoEvents(); using(Bitmap shot=new Bitmap(form.Width,form.Height)) {form.DrawToBitmap(shot,form.ClientRectangle);shot.Save(Path.Combine(root,"fieldtest-device-fixture-ui.png"));}
+                Check(rawFlow.SequenceEqual(official.Flow) && rawVolume.SequenceEqual(official.Volume),"displaying official markers and report does not reshape raw curves");
+                Trial limited=official.Clone(); limited.Result.BevOk=false; limited.Result.PlateauOk=false; limited.Result.Fet=5; limited.Result.Cough=true;
+                Check(!ManeuverAssessment.Assess(limited).QualityScreenPassed,"four device values do not override the unchanged scientific quality screen");
+                limited.Completed=false; plot.Trial=limited; plot.Result=limited.Result;
+                Check(Call(plot,"MarkerValue",Metric.Pef)==null && Call(plot,"MarkerValue",Metric.Fev1)==null,"cancelled maneuver has no official chart markers even if a block is attached");
             }
             string productPath=Path.GetFullPath(Path.Combine("release","SpiroLab.exe"));
             Assembly product=Assembly.LoadFile(productPath);

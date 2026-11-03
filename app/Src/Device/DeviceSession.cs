@@ -256,6 +256,9 @@ namespace SpiroLab.Device
         // Called exclusively by the acquisition worker. Treat ESC as abort:
         // completion and LAST association after ESC have not been established.
         public CaptureOutcome Capture(Trial trial, Func<bool> stop, Action<DevicePacket> packet)
+        { return Capture(trial,delegate { return false; },stop,packet); }
+
+        public CaptureOutcome Capture(Trial trial, Func<bool> finish, Func<bool> stop, Action<DevicePacket> packet)
         {
             CaptureOutcome outcome = new CaptureOutcome();
             bool started = false;
@@ -271,9 +274,18 @@ namespace SpiroLab.Device
                 trial.DeviceCaptureSequence = _activeCaptureSequence;
                 int captureSequence = _activeCaptureSequence;
                 Stopwatch watch = Stopwatch.StartNew();
+                double finishDeadline=double.PositiveInfinity;
                 int failures = 0;
-                while (!stop() && watch.Elapsed.TotalSeconds < 45)
+                while (true)
                 {
+                    if(stop()) { outcome.Cancelled=true; outcome.Reason="توقف توسط کاربر"; break; }
+                    if(finish() && double.IsPositiveInfinity(finishDeadline)) finishDeadline=watch.Elapsed.TotalSeconds+5;
+                    if(watch.Elapsed.TotalSeconds>=Math.Min(45,finishDeadline))
+                    {
+                        outcome.Cancelled=!double.IsPositiveInfinity(finishDeadline);
+                        outcome.Reason=outcome.Cancelled?"دستگاه پایان مانور را در مهلت انتظار اعلام نکرد؛ مانور لغو شد.":"پایان مهلت ۴۵ ثانیه‌ای";
+                        break;
+                    }
                     byte type; int raw;
                     if (ReadPacket(out type, out raw) == 0)
                     {
@@ -290,13 +302,12 @@ namespace SpiroLab.Device
                     if (type != 0x10 && type != 0x20 && type != 0x01)
                         Log("unhandled packet type " + type.ToString("X2"));
                 }
-                if (!outcome.Completed)
-                    outcome.Reason = stop() ? "توقف توسط کاربر" : "پایان مهلت ۴۵ ثانیه‌ای";
-                else
+                if (outcome.Completed)
                 {
                     Thread.Sleep(300);
-                    outcome.Results = ReadResults(captureSequence);
+                    if(!stop()) outcome.Results = ReadResults(captureSequence);
                 }
+                if(stop()) { outcome.Completed=false; outcome.Cancelled=true; outcome.Results=null; outcome.Reason="توقف توسط کاربر"; }
             }
             catch (Exception ex) { outcome.Completed = false; outcome.Reason = ex.Message; communicationFailed = ex is IOException; Log("capture error: " + ex); }
             finally
@@ -313,6 +324,7 @@ namespace SpiroLab.Device
             lock (_lock)
             {
                 Log("abort test (ESC)");
+                _captureCompletedUtc=DateTime.MinValue;
                 _usb.Send(0x1B);
             }
         }
