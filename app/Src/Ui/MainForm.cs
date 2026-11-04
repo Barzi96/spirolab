@@ -65,6 +65,7 @@ namespace SpiroLab.Ui
             _timer=new System.Windows.Forms.Timer { Interval=50 }; _timer.Tick+=Tick;
             FormClosing+=ClosingForm; UpdateControls();
             if(!string.IsNullOrEmpty(_settings.LoadWarning)) lblStatus.Text=_settings.LoadWarning;
+            try {string records=ExamStore.DataDirectory;}catch(IOException ex){Error(ex.Message);}
         }
         public void SelectTab(int index) { }
         // Interactive start only (Program calls this; tests never do): reuse the
@@ -76,15 +77,25 @@ namespace SpiroLab.Ui
             Shown+=delegate
             {
                 string preferred=_settings==null?null:_settings.FirefoxProfile;
-                Task.Factory.StartNew(delegate { string problem; _hline.TryAdoptFirefoxSession(preferred,out problem); })
+                QueueSessionCheck();
+            };
+            _timer.Tick+=delegate {if(!_busy && DateTime.UtcNow>=_nextSessionCheckUtc) QueueSessionCheck();};
+        }
+        DateTime _nextSessionCheckUtc=DateTime.MinValue;
+        int _sessionCheckActive;
+        void QueueSessionCheck()
+        {
+            if(Interlocked.CompareExchange(ref _sessionCheckActive,1,0)!=0) return;
+            _nextSessionCheckUtc=DateTime.UtcNow.AddSeconds(30);
+            Task.Factory.StartNew(delegate {string problem;_hline.EnsureSession(out problem);})
                     .ContinueWith(delegate(Task task)
                     {
+                        Interlocked.Exchange(ref _sessionCheckActive,0);
                         if(IsDisposed || !IsHandleCreated) return;
                         try { BeginInvoke((Action)delegate { UpdateControls(); }); }
                         catch(ObjectDisposedException) { }
                         catch(InvalidOperationException) { }
                     });
-            };
         }
         bool _firefoxProbeStarted;
         public void ConnectOnLaunch() { ConnectDevice(false); }
@@ -113,6 +124,12 @@ namespace SpiroLab.Ui
             toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,72)); toolbar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent,28));
             FlowLayoutPanel buttons=new FlowLayoutPanel { Dock=DockStyle.Fill,FlowDirection=FlowDirection.RightToLeft,RightToLeft=RightToLeft.No,WrapContents=false };
             btnNew=MakeButton("مراجع جدید",delegate { NewExam(); },true); btnOpen=MakeButton("پرونده قبلی",delegate { OpenExam(); },false); btnSettings=MakeButton("تنظیمات",delegate { OpenSettings(); },false);
+            ContextMenuStrip recordsMenu=new ContextMenuStrip();
+            recordsMenu.Items.Add("باز کردن پوشه پرونده‌ها",null,delegate {try {System.Diagnostics.Process.Start(ExamStore.DataDirectory);} catch(Exception ex){Error(ex.Message);}});
+            recordsMenu.Items.Add("باز کردن سوابق مسیر قدیمی",null,delegate {OpenExamAt(ExamStore.LegacyDataDirectory);});
+            recordsMenu.Items.Add("کپی ایمن سوابق قدیمی به records",null,delegate {ImportOldRecords();});
+            recordsMenu.Items.Add("ذخیره نسخهٔ بازیابی معاینهٔ جاری…",null,delegate {SaveRecovery();});
+            btnOpen.ContextMenuStrip=recordsMenu;_tips.SetToolTip(btnOpen,"باز کردن پرونده؛ کلیک راست برای پوشه records، سوابق قدیمی و نسخهٔ بازیابی");
             btnLogin=MakeButton("ورود به سامانه",delegate { SignInSite(); },false); btnLogin.Name="LoginToSite";
             buttons.Controls.AddRange(new Control[] {btnNew,btnOpen,btnSettings,btnLogin}); toolbar.Controls.Add(buttons,0,0);
             lblConnection=ClinicalStyle.Label("● متصل نیست"); lblConnection.ForeColor=Color.FromArgb(113,126,138); lblConnection.Cursor=Cursors.Hand;
@@ -540,7 +557,7 @@ namespace SpiroLab.Ui
         private bool SaveExam(bool explicitSave)
         {
             if(!_hasPatient) return true; if(!SyncMetadata()) return false;
-            try { if(_path==null) _path=ExamStore.NewPath(); ExamStore.Save(_path,_exam); _dirty=false; lblStatus.Text="ذخیره شد"; return true; }
+            try { if(_path==null) _path=ExamStore.NewPath(_exam); ExamStore.Save(_path,_exam); _dirty=false; lblStatus.Text="ذخیره شد"; return true; }
             catch(Exception ex) { Error("ذخیره انجام نشد؛ داده‌ها در برنامه باقی‌اند. "+ex.Message); return false; }
         }
         bool CanLeave()
@@ -553,15 +570,23 @@ namespace SpiroLab.Ui
         {
             if(_busy) return;
             using(PatientForm form=new PatientForm(null,false,_hline)) if(form.ShowDialog(this)==DialogResult.OK && CanLeave())
-                try { BeginExam(form.Value,true); } catch(Exception ex) { Error("ثبت معاینه انجام نشد؛ پروندهٔ قبلی حفظ شد. "+ex.Message); }
+                try { BeginExam(form.Value,true); } catch(Exception ex) { Error("ذخیره انجام نشد؛ معاینهٔ جدید در حافظه حفظ شد. از نسخهٔ بازیابی استفاده کنید. "+ex.Message); }
             UpdateControls(); // reflect a session opened from inside the patient form
         }
         private void BeginExam(Patient patient,bool persist)
         {
             string problem; if(!PatientForm.ValidatePatient(patient,out problem)) throw new ArgumentException(problem);
             Exam fresh=Exam.CreateNew(_settings); fresh.Patient=patient.Clone();fresh.Patient.SetAgeAt(fresh.ExaminationDate.Value);
-            string path=persist?ExamStore.NewPath():_path;
-            if(persist) ExamStore.Save(path,fresh);
+            string path=persist?null:_path;
+            if(persist)
+            {
+                try {path=ExamStore.NewPath(fresh);ExamStore.Save(path,fresh);}
+                catch
+                {
+                    _exam=fresh;_path=path;_hasPatient=true;_dirty=true;_selected=null;
+                    PopulateMetadata();RenderTrials();throw;
+                }
+            }
             _exam=fresh; _path=path; _hasPatient=true; _selected=null; _dirty=false; _receivedLiveSamples=false; _safeError="none"; _legacyReportIds.Clear();
 #if SPIROLAB_TEST
             _developerMode=false;
@@ -571,8 +596,28 @@ namespace SpiroLab.Ui
         private void OpenExam()
         {
             if(_busy) return;
-            using(OpenFileDialog dialog=new OpenFileDialog { Filter="پرونده SpiroLab (*.spiro)|*.spiro",InitialDirectory=ExamStore.DataDirectory })
+            try {OpenExamAt(ExamStore.DataDirectory);} catch(Exception ex){Error(ex.Message);}
+        }
+        void OpenExamAt(string directory)
+        {
+            if(_busy) return;
+            using(OpenFileDialog dialog=new OpenFileDialog { Filter="پرونده SpiroLab (*.spiro)|*.spiro|پشتیبان SpiroLab (*.spiro.bak)|*.spiro.bak",InitialDirectory=directory })
                 if(dialog.ShowDialog(this)==DialogResult.OK && CanLeave()) try { LoadExam(dialog.FileName); } catch(Exception ex) { Error("پرونده باز نشد: "+ex.Message); }
+        }
+        void ImportOldRecords()
+        {
+            if(_busy) return;
+            using(FolderBrowserDialog picker=new FolderBrowserDialog {Description="پوشهٔ سوابق قدیمی؛ فقط کپی می‌شود و فایل‌های اصلی باقی می‌مانند.",SelectedPath=ExamStore.LegacyDataDirectory})
+                if(picker.ShowDialog(this)==DialogResult.OK)
+                    try {RecordImportResult r=ExamStore.ImportLegacy(picker.SelectedPath,ExamStore.DataDirectory);lblStatus.Text="کپی موفق: "+r.Imported+" | تکراری یکسان: "+r.Skipped+" | ناموفق: "+r.Failed+" | تعارض شناسه: "+r.Conflicts+(r.Problem.Length>0?" | "+r.Problem:"");}
+                    catch(Exception ex){Error("انتقال انجام نشد؛ اصل سوابق حفظ شد. "+ex.Message);}
+        }
+        void SaveRecovery()
+        {
+            if(_busy || !_hasPatient || !SyncMetadata()) return;
+            using(SaveFileDialog dialog=new SaveFileDialog {Filter="پرونده SpiroLab (*.spiro)|*.spiro",FileName=ExamStore.SafePatientName(_exam.Patient.FullName)+" - recovery.spiro",DefaultExt="spiro",AddExtension=true,OverwritePrompt=true})
+                if(dialog.ShowDialog(this)==DialogResult.OK)
+                    try {ExamStore.Save(dialog.FileName,_exam);_path=dialog.FileName;_dirty=false;lblStatus.Text="نسخهٔ بازیابی ذخیره شد.";}catch(Exception ex){Error("بازیابی ذخیره نشد؛ داده‌ها در حافظه باقی‌اند. "+ex.Message);}
         }
         private void LoadExam(string path)
         {
@@ -641,12 +686,13 @@ namespace SpiroLab.Ui
             }
             catch(Exception ex) { Error("گزارش آماده نشد: "+ex.Message); }
         }
-        void SignInSite()
+        async void SignInSite()
         {
             if(_busy) return;
-            if(HLineLoginForm.SignIn(_hline,this,_settings==null?null:_settings.FirefoxProfile)) lblStatus.Text="متصل به سامانه";
-            else lblStatus.Text=_hline.StatusText;
-            UpdateControls();
+            _busy=true;UpdateControls();
+            try {if(await HLineLoginForm.SignIn(_hline,this,_settings==null?null:_settings.FirefoxProfile)) lblStatus.Text="متصل به سامانه";else lblStatus.Text=_hline.StatusText;}
+            catch {lblStatus.Text="بررسی نشست انجام نشد؛ اطلاعات محلی محفوظ است.";}
+            finally {_busy=false;UpdateControls();}
         }
         async Task SendSite()
         {

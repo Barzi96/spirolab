@@ -25,6 +25,7 @@ namespace SpiroLab.HLine
         public string Name = "";
         public string Directory = "";
         public bool IsDefault;
+        public bool IsActive;
     }
 
     public sealed class FirefoxSession
@@ -124,7 +125,14 @@ namespace SpiroLab.HLine
                 Name = string.IsNullOrEmpty(name) ? Path.GetFileName(resolved.TrimEnd(Path.DirectorySeparatorChar)) : name,
                 Directory = resolved,
                 IsDefault = isDefault == "1"
+                ,IsActive = ProfileLocked(resolved)
             });
+        }
+        static bool ProfileLocked(string directory)
+        {
+            string path=Path.Combine(directory,"parent.lock");if(!File.Exists(path)) return false;
+            try {using(FileStream stream=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.None)) return false;}
+            catch(IOException) {return true;}catch(UnauthorizedAccessException) {return false;}
         }
 
         // Strict scope check: the cookie host itself or its direct parent.
@@ -165,6 +173,7 @@ namespace SpiroLab.HLine
                 int leftPreferred = SameDirectory(left.Profile.Directory, preferredDirectory) ? 1 : 0;
                 int rightPreferred = SameDirectory(right.Profile.Directory, preferredDirectory) ? 1 : 0;
                 if (leftPreferred != rightPreferred) return rightPreferred - leftPreferred;
+                if(left.Profile.IsActive!=right.Profile.IsActive) return left.Profile.IsActive?-1:1;
                 if (left.Profile.IsDefault != right.Profile.IsDefault) return left.Profile.IsDefault ? -1 : 1;
                 int byAccess = right.LastAccess.CompareTo(left.LastAccess);
                 if (byAccess != 0) return byAccess;
@@ -217,6 +226,8 @@ namespace SpiroLab.HLine
                 if (row.Length < 8 || !MatchesDomain(row[2], domain)) continue;
                 string name = row[0];
                 if (name.Length == 0) continue;
+                long expiry;
+                if(!long.TryParse(row[4],NumberStyles.Integer,CultureInfo.InvariantCulture,out expiry) || expiry<0) continue;
                 SessionCookie cookie = new SessionCookie
                 {
                     Name = name,
@@ -227,6 +238,7 @@ namespace SpiroLab.HLine
                     HttpOnly = row[6] == "1",
                     ExpiresUtc = FromUnix(row[4])
                 };
+                if(expiry>0 && cookie.ExpiresUtc==DateTime.MinValue) continue;
                 if (cookie.Expired) continue;
                 cookies.Add(cookie);
                 long access;

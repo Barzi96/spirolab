@@ -83,7 +83,20 @@ namespace SpiroLab.HLine
 #else
             Dictionary<string,object> data=client.FindSpirometry(draft.RecordId);
 #endif
-            if(data==null || data.Count==0) return null;
+            if(data!=null && HLineClient.Text(data,"medical_record_id").Length>0 && HLineClient.Text(data,"medical_record_id")!=draft.RecordId) throw new HLineException("destination_changed","نتیجهٔ API به پروندهٔ مقصد تعلق ندارد؛ ارسال متوقف شد.");
+            bool empty=data==null || data.Count==0;
+            if(!empty)
+            {
+                empty=true;
+                foreach(var field in data) if(field.Key!="medical_record_id" && field.Value!=null && Convert.ToString(field.Value,CultureInfo.InvariantCulture).Length>0) {empty=false;break;}
+            }
+            if(empty)
+            {
+                string module=client.SpirometryModuleStatus(draft.RecordId).Replace("_","").ToLowerInvariant();
+                if(module!="nodata") throw new HLineException("remote_state","نتیجه در API یافت نشد، اما وضعیت ماژول نبود نتیجه را تأیید نمی‌کند؛ بررسی سامانه لازم است.");
+                if(client.Files(draft.RecordId).Count>0) throw new HLineException("orphan_file","رکورد اسپیرومتری یافت نشد اما فایل قبلی در همین پرونده وجود دارد؛ بدون ارسال دوباره، فایل و سامانه بررسی شوند.");
+                return null;
+            }
             Dictionary<string,double?> fields=new Dictionary<string,double?>();
             foreach(string key in new string[] {"fvc_amount","fev1_amount","pef_amount","fef2575_amount","vext","fvc_percent","fev1_percent","pef_percent","fef2575_percent"})
                 fields[key]=Number(data,key);

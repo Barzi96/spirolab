@@ -45,7 +45,7 @@ internal static class RefinementTests
     {
         try
         {
-            root=Path.GetFullPath(args[0]); Directory.CreateDirectory(root);
+            root=Path.Combine(Path.GetFullPath(args[0]),"run-"+Guid.NewGuid().ToString("N").Substring(0,8)); Directory.CreateDirectory(root);
             Patient p=Patient();
             Exam e=Exam.CreateNew(new AppSettings {OperatorName="refine operator"}); e.SelectionWorkflowVersion=4; e.Patient=p; // Historical selected-clinical-set regression.
             Trial t0=Blow(p,100,3.0,2.0),t1=Blow(p,101,4.0,2.5),t2=Blow(p,102,3.5,3.0),t3=Blow(p,103,4.5,3.2),t4=Blow(p,104,2.8,2.2);

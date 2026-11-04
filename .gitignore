@@ -33,6 +33,7 @@
 *.exe
 *.dll
 *.spiro
+**/records/
 *.log
 *.bak
 *.tmp

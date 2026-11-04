@@ -53,7 +53,7 @@ internal static class RegressionTests
     {
         try
         {
-            output=Path.GetFullPath(args[0]); Directory.CreateDirectory(output);
+            output=Path.Combine(Path.GetFullPath(args[0]),"run-"+Guid.NewGuid().ToString("N").Substring(0,8)); Directory.CreateDirectory(output);
             string capture=args.Length>1?Path.GetFullPath(args[1]):null;
             bool haveCapture=!string.IsNullOrEmpty(capture) && File.Exists(capture);
             if(capture!=null && !haveCapture) Console.WriteLine("SKIPPED real MIR capture not found: "+capture);
@@ -161,6 +161,7 @@ internal static class RegressionTests
             string bad=Path.Combine(output,"bad.spiro");
             File.WriteAllText(bad,"<!DOCTYPE Exam [<!ENTITY x SYSTEM 'file:///C:/Windows/win.ini'>]><Exam><Patient><FirstName>&x;</FirstName></Patient></Exam>");
             bool rejected=false; try { ExamStore.Load(bad); } catch { rejected=true; } Check(rejected,"XML external entities rejected");
+            bad=Path.Combine(output,"bad-timing.spiro");
             Trial malformed=timeTrial.Clone(); malformed.Time[2]=-1; Exam invalid=new Exam { Patient=p }; invalid.Trials.Add(malformed); ExamStore.Save(bad,invalid);
             rejected=false; try { ExamStore.Load(bad); } catch { rejected=true; } Check(rejected,"nonmonotonic sample timestamps rejected");
             p.FirstName="<script>alert(1)</script>";

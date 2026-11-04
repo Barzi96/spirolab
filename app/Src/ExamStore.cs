@@ -5,16 +5,20 @@ using System.IO;
 using System.Text;
 using System.Xml;
 using System.Xml.Serialization;
+using System.Security.Cryptography;
 
 namespace SpiroLab
 {
     public sealed class ExportReference
     { public string SnapshotId="",ReportPath="",DataPath=""; public DateTime CreatedAt; }
+    public sealed class RecordImportResult
+    { public int Imported,Skipped,Failed,Conflicts;public string Problem=""; }
     public sealed class Exam
     {
         public int Version = 2;
         public string SessionType="PRE"; // PRE/POST are separate sessions; never mixed.
         public string ExaminationId = Guid.NewGuid().ToString("N");
+        public DateTime? CreatedAt;
         public string CenterName = "";
         public string OperatorName = "";
         public string ReviewedInterpretation = "";
@@ -272,7 +276,7 @@ namespace SpiroLab
             MaintainSelections();
         }
         public static Exam CreateNew(AppSettings settings)
-        { return new Exam { CenterName=settings.CenterName,OperatorName=settings.OperatorName,ExaminationDate=DateTime.Today,ExaminationDateSource="windows_local_date",PrimarySelectionRequired=false,SelectionWorkflowVersion=5,SessionType="PRE" }; }
+        { return new Exam { CreatedAt=DateTime.Now,CenterName=settings.CenterName,OperatorName=settings.OperatorName,ExaminationDate=DateTime.Today,ExaminationDateSource="windows_local_date",PrimarySelectionRequired=false,SelectionWorkflowVersion=5,SessionType="PRE" }; }
         public void FinalizeExamination()
         {
             if(FinalizedAt.HasValue) return;
@@ -300,18 +304,107 @@ namespace SpiroLab
     }
     public static class ExamStore
     {
+        static readonly object saveLock=new object();
+        public const string RecordsAccessMessage="پوشهٔ records کنار برنامه قابل نوشتن نیست؛ برنامه را در پوشه‌ای قابل‌نوشتن استخراج کنید یا نسخهٔ بازیابی را در مسیر انتخابی ذخیره کنید. اطلاعات حافظه حفظ شد.";
         // x86 XML deserialization needs substantially more working memory than the file size.
         public const long MaxFileBytes=40L*1024*1024;
         public const string StorageLimitMessage="سقف فنی هر فایل معاینه ۴۰ MiB است (حفاظت حافظهٔ نسخهٔ ۳۲بیتی)، نه محدودیت تعداد مانور. پروندهٔ قبلی حفظ شد؛ دادهٔ ذخیره‌نشده در برنامه باقی است.";
         public static string DataDirectory
         {
-            get { string d = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SpiroLab", "exams"); Directory.CreateDirectory(d); return d; }
+            get
+            {
+                string d=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"records");
+                try { Directory.CreateDirectory(d); return d; }
+                catch(UnauthorizedAccessException) { throw new IOException(RecordsAccessMessage); }
+                catch(IOException) { throw new IOException(RecordsAccessMessage); }
+            }
         }
-        public static string NewPath()
-        { return Path.Combine(DataDirectory, DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N").Substring(0, 6) + ".spiro"); }
+        public static string LegacyDataDirectory {get {return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),"SpiroLab","exams");}}
+        public static string ArchiveDay(DateTime date)
+        {
+            PersianCalendar calendar=new PersianCalendar();
+            return calendar.GetYear(date).ToString("0000",CultureInfo.InvariantCulture)+"-"+calendar.GetMonth(date).ToString("00",CultureInfo.InvariantCulture)+"-"+calendar.GetDayOfMonth(date).ToString("00",CultureInfo.InvariantCulture);
+        }
+        public static string SafePatientName(string name)
+        {
+            StringBuilder clean=new StringBuilder();
+            foreach(char c in name??"") clean.Append(Array.IndexOf(Path.GetInvalidFileNameChars(),c)>=0 || char.IsControl(c)?'-':c);
+            string value=clean.ToString().Trim().TrimEnd('.',' ');
+            if(value.Length==0) value="مراجع بی‌نام";
+            string device=value.Split('.')[0].ToUpperInvariant();
+            if(device=="CON" || device=="PRN" || device=="AUX" || device=="NUL" || System.Text.RegularExpressions.Regex.IsMatch(device,@"^(COM|LPT)[1-9]$")) value="_"+value;
+            if(value.Length>100) value=value.Substring(0,100).TrimEnd('.',' ');
+            if(char.IsHighSurrogate(value[value.Length-1])) value=value.Substring(0,value.Length-1);
+            return value;
+        }
+        public static string NewPath(Exam exam) {return NewPath(exam,DataDirectory);}
+        public static string NewPath(Exam exam,string recordsRoot)
+        {
+            if(exam==null) throw new ArgumentNullException("exam");
+            DateTime started=exam.CreatedAt??(exam.Trials.Count>0?exam.Trials[0].When:exam.ExaminationDate??DateTime.Now);
+            string day=Path.Combine(Path.GetFullPath(recordsRoot),ArchiveDay(exam.ExaminationDate??started));
+            try {Directory.CreateDirectory(day);} catch(UnauthorizedAccessException){throw new IOException(RecordsAccessMessage);} catch(IOException){throw new IOException(RecordsAccessMessage);}
+            string stem=SafePatientName(exam.Patient.FullName)+" - "+started.ToString("HH-mm-ss",CultureInfo.InvariantCulture);
+            for(int suffix=1;;suffix++)
+            {
+                string path=Path.Combine(day,stem+(suffix==1?"":"-"+suffix.ToString(CultureInfo.InvariantCulture))+".spiro");
+                if(path.Length>240) throw new IOException("مسیر پرونده بیش از حد بلند است؛ برنامه را در مسیر کوتاه‌تر قرار دهید.");
+                if(!File.Exists(path) && !Directory.Exists(path)) return path;
+            }
+        }
+        public static RecordImportResult ImportLegacy(string sourceDirectory,string recordsRoot)
+        {
+            RecordImportResult result=new RecordImportResult();
+            Dictionary<string,List<string>> existing=new Dictionary<string,List<string>>(StringComparer.Ordinal);
+            Directory.CreateDirectory(recordsRoot);
+            foreach(string path in Directory.GetFiles(recordsRoot,"*.spiro",SearchOption.AllDirectories))
+            {
+                // An unreadable destination could conceal the same examination; fail closed.
+                Exam e;try {e=Load(path);}catch {result.Failed++;result.Problem="پرونده‌ای در مقصد قابل خواندن نیست؛ کپی آغاز نشد و هیچ فایلی جایگزین نشد.";return result;}
+                List<string> paths;
+                if(!existing.TryGetValue(e.ExaminationId,out paths)) existing[e.ExaminationId]=paths=new List<string>();
+                paths.Add(path);
+            }
+            foreach(string path in Directory.GetFiles(sourceDirectory,"*.spiro"))
+            {
+                string temp=null;
+                try
+                {
+                    Exam e=Load(path); List<string> paths;
+                    if(existing.TryGetValue(e.ExaminationId,out paths))
+                    {
+                        bool same=false;foreach(string copy in paths) if(FileDigest(copy)==FileDigest(path)) same=true;
+                        if(same) result.Skipped++;else {result.Conflicts++;result.Failed++;}
+                        continue;
+                    }
+                    string destination=NewPath(e,recordsRoot);temp=Path.Combine(Path.GetDirectoryName(destination),Guid.NewGuid().ToString("N")+".tmp");
+                    File.Copy(path,temp,false);
+                    if(FileDigest(temp)!=FileDigest(path) || Load(temp).ExaminationId!=e.ExaminationId) throw new IOException("نسخهٔ کپی تأیید نشد.");
+                    File.Move(temp,destination);temp=null;
+                    existing[e.ExaminationId]=new List<string> {destination};result.Imported++;
+                }
+                catch {result.Failed++;}
+                finally {if(temp!=null && File.Exists(temp)) File.Delete(temp);}
+            }
+            return result;
+        }
+        static string FileDigest(string path)
+        {using(SHA256 hash=SHA256.Create()) using(FileStream stream=File.OpenRead(path)) return Convert.ToBase64String(hash.ComputeHash(stream));}
         public static void Save(string path, Exam exam)
         {
-            string temp = path + ".tmp";
+            try {SaveAtomic(path,exam);}
+            catch(UnauthorizedAccessException) {throw new IOException(RecordsAccessMessage);}
+        }
+        static void SaveAtomic(string path, Exam exam)
+        {
+            lock(saveLock)
+            {
+            if(File.Exists(path))
+            {
+                using(XmlReader reader=XmlReader.Create(path,new XmlReaderSettings {DtdProcessing=DtdProcessing.Prohibit,XmlResolver=null,MaxCharactersInDocument=MaxFileBytes}))
+                    if(!reader.ReadToFollowing("ExaminationId") || reader.ReadElementContentAsString()!=exam.ExaminationId) throw new IOException("پروندهٔ دیگری در این مسیر وجود دارد؛ بازنویسی انجام نشد. نسخهٔ جداگانه ذخیره کنید.");
+            }
+            string temp = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(path)),Guid.NewGuid().ToString("N")+".tmp");
             try
             {
                 exam.EnsureManeuverIdentities(); exam.MaintainSelections(); exam.ValidateSelection(false); exam.ValidateReportSelection(false);
@@ -327,6 +420,7 @@ namespace SpiroLab
                 else File.Move(temp, path);
             }
             finally { if (File.Exists(temp)) File.Delete(temp); }
+            }
         }
         public static Exam Load(string path)
         {

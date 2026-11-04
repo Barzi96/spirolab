@@ -104,7 +104,7 @@ namespace MirBestValuesTests
         {
             try
             {
-                root=Path.GetFullPath(args[0]); Directory.CreateDirectory(root);
+                root=Path.Combine(Path.GetFullPath(args[0]),"run-"+Guid.NewGuid().ToString("N").Substring(0,8)); Directory.CreateDirectory(root);
                 requirePendingEnd=args.Length>1 && args[1]=="--require-pending-end";
                 Patient p=new Patient { Age=41,HeightCm=182,WeightKg=78,Sex=Sex.Male,Origin=Origin.Caucasian,NationalId="0000000001",FirstName="synthetic",LastName="fixture",HLinePersonId="P-TEST",HLineRecordId="R-TEST",HLineRecordDate="2026/11/01",HLineRecordStatus="complete" };
                 FixtureTests(p);

@@ -7,9 +7,7 @@ using System.Text;
 namespace SpiroLab.HLine
 {
     // Minimal read-only bridge to the in-box Windows SQLite (winsqlite3.dll).
-    // Firefox stores cookies in a plain SQLite database; the caller copies that
-    // file to a private temp folder and opens the copy, so Firefox itself is
-    // never locked, stopped or modified.
+    // Opens Firefox's live database read-only, including its committed WAL state.
     internal static class Sqlite
     {
         const string Library = "winsqlite3.dll";
@@ -56,7 +54,7 @@ namespace SpiroLab.HLine
         {
             IntPtr db = IntPtr.Zero, statement = IntPtr.Zero;
             int result = sqlite3_open_v2(path, out db, ReadOnly, IntPtr.Zero);
-            if (result != 0 || db == IntPtr.Zero) throw new IOException("پایگاه کوکی فایرفاکس خوانده نشد.");
+            if (result != 0 || db == IntPtr.Zero) {if(db!=IntPtr.Zero) sqlite3_close(db);throw new IOException("پایگاه کوکی فایرفاکس خوانده نشد.");}
             try
             {
                 sqlite3_busy_timeout(db, 2000);

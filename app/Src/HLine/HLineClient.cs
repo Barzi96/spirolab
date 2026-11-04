@@ -33,6 +33,7 @@ namespace SpiroLab.HLine
     {
         readonly Uri origin;
         CookieContainer cookies=new CookieContainer();
+        internal CookieContainer CookieJar {get {return cookies;} set {cookies=value;}}
         public HLineHttpTransport(string baseUrl)
         {
             origin=new Uri(baseUrl);
@@ -201,6 +202,11 @@ namespace SpiroLab.HLine
     }
     public sealed class HLineClient : IDisposable
     {
+        readonly object sessionLock=new object();
+        readonly Func<IList<FirefoxSession>> firefoxCandidates;
+        bool recovering;
+        DateTime nextRecoveryUtc=DateTime.MinValue;
+        public bool IdentityChangePending {get;private set;}
         readonly IHLineTransport transport;
         readonly JavaScriptSerializer json=new JavaScriptSerializer {MaxJsonLength=2*1024*1024};
         string csrf,userId,centerId;
@@ -210,8 +216,9 @@ namespace SpiroLab.HLine
         public string FirefoxProfileName {get;private set;}
         public string PreferredFirefoxProfile {get;set;} // optional one-time setting; empty = automatic
         public HLineClient():this(new HLineHttpTransport("https://hline.ssu.ac.ir/")) { }
-        public HLineClient(IHLineTransport transport) { this.transport=transport; }
-        public string StatusText {get { switch(Status) {case SessionStatus.Connected:return "متصل به سامانه";case SessionStatus.Expired:return "نیاز به ورود در فایرفاکس";case SessionStatus.AuthenticationError:return "خطای احراز هویت";case SessionStatus.Unavailable:return "عدم دسترسی به سامانه";default:return "نیاز به ورود در فایرفاکس";} } }
+        public HLineClient(IHLineTransport transport):this(transport,null) { }
+        public HLineClient(IHLineTransport transport,Func<IList<FirefoxSession>> candidates) { this.transport=transport;firefoxCandidates=candidates; }
+        public string StatusText {get { switch(Status) {case SessionStatus.Connected:return "متصل به سامانه";case SessionStatus.Expired:return "نیاز به ورود در فایرفاکس";case SessionStatus.AuthenticationError:return IdentityChangePending?"تغییر هویت یا مرکز؛ تأیید لازم است":"خطای احراز هویت";case SessionStatus.Unavailable:return "عدم دسترسی موقت؛ نشست حذف نشده است";default:return "نیاز به ورود در فایرفاکس";} } }
         internal bool CanWrite {get {return transport is IHLineWriteChannel;}}
         internal string CurrentUserId {get {return userId??"";}}
         internal string CurrentMedicalCenterId {get {return centerId??"";}}
@@ -224,8 +231,10 @@ namespace SpiroLab.HLine
         {
             Dictionary<string,object> data=OptionalDict(me,"data"), user=OptionalDict(data,"user");
             string id=Text(user,"id"); if(id.Length==0) id=Text(data,"id"); if(id.Length==0) id=Text(me,"id");
-            if(id.Length>0) userId=id;
+            if(id.Length==0) id=Text(OptionalDict(me,"user"),"id");
+            userId=id;
             string center=Text(data,"medical_center_id"); if(center.Length==0) center=Text(user,"medical_center_id"); if(center.Length==0) center=Text(me,"medical_center_id");
+            if(center.Length==0) center=Text(OptionalDict(me,"user"),"medical_center_id");
             centerId=center;
             scopes.Clear();
             CaptureScopes(data); CaptureScopes(user); CaptureScopes(me);
@@ -236,14 +245,15 @@ namespace SpiroLab.HLine
             foreach(object item in (object[])raw) { string code=Convert.ToString(item,CultureInfo.InvariantCulture); if(!string.IsNullOrEmpty(code)) scopes.Add(code); }
         }
         internal string EnsureCsrf()
-        {
+        { lock(sessionLock) {
+            if(IdentityChangePending) throw new HLineException("identity_changed","تغییر هویت یا مرکز نشست هنوز تأیید نشده است؛ ارسال مجاز نیست.");
             if(!string.IsNullOrEmpty(csrf)) return csrf;
             csrf=Text(Dict(Request("GET","/auth/csrf",null)),"csrf");
             if(string.IsNullOrEmpty(csrf)) throw new HLineException("csrf","پاسخ CSRF معتبر نیست.");
             return csrf;
-        }
+        } }
         internal HLineResponse WriteJson(string method,string path,object body)
-        {
+        { lock(sessionLock) { try {
             IHLineWriteChannel channel=transport as IHLineWriteChannel;
             if(channel==null) throw new HLineException("readonly","این مسیر ارتباطی از ارسال پشتیبانی نمی‌کند.");
             string token=EnsureCsrf(), payload=json.Serialize(body);
@@ -251,10 +261,11 @@ namespace SpiroLab.HLine
             if(response.Status==419) { csrf=null; token=EnsureCsrf(); response=channel.SendWriteJson(method,path,payload,token); }
             if(response.Status==401) { Status=SessionStatus.Expired; throw new HLineException("expired","نشست منقضی شده؛ دوباره وارد شوید."); }
             if(response.Status==403) throw new HLineException("forbidden","مجوز ثبت اسپیرومتری برای این حساب وجود ندارد.");
+            if(response.Status==419) {Status=SessionStatus.Expired;throw new HLineException("expired","نشست یا CSRF تأیید نشد؛ نوشتن دیگری تکرار نشد.");}
             return response;
-        }
+        } catch(HLineException ex){if(ex.Code=="network")Status=SessionStatus.Unavailable;throw;} } }
         internal HLineResponse WriteFile(string recordId,byte[] jpeg,string filename,string description)
-        {
+        { lock(sessionLock) { try {
             IHLineWriteChannel channel=transport as IHLineWriteChannel;
             if(channel==null) throw new HLineException("readonly","این مسیر ارتباطی از ارسال پشتیبانی نمی‌کند.");
             string path="/medical-records/"+Segment(recordId)+"/files", token=EnsureCsrf();
@@ -262,15 +273,19 @@ namespace SpiroLab.HLine
             if(response.Status==419) { csrf=null; token=EnsureCsrf(); response=channel.SendWriteMultipart(path,"spirometry",jpeg,filename,description,token); }
             if(response.Status==401) { Status=SessionStatus.Expired; throw new HLineException("expired","نشست منقضی شده؛ دوباره وارد شوید."); }
             if(response.Status==403) throw new HLineException("forbidden","مجوز بارگذاری فایل برای این حساب وجود ندارد.");
+            if(response.Status==419) {Status=SessionStatus.Expired;throw new HLineException("expired","نشست یا CSRF تأیید نشد؛ بارگذاری دیگری تکرار نشد.");}
             return response;
-        }
+        } catch(HLineException ex){if(ex.Code=="network")Status=SessionStatus.Unavailable;throw;} } }
         internal Dictionary<string,object> RecordDetail(string recordId) { return DataObject(Request("GET","/medical-records/"+Segment(recordId),null)); }
         internal Dictionary<string,object> FindSpirometry(string recordId)
         {
             try
             {
                 object value=Request("GET","/medical-records/"+Segment(recordId)+"/spirometry",null);
-                Dictionary<string,object> data=OptionalDataObject(value);
+                Dictionary<string,object> envelope=Dict(value);object nested;
+                if(!envelope.TryGetValue("data",out nested)) throw new HLineException("malformed","وضعیت نتیجهٔ اسپیرومتری در پاسخ سامانه مشخص نیست.");
+                if(nested==null) return null;
+                Dictionary<string,object> data=Dict(nested);
                 return data.Count==0?null:data;
             }
             catch(HLineException ex) { if(ex.Code=="not_found") return null; throw; }
@@ -294,20 +309,20 @@ namespace SpiroLab.HLine
             return "";
         }
         internal byte[] FileBytes(string recordId,string fileId,out int status)
-        {
+        { lock(sessionLock) {
             RequireId(fileId);
             IHLineWriteChannel channel=transport as IHLineWriteChannel;
             if(channel==null) throw new HLineException("readonly","این مسیر ارتباطی از دریافت فایل پشتیبانی نمی‌کند.");
             byte[] data=channel.ReadFileBytes("/medical-records/"+Segment(recordId)+"/files/"+Segment(fileId)+"/dl?inline=1",out status);
             if(status==401) { Status=SessionStatus.Expired; throw new HLineException("expired","نشست منقضی شده؛ دوباره وارد شوید."); }
             return data;
-        }
+        } }
         internal bool VerifySubmissionDestination(SubmissionDraft draft) { return VerifySubmission(draft,true); }
         // The designated test record may be historical. Its exact identity is still
         // verified, but the latest-record rule is relaxed only for that opt-in scope.
         internal bool VerifySubmissionRecord(SubmissionDraft draft) { return VerifySubmission(draft,false); }
         bool VerifySubmission(SubmissionDraft draft,bool requireLatest)
-        {
+        { lock(sessionLock) {
             VerifySession();
             if(requireLatest) VerifyLatestRecord(draft.Snapshot.Data.Patient);
             else VerifyRecord(new MedicalRecord {Id=draft.RecordId,PersonId=draft.PersonId,NationalId=draft.NationalId,DateText=draft.RecordDate,Status=draft.RecordStatus},draft.PersonId,draft.NationalId);
@@ -317,8 +332,28 @@ namespace SpiroLab.HLine
             if(!string.IsNullOrEmpty(recordCenter) && !string.IsNullOrEmpty(centerId) && recordCenter!=centerId) throw new HLineException("center","پرونده به مرکز درمانی این حساب تعلق ندارد.");
             if(!HasScope("mrsp_u") || !HasScope("mrsp_p") || !HasScope("mrsp_nf")) throw new HLineException("forbidden","مجوز ثبت نتیجه، انجام‌دهنده یا فایل اسپیرومتری برای این حساب کامل نیست.");
             return true;
-        }
+        } }
         object Request(string method,string path,object body)
+        {
+            lock(sessionLock)
+            {
+                try {return RequestCore(method,path,body);}
+                catch(HLineException ex)
+                {
+                    if(ex.Code!="expired" || method!="GET" || recovering || string.IsNullOrEmpty(userId) || !(transport is IHLineCookieSink) || DateTime.UtcNow<nextRecoveryUtc) throw;
+                    nextRecoveryUtc=DateTime.UtcNow.AddSeconds(30);recovering=true;
+                    try
+                    {
+                        string problem;
+                        if(TryAdoptFirefoxSessionCore(PreferredFirefoxProfile,out problem,false)) return RequestCore(method,path,body);
+                        if(IdentityChangePending) throw new HLineException("identity_changed","هویت کاربر یا مرکز نشست فایرفاکس متفاوت است؛ تأیید کارشناس برای تغییر نشست لازم است.");
+                        throw;
+                    }
+                    finally {recovering=false;}
+                }
+            }
+        }
+        object RequestCore(string method,string path,object body)
         {
             HLineResponse r;
             try { r=transport.Send(method,path,body==null?null:json.Serialize(body),csrf); }
@@ -330,8 +365,9 @@ namespace SpiroLab.HLine
             try { return json.DeserializeObject(r.Body); } catch { throw new HLineException("malformed","ساختار پاسخ سامانه معتبر نیست."); }
         }
         public void Login(string username,string password,string mfa)
-        {
-            Status=SessionStatus.Disconnected; csrf=userId=null; SessionOrigin=null; FirefoxProfileName=null;
+        { lock(sessionLock) {
+            IdentityChangePending=false;
+            Status=SessionStatus.Disconnected; csrf=userId=centerId=null;scopes.Clear(); SessionOrigin=null; FirefoxProfileName=null;
             if(string.IsNullOrWhiteSpace(username) || string.IsNullOrEmpty(password)) throw new HLineException("credentials","نام کاربری و رمز عبور را وارد کنید.");
             try
             {
@@ -351,68 +387,113 @@ namespace SpiroLab.HLine
                 Status=SessionStatus.Connected; SessionOrigin="password"; VerifySession();
             }
             catch(HLineException e) { if(e.Code!="network") Status=SessionStatus.AuthenticationError; throw; }
-        }
+        } }
         public void VerifySession()
-        {
-            if(Status!=SessionStatus.Connected) throw new HLineException("session","ابتدا وارد سامانه شوید.");
+        { lock(sessionLock) {
+            if(IdentityChangePending) throw new HLineException("identity_changed","هویت کاربر یا مرکز نشست متفاوت است؛ تأیید کارشناس لازم است.");
+            if(string.IsNullOrEmpty(userId) || (Status!=SessionStatus.Connected && Status!=SessionStatus.Unavailable && Status!=SessionStatus.Expired)) throw new HLineException("session","ابتدا وارد سامانه شوید.");
+            string expectedCenter=centerId;
             Dictionary<string,object> me=Dict(Request("GET","/me",null)), data=OptionalDict(me,"data");
             string actual=Text(OptionalDict(me,"user"),"id");if(actual.Length==0) actual=Text(OptionalDict(data,"user"),"id");if(actual.Length==0) actual=Text(data,"id");
-            if(actual.Length==0 || actual!=userId) { Status=SessionStatus.Expired; throw new HLineException("expired","هویت نشست تأیید نشد؛ دوباره وارد شوید."); }
+            if(actual.Length==0) {Status=SessionStatus.Expired;throw new HLineException("expired","هویت نشست تأیید نشد؛ دوباره وارد شوید.");}
+            if(actual!=userId) {IdentityChangePending=true;Status=SessionStatus.AuthenticationError;throw new HLineException("identity_changed","هویت کاربر نشست تغییر کرده است؛ تأیید کارشناس لازم است.");}
             CaptureMe(me);
-        }
+            if(expectedCenter!=null && centerId!=expectedCenter) {centerId=expectedCenter;IdentityChangePending=true;Status=SessionStatus.AuthenticationError;throw new HLineException("identity_changed","مرکز درمانی نشست تغییر کرده است؛ تأیید کارشناس لازم است.");}
+            Status=SessionStatus.Connected;
+        } }
         // Replaces the HTTP cookie jar with the browser session and validates it
         // against /me. A valid Firefox session means no password/MFA prompt.
         public bool AdoptCookies(IEnumerable<SessionCookie> session)
+        {lock(sessionLock) {return AdoptCookies(session,false);}}
+        bool AdoptCookies(IEnumerable<SessionCookie> session,bool allowIdentityChange)
         {
             IHLineCookieSink sink=transport as IHLineCookieSink;
             if(sink==null) throw new HLineException("cookies","این مسیر ارتباطی از نشست فایرفاکس پشتیبانی نمی‌کند.");
-            sink.AdoptCookies(session);
-            Status=SessionStatus.Connected; csrf=null; userId=null;
+            string oldUser=userId,oldCenter=centerId,oldCsrf=csrf;
+            string[] oldScopes=new List<string>(scopes).ToArray();
+            HLineHttpTransport http=transport as HLineHttpTransport;
+            CookieContainer oldJar=http==null?null:http.CookieJar;
+            sink.AdoptCookies(session);csrf=null;
             try
             {
                 // A read-only session needs no CSRF token; fetching one would only
                 // rotate the site's anti-forgery cookies for nothing.
                 Dictionary<string,object> me=Dict(Request("GET","/me",null)),data=OptionalDict(me,"data");
                 CaptureMe(me);
+                if(!allowIdentityChange && !string.IsNullOrEmpty(oldUser) && (userId!=oldUser || centerId!=(oldCenter??"")))
+                {IdentityChangePending=true;throw new HLineException("identity_changed","هویت کاربر یا مرکز نشست فایرفاکس متفاوت است؛ تأیید کارشناس لازم است.");}
                 string actual=userId??"";
                 if(actual.Length==0) actual=Text(OptionalDict(me,"user"),"id");
                 if(actual.Length==0) actual=Text(OptionalDict(data,"user"),"id");
                 if(actual.Length==0) actual=Text(data,"id");
                 if(actual.Length==0) throw new HLineException("expired","نشست فایرفاکس معتبر نیست؛ دوباره در فایرفاکس وارد سامانه شوید.");
-                userId=actual; Status=SessionStatus.Connected; return true;
+                userId=actual;IdentityChangePending=false; Status=SessionStatus.Connected; return true;
             }
-            catch
+            catch(HLineException ex)
             {
-                csrf=null; userId=null; Status=SessionStatus.Expired; throw;
+                if(http!=null) http.CookieJar=oldJar;
+                csrf=oldCsrf;userId=oldUser;centerId=oldCenter;scopes.Clear();foreach(string scope in oldScopes) scopes.Add(scope);
+                Status=ex.Code=="network"?SessionStatus.Unavailable:IdentityChangePending?SessionStatus.AuthenticationError:SessionStatus.Expired;throw;
             }
         }
         // Tries every Firefox profile holding HLine cookies, newest first, and
         // stops at the first one the server accepts. Never logs cookie values.
         public bool TryAdoptFirefoxSession(string preferredProfile,out string problem)
+        {return TryAdoptFirefoxSession(preferredProfile,out problem,false);}
+        public bool TryAdoptFirefoxSession(string preferredProfile,out string problem,bool allowIdentityChange)
+        {
+            lock(sessionLock)
+            {
+                bool before=recovering;recovering=true;
+                try {return TryAdoptFirefoxSessionCore(preferredProfile,out problem,allowIdentityChange);}
+                finally {recovering=before;}
+            }
+        }
+        bool TryAdoptFirefoxSessionCore(string preferredProfile,out string problem,bool allowIdentityChange)
         {
             problem=null;
+            if(!allowIdentityChange && !string.IsNullOrEmpty(userId) && (Status==SessionStatus.Connected || Status==SessionStatus.Unavailable))
+            {
+                try {VerifySession();return true;}
+                catch(HLineException ex) {if(ex.Code!="expired" && ex.Code!="session") {problem=ex.Message;return false;}}
+            }
             if(!(transport is IHLineCookieSink)) { problem="این مسیر ارتباطی از نشست فایرفاکس پشتیبانی نمی‌کند."; return false; }
             if(string.IsNullOrEmpty(preferredProfile)) preferredProfile=PreferredFirefoxProfile;
             string readProblem;
-            List<FirefoxSession> candidates=FirefoxSessions.Candidates(FirefoxSessions.HLineDomain,preferredProfile,out readProblem);
+            readProblem=null;
+            IList<FirefoxSession> candidates=firefoxCandidates==null?FirefoxSessions.Candidates(FirefoxSessions.HLineDomain,preferredProfile,out readProblem):firefoxCandidates();
             if(candidates.Count==0) { problem=readProblem; return false; }
+            int attempts=0;
             foreach(FirefoxSession candidate in candidates)
             {
+                if(++attempts>3) break;
                 try
                 {
-                    AdoptCookies(candidate.Cookies);
+                    AdoptCookies(candidate.Cookies,allowIdentityChange);
                     FirefoxProfileName=candidate.Profile.Name; SessionOrigin="firefox";
                     return true;
                 }
-                catch(HLineException exception) { problem=exception.Message; }
+                catch(HLineException exception) {problem=exception.Message;if(exception.Code=="network" || exception.Code=="identity_changed" || exception.Code=="forbidden") return false;}
                 catch { problem="اتصال به سامانه با نشست فایرفاکس انجام نشد."; }
             }
             Status=SessionStatus.Expired;
             if(problem==null) problem="نشست فایرفاکس معتبر نیست؛ دوباره در فایرفاکس وارد سامانه شوید.";
             return false;
         }
-        public HLinePerson Lookup(string nationalId)
+        public bool EnsureSession(out string problem)
         {
+            lock(sessionLock)
+            {
+                if(!string.IsNullOrEmpty(userId))
+                {
+                    try {VerifySession();problem=null;return true;}
+                    catch(HLineException ex) {problem=ex.Message;return false;}
+                }
+                return TryAdoptFirefoxSession(PreferredFirefoxProfile,out problem);
+            }
+        }
+        public HLinePerson Lookup(string nationalId)
+        { lock(sessionLock) {
             nationalId=Fmt.NormalizeNumber(nationalId); if(!Regex.IsMatch(nationalId,"^[0-9]{10}$")) throw new HLineException("national_id","کد ملی ده‌رقمی را وارد کنید.");
             VerifySession();
             List<Dictionary<string,object>> rows=Rows(Request("GET","/people?search="+nationalId+"&page_size=25&page_no=1",null));
@@ -440,7 +521,7 @@ namespace SpiroLab.HLine
                 result.Records.Add(record);
             }
             return result;
-        }
+        } }
         public static MedicalRecord LatestUnambiguous(IList<MedicalRecord> records)
         {
             if(records.Count==0) return null;
@@ -461,22 +542,22 @@ namespace SpiroLab.HLine
             return actual;
         }
         public Patient LoadLatestPatient(string nationalId)
-        {
+        { lock(sessionLock) {
             HLinePerson person=Lookup(nationalId);
             MedicalRecord latest=LatestUnambiguous(person.Records);
             if(latest==null) throw new HLineException("latest_record","آخرین پروندهٔ پزشکی با تاریخ مشخص و یکتا یافت نشد.");
             return PopulateRecord(person,latest);
-        }
+        } }
         public void VerifyLatestRecord(Patient patient)
-        {
+        { lock(sessionLock) {
             HLinePerson person=Lookup(patient.NationalId);
             MedicalRecord latest=LatestUnambiguous(person.Records);
             if(latest==null) throw new HLineException("latest_record","آخرین پروندهٔ پزشکی مشخص نیست؛ ارسال انجام نشد.");
-            if(person.Patient.HLinePersonId!=patient.HLinePersonId || latest.Id!=patient.HLineRecordId || latest.DateText!=patient.HLineRecordDate || latest.Status!=patient.HLineRecordStatus) throw new HLineException("destination_changed","پروندهٔ مقصد تغییر کرده است؛ مشخصات را دوباره از سایت دریافت کنید.");
+            if(person.Patient.HLinePersonId!=patient.HLinePersonId || latest.Id!=patient.HLineRecordId || latest.DateText!=patient.HLineRecordDate || latest.Status!=patient.HLineRecordStatus) throw new HLineException("destination_changed","برای این مراجعه، آخرین پروندهٔ تأییدشدهٔ HLine انتخاب نشده است؛ مشخصات را دوباره از سایت دریافت کنید. مقصد بی‌صدا تغییر نکرد.");
             VerifyRecord(latest,patient.HLinePersonId,patient.NationalId);
-        }
+        } }
         public Patient PopulateRecord(HLinePerson person,MedicalRecord record)
-        {
+        { lock(sessionLock) {
             VerifyRecord(record,person.Patient.HLinePersonId,person.Patient.NationalId);
             Patient p=person.Patient.Clone(); p.HLineRecordId=record.Id; p.HLineRecordDate=record.DateText; p.HLineRecordStatus=record.Status;
             object history=Request("GET","/medical-records/"+Segment(record.Id)+"/vitals/history",null);
@@ -506,7 +587,7 @@ namespace SpiroLab.HLine
             }
             else p.AnthropometrySource="missing_or_ambiguous";
             return p;
-        }
+        } }
         static bool VitalDate(Dictionary<string,object> row,out DateTimeOffset date)
         {
             string text=Text(row,"test_date");if(text.Length==0) text=Text(row,"created_at");
@@ -514,11 +595,11 @@ namespace SpiroLab.HLine
             return DateTimeOffset.TryParseExact(text,new string[] {"yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK","yyyy-MM-dd'T'HH:mm:ssK","yyyy-MM-dd HH:mm:ss","yyyy/MM/dd HH:mm:ss"},CultureInfo.InvariantCulture,DateTimeStyles.AssumeUniversal,out date) && date.Year>=1900 && date.Year<=2200;
         }
         public bool HasSpirometry(MedicalRecord record)
-        {
+        { lock(sessionLock) {
             List<Dictionary<string,object>> rows=Rows(Request("GET","/medical-records/"+Segment(record.Id)+"/spirometry/history",null));
             foreach(var row in rows) { if(Text(row,"medical_record_id").Length==0) throw new HLineException("history","انتساب نتیجهٔ قبلی به پرونده نامشخص است."); if(Text(row,"medical_record_id")==record.Id) return true; }
             return false;
-        }
+        } }
         static MedicalRecord ParseRecord(Dictionary<string,object> row,string pid,string nid)
         {
             if(Text(row,"person_id")!=pid || Fmt.NormalizeNumber(Text(row,"person_id_no"))!=nid) throw new HLineException("record_identity","انتساب پرونده به شخص و کد ملی تأیید نشد.");
@@ -558,6 +639,6 @@ namespace SpiroLab.HLine
             object[] array=value as object[]; if(array==null) throw new HLineException("malformed","فهرست پاسخ سامانه معتبر نیست.");
             var result=new List<Dictionary<string,object>>(); foreach(object item in array) result.Add(Dict(item)); return result;
         }
-        public void Dispose() {csrf=userId=null;Status=SessionStatus.Disconnected;transport.Dispose();}
+        public void Dispose() { lock(sessionLock) {csrf=userId=null;Status=SessionStatus.Disconnected;transport.Dispose();} }
     }
 }

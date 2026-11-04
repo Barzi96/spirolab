@@ -44,7 +44,7 @@ internal static class ClinicalUiTests
         try
         {
             Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
-            root=Path.GetFullPath(args[0]); Directory.CreateDirectory(root);
+            root=Path.Combine(Path.GetFullPath(args[0]),"run-"+Guid.NewGuid().ToString("N").Substring(0,8)); Directory.CreateDirectory(root);
             using(PatientForm f=new PatientForm())
             {
                 f.Show(); Application.DoEvents();

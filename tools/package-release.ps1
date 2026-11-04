@@ -7,7 +7,7 @@ if (-not (Test-Path -LiteralPath $releaseExe)) { throw 'Build the production rel
 if (-not (Test-Path -LiteralPath $testAssembly)) { throw 'Build the isolated test assembly first (app\build.bat test).' }
 $outRoot = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Force -Path $outRoot | Out-Null
-$packageId = 'SpiroLab-5.4.6-ClinicalWorkflow5-Review-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture)
+$packageId = 'SpiroLab-5.4.6-Records-HLine-RC2-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture)
 $packageRoot = Join-Path $outRoot $packageId
 New-Item -ItemType Directory -Path $packageRoot | Out-Null
 Copy-Item -LiteralPath $releaseExe -Destination $packageRoot
@@ -17,7 +17,7 @@ Copy-Item -Path (Join-Path $repoRoot 'docs\operator\*') -Destination (Join-Path 
 $sourceState = if (@(& git -C $repoRoot status --porcelain).Count -gt 0) { 'Uncommitted source changes.' } else { 'Clean committed source.' }
 $versionText = @(
   'SpiroLab 5.4.6',
-  'بستهٔ بازبینی گردش‌کار ۵ — محاسبات مستقل از سه منحنی نمایشی؛ تأیید بالینی و سخت‌افزاری این تغییرات PENDING',
+  'Records & HLine Reliability — RC2؛ آزمون عملی و بالینی PENDING',
   ('Source commit: {0}' -f (& git -C $repoRoot rev-parse HEAD)),
   ('Source state: {0}' -f $sourceState),
   ('Build UTC: {0}' -f [DateTime]::UtcNow.ToString('o', [Globalization.CultureInfo]::InvariantCulture)),
@@ -29,13 +29,14 @@ $versionText = @(
 ) -join "`r`n"
 $versionText | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $packageRoot 'Version.txt')
 $readme = @(
-  'SpiroLab 5.4.6 - Clinical workflow 5 review build',
-  'بستهٔ بازبینی گردش‌کار ۵؛ راهنمای clinical-workflow5-review-fa.md را ابتدا بخوانید.',
+  'SpiroLab 5.4.6 - Records & HLine Reliability - RC2',
+  'راهنمای فارسی records-hline-firefox-rc2-fa.md را ابتدا بخوانید.',
   '',
   'Run Launch.cmd. The app starts without an installer.',
-  'Read Docs\clinical-workflow5-review-fa.md first. Release/field-test notes describe prior builds.',
+  'Read Docs\records-hline-firefox-rc2-fa.md first. Older release notes describe prior builds.',
   'MIRUSB driver is NOT included; install the compatible driver from the official MIR distribution.',
-  'Portable data is stored under %APPDATA%\SpiroLab.',
+  'New clinical records: records\Persian-yyyy-MM-dd\Full name - HH-mm-ss.spiro beside SpiroLab.exe.',
+  'Settings remain in %APPDATA%\SpiroLab; old exams are not automatically moved.',
   '',
   'Manual finish: one ESC, continue polling for 0x04, then read validated LAST. Response wait: 10 seconds after ESC.',
   'No simulated patient data, test executable, benchmark, log or source file is part of this package.',

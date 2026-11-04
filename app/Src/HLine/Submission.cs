@@ -166,13 +166,13 @@ namespace SpiroLab.HLine
                         Timed("module_verify",delegate { gateway.VerifySaved(draft); });
                         journal.FileId=pending.FileId;journal.Problem="";journal.State=SubmissionState.Confirmed;AlreadyPresent=true;Timed("journal_persist",delegate { persist(); });return;
                     }
-                    throw new InvalidOperationException("ارسال قبلی باید از سرور بازخوانی شود؛ ارسال دوباره مجاز نیست.");
+                    throw new InvalidOperationException("وضعیت ارسال قبلی این معاینه نامطمئن است؛ بررسی سامانه لازم است. نبود یا متفاوت‌بودن نتیجه، اجازهٔ ارسال دوبارهٔ همان معاینه نیست.");
                 }
                 Timed("destination_verify",delegate { gateway.VerifyDestination(draft); });
                 RemoteSpirometry existing=Timed("existing_result_read",delegate { return gateway.Read(draft); });
                 if(existing!=null)
                 {
-                    if(!SameResult(draft,existing)) throw new InvalidOperationException("نتیجهٔ متفاوتی در این پرونده ثبت شده است؛ ارسال متوقف شد و چیزی بازنویسی نشد.");
+                    if(!SameResult(draft,existing)) throw new InvalidOperationException("برای این پروندهٔ پزشکی نتیجهٔ اسپیرومتری دیگری وجود دارد. برای مراجعهٔ تازه، پروندهٔ جدید و تأییدشدهٔ HLine لازم است؛ چیزی بازنویسی نشد.");
                     Timed("module_verify",delegate { gateway.VerifySaved(draft); });
                     journal.State=SubmissionState.Confirmed;AlreadyPresent=true;Timed("journal_persist",delegate { persist(); });return;
                 }

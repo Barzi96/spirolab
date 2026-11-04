@@ -46,11 +46,57 @@ class HLineWriteTests
         if(!expected.HasValue || !payload.ContainsKey(key) || payload[key]==null) return false;
         return Convert.ToDouble(payload[key])==Math.Round(expected.Value,2,MidpointRounding.AwayFromZero);
     }
+    static void RepeatVisitTests()
+    {
+        using(MockHLine server=new MockHLine())
+        {
+            HLineHttpTransport transport;using(HLineClient client=Client(server,out transport))
+            {
+                var gateway=new LiveSubmissionGateway(client);Exam first=Exam();SubmissionDraft draft=Draft(first);
+                var coordinator=new SubmissionCoordinator(gateway,first.Submission,delegate {},null);coordinator.Submit(draft);
+                int uploads=server.Uploads,creates=server.Creates;coordinator.Submit(draft);
+                Check(coordinator.AlreadyPresent && server.Uploads==uploads && server.Creates==creates,"same examination is reconciled without a duplicate write");
+                server.Saved["fvc_amount"]=99;
+                bool blocked=false;try {new SubmissionCoordinator(gateway,new SubmissionJournal(),delegate {},null).Submit(Draft(Exam()));}catch(InvalidOperationException ex){blocked=ex.Message.Contains("پروندهٔ پزشکی");}
+                Check(blocked && server.Creates==creates,"a different result in the same destination blocks replacement with a specific message");
+                server.Saved=null;server.FileBytes=new byte[0];
+                blocked=false;try {coordinator.Submit(draft);}catch(InvalidOperationException ex){blocked=ex.Message.Contains("نامطمئن");}
+                Check(blocked && server.Creates==creates,"even confirmed absence never resets a prior non-idempotent attempt for the same examination");
+                Exam fresh=Exam();var next=new SubmissionCoordinator(gateway,fresh.Submission,delegate {},null);next.Submit(Draft(fresh));
+                Check(fresh.ExaminationId!=first.ExaminationId && fresh.Submission.Reference!=first.Submission.Reference && server.Creates==creates+1,"a new examination with a fresh journal can fill an API-confirmed empty destination");
+            }
+        }
+        foreach(string kind in new string[] {"module","orphan","malformed","template"})
+            using(MockHLine server=new MockHLine())
+            {
+                if(kind=="module")server.ModuleStatus="complete";
+                if(kind=="orphan")server.FileBytes=new byte[] {1,2,3};
+                if(kind=="malformed")server.ReadBody="{\"unexpected\":true}";
+                if(kind=="template")server.ReadBody="{\"data\":{\"medical_record_id\":\"R-1\",\"fvc_amount\":null,\"file_id\":null}}";
+                HLineHttpTransport transport;using(HLineClient client=Client(server,out transport))
+                {
+                    bool blocked=false;try {new SubmissionCoordinator(new LiveSubmissionGateway(client),new SubmissionJournal(),delegate {},null).Submit(Draft(Exam()));}catch(HLineException){blocked=true;}
+                    Check(kind=="template"?server.Creates==1:blocked && server.Creates==0 && server.Uploads==0,"empty-result classification distinguishes "+kind+" without unsafe replacement");
+                }
+            }
+        using(MockHLine server=new MockHLine {RecordId="R-2"})
+        {
+            HLineHttpTransport transport;using(HLineClient client=Client(server,out transport))
+            {
+                Exam next=Exam();next.Patient.HLineRecordId="R-2";
+                new SubmissionCoordinator(new LiveSubmissionGateway(client),next.Submission,delegate {},null).Submit(Draft(next));
+                Check(server.Creates==1,"same person can submit to their new verified medical record");
+                next.Patient.HLineRecordId="R-1";bool blocked=false;try {new SubmissionCoordinator(new LiveSubmissionGateway(client),new SubmissionJournal(),delegate {},null).Submit(Draft(next));}catch(HLineException ex){blocked=ex.Code=="destination_changed";}
+                Check(blocked && server.Creates==1,"a stale destination is rejected instead of silently retargeted");
+            }
+        }
+    }
     [STAThread] static int Main(string[] args)
     {
         try
         {
-            root=Path.GetFullPath(args[0]);Directory.CreateDirectory(root);
+            root=Path.Combine(Path.GetFullPath(args[0]),"run-"+Guid.NewGuid().ToString("N").Substring(0,8));Directory.CreateDirectory(root);
+            RepeatVisitTests();
             using(MockHLine server=new MockHLine())
             {
                 HLineHttpTransport transport;using(HLineClient client=Client(server,out transport))
@@ -229,11 +275,12 @@ class HLineWriteTests
         readonly HttpListener listener=new HttpListener();
         readonly Thread worker;
         public string BaseUrl {get;private set;}
+        public string RecordId="R-1", ReadBody;
         public string Center="C-1";
         public string UserCenter="C-1";
         public string[] Scopes=new string[] {"mrsp_u","mrsp_p","mrsp_i","mrsp_nf","mrsp_rf","mrsp_dm"};
         public bool ExpireNextWrite,AbortAfterUpload,AbortAfterCreate;
-        public string ModuleStatus="complete";
+        public string ModuleStatus;
         public int Uploads,Creates,Patches,CsrfRefreshes;
         public string UploadedModule,UploadedFilename,UploadedType;
         public byte[] FileBytes=new byte[0];
@@ -263,10 +310,10 @@ class HLineWriteTests
             if(path=="/api/people") {Write(c,200,"{\"data\":[{\"id\":\"P-1\",\"person_id_no\":\"0000000001\"}]}");return;}
             if(path=="/api/people/P-1") {Write(c,200,"{\"data\":{\"id\":\"P-1\",\"person_id_no\":\"0000000001\",\"full_name\":\"Test Patient\",\"birth_date\":\"1980/01/01\",\"gender\":\"male\"}}");return;}
             if(path=="/api/medical-records") {Write(c,200,"{\"data\":["+Record()+"]}");return;}
-            if(path=="/api/medical-records/R-1") {Write(c,200,"{\"data\":"+Record()+"}");return;}
-            if(path=="/api/medical-records/R-1/spirometry")
+            if(path=="/api/medical-records/"+RecordId) {Write(c,200,"{\"data\":"+Record()+"}");return;}
+            if(path=="/api/medical-records/"+RecordId+"/spirometry")
             {
-                if(c.Request.HttpMethod=="GET") {if(Saved==null) Write(c,404,"{\"data\":null}");else Write(c,200,"{\"data\":"+new JavaScriptSerializer().Serialize(Saved)+"}");return;}
+                if(c.Request.HttpMethod=="GET") {if(ReadBody!=null) {string once=ReadBody;ReadBody=null;Write(c,200,once);return;}if(Saved==null) Write(c,404,"{\"data\":null}");else Write(c,200,"{\"data\":"+new JavaScriptSerializer().Serialize(Saved)+"}");return;}
                 if(c.Request.HttpMethod=="POST" || c.Request.HttpMethod=="PATCH")
                 {
                     if(!Csrf(c)) return;
@@ -279,7 +326,7 @@ class HLineWriteTests
                     Write(c,c.Request.HttpMethod=="POST"?201:200,"{\"data\":{\"id\":\"S-1\"}}");return;
                 }
             }
-            if(path=="/api/medical-records/R-1/files" && c.Request.HttpMethod=="POST")
+            if(path=="/api/medical-records/"+RecordId+"/files" && c.Request.HttpMethod=="POST")
             {
                 if(!Csrf(c)) return;
                 byte[] body=ReadAll(c.Request.InputStream);string boundary=Boundary(c.Request.ContentType);
@@ -288,12 +335,12 @@ class HLineWriteTests
                 if(AbortAfterUpload) {c.Response.Abort();return;}
                 Write(c,201,"{\"data\":{\"id\":\"F-1\"}}");return;
             }
-            if(path=="/api/medical-records/R-1/files/spirometry")
+            if(path=="/api/medical-records/"+RecordId+"/files/spirometry")
             {
                 string list=FileBytes.Length==0?"{\"data\":[]}":"{\"data\":[{\"id\":\"F-1\",\"name\":\""+UploadedFilename+"\",\"size\":"+FileBytes.Length+"}]}";
                 Write(c,200,list);return;
             }
-            if(path=="/api/medical-records/R-1/files/F-1/dl")
+            if(path=="/api/medical-records/"+RecordId+"/files/F-1/dl")
             {
                 c.Response.StatusCode=200;c.Response.ContentType="image/jpeg";c.Response.ContentLength64=FileBytes.Length;c.Response.OutputStream.Write(FileBytes,0,FileBytes.Length);c.Response.Close();return;
             }
@@ -307,7 +354,7 @@ class HLineWriteTests
             }
             return true;
         }
-        string Record() {return "{\"id\":\"R-1\",\"person_id\":\"P-1\",\"person_id_no\":\"0000000001\",\"admission_date\":\"2026/11/01\",\"status\":\"complete\",\"medical_center_id\":\""+Center+"\",\"modules\":[{\"module_id\":\"spirometry\",\"status\":\""+ModuleStatus+"\"}]}";}
+        string Record() {return "{\"id\":\""+RecordId+"\",\"person_id\":\"P-1\",\"person_id_no\":\"0000000001\",\"admission_date\":\"2026/11/01\",\"status\":\"complete\",\"medical_center_id\":\""+Center+"\",\"modules\":[{\"module_id\":\"spirometry\",\"status\":\""+(ModuleStatus??(Saved==null?"NoData":"complete"))+"\"}]}";}
         static void Write(HttpListenerContext c,int status,string body)
         {
             byte[] data=Encoding.UTF8.GetBytes(body);c.Response.StatusCode=status;c.Response.ContentType="application/json; charset=utf-8";c.Response.ContentLength64=data.Length;c.Response.OutputStream.Write(data,0,data.Length);c.Response.Close();

@@ -30,7 +30,7 @@ internal static class ManeuverSelectionTests
     {
         try
         {
-            string root=Path.GetFullPath(args[0]); Directory.CreateDirectory(root);
+            string root=Path.Combine(Path.GetFullPath(args[0]),"run-"+Guid.NewGuid().ToString("N").Substring(0,8)); Directory.CreateDirectory(root);
             Patient p=new Patient { FirstName="داده",LastName="آزمایشی",NationalId="0000000001",Age=35,HeightCm=175,WeightKg=75,Origin=Origin.Caucasian };
             Exam exam=Exam.CreateNew(new AppSettings { OperatorName="کارشناس تست" }); exam.Patient=p; exam.SelectionWorkflowVersion=1; // Retain regression coverage for the 5.1.1 explicit-selection records.
             Trial first=Blow(p,100); exam.AddManeuver(first);

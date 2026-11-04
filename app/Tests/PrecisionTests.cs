@@ -22,7 +22,7 @@ internal static class PrecisionTests
     {
         try
         {
-            string root=Path.GetFullPath(args[0]); Directory.CreateDirectory(root);
+            string root=Path.Combine(Path.GetFullPath(args[0]),"run-"+Guid.NewGuid().ToString("N").Substring(0,8)); Directory.CreateDirectory(root);
             string settingsPath=Path.Combine(root,"settings.xml");
             AppSettings defaults=AppSettings.Load(Path.Combine(root,"missing.xml"));
             Check(defaults.CenterName=="شرکت سنگ آهن مرکزی ایران - بافق" && defaults.OperatorName=="","exact center and empty operator defaults");

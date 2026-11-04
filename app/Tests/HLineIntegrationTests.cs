@@ -105,12 +105,13 @@ class HLineIntegrationTests
                     TextField(dialog,"HLineUsername").Text="synthetic";TextField(dialog,"HLinePassword").Text="synthetic-password";TextField(dialog,"HLineMfa").Text="123456";
                     ((Button)dialog.Controls.Find("HLineLogin",true)[0]).PerformClick();timer.Stop();
                 };
-                timer.Start();login.PerformClick();
+                timer.Start();login.PerformClick();PumpUntil(delegate {return client.Status==SessionStatus.Connected && !(bool)Field(form,"_busy");});
             }
             Check(login.Text=="ورود به سامانه" && login.Visible,"toolbar login button is visible with the Persian caption");
             Check(opened && modal && client.Status==SessionStatus.Connected,"login button opens the modal login dialog and authenticates username, password and MFA");
             Check(firefoxActions,"login dialog offers Firefox session adoption and browser launch without credentials");
             Check(((Label)Field(form,"lblStatus")).Text=="متصل به سامانه","successful login reports متصل به سامانه");
+            PumpUntil(delegate {return ((Label)Field(form,"lblSiteConnection")).Text.Contains("متصل به سامانه");});
             Check(((Label)Field(form,"lblSiteConnection")).Text.Contains("متصل به سامانه"),"site indicator reflects the authenticated session");
             Shot(form,"07-login-connected");
         }
@@ -407,6 +408,73 @@ class HLineIntegrationTests
         return e;
     }
     static SubmissionDraft Draft(Exam e) {var s=ExaminationSnapshot.Capture(e);return new SubmissionDraft(s,ResultExport.SaveToDirectory(root,s));}
+    sealed class SessionServer : IHLineTransport,IHLineCookieSink
+    {
+        public string Cookie="",Required="old",User="U",Center="C";
+        public bool Network,Forbidden;public int InvalidStatus=401,Adoptions,InFlight,MaxConcurrent,Calls;
+        public int AdoptCookies(IEnumerable<SessionCookie> values){foreach(SessionCookie c in values) {Cookie=c.Value;break;}Adoptions++;return 1;}
+        public HLineResponse Send(string method,string path,string body,string csrf)
+        {
+            int active=Interlocked.Increment(ref InFlight);MaxConcurrent=Math.Max(active,MaxConcurrent);Interlocked.Increment(ref Calls);
+            try
+            {
+                Thread.Sleep(2);if(Network)throw new IOException("synthetic network failure");
+                if(Forbidden)return new HLineResponse {Status=403,Body="{}"};
+                if(Cookie!=Required)return new HLineResponse {Status=InvalidStatus,Body="{}"};
+                return new HLineResponse {Status=200,Body="{\"data\":{\"id\":\""+User+"\",\"medical_center_id\":\""+Center+"\"}}"};
+            }
+            finally {Interlocked.Decrement(ref InFlight);}
+        }
+        public void Dispose() {}
+    }
+    static FirefoxSession Session(string token)
+    {return new FirefoxSession {Profile=new FirefoxProfile {Name="synthetic"},Cookies=new List<SessionCookie> {new SessionCookie {Name="sid",Value=token,Domain="hline.ssu.ac.ir"}}};}
+    static void SessionRecoveryTests()
+    {
+        foreach(int expired in new int[] {401,419})
+        {
+            SessionServer server=new SessionServer {InvalidStatus=expired};int candidates=0;
+            using(HLineClient client=new HLineClient(server,delegate {candidates++;return new List<FirefoxSession> {Session("fresh")};}))
+            {
+                client.AdoptCookies(Session("old").Cookies);
+                string problem;Check(client.TryAdoptFirefoxSession(null,out problem) && candidates==0 && server.Adoptions==1,"healthy application session survives closed Firefox and stale profile candidates "+expired);
+                server.Network=true;bool failed=false;try {client.VerifySession();}catch(HLineException ex){failed=ex.Code=="network";}
+                Check(failed && client.Status==SessionStatus.Unavailable && server.Adoptions==1,"temporary network failure retains cookies and is not labelled expired "+expired);
+                server.Network=false;Check(client.EnsureSession(out problem) && client.Status==SessionStatus.Connected && server.Adoptions==1,"safe read recovers the same session after network/sleep interruption "+expired);
+                server.Required="fresh";client.VerifySession();
+                Check(client.Status==SessionStatus.Connected && server.Adoptions==2 && candidates==1,"expired application session refreshes from verified Firefox cookies once "+expired);
+                server.Forbidden=true;failed=false;try {client.VerifySession();}catch(HLineException ex){failed=ex.Code=="forbidden";}
+                Check(failed && client.Status!=SessionStatus.Expired && candidates==1,"403 is a permission failure, not a trigger to replace authentication "+expired);
+            }
+        }
+        foreach(bool centerOnly in new bool[] {false,true})
+        {
+            SessionServer server=new SessionServer();
+            using(HLineClient client=new HLineClient(server,delegate {return new List<FirefoxSession> {Session("fresh")};}))
+            {
+                client.AdoptCookies(Session("old").Cookies);server.Required="fresh";if(centerOnly)server.Center="OTHER";else server.User="OTHER";
+                bool blocked=false;try {client.VerifySession();}catch(HLineException ex){blocked=ex.Code=="identity_changed";}
+                Check(blocked && client.IdentityChangePending && (string)Field(client,"userId")=="U" && (string)Field(client,"centerId")=="C","identity/center rotation requires an explicit operator decision "+centerOnly);
+                string problem;Check(client.TryAdoptFirefoxSession(null,out problem,true) && !client.IdentityChangePending && client.Status==SessionStatus.Connected,"explicitly confirmed identity switch validates the new session "+centerOnly);
+            }
+        }
+        SessionServer missing=new SessionServer();int reads=0;
+        using(HLineClient client=new HLineClient(missing,delegate {reads++;return new List<FirefoxSession>();}))
+        {
+            client.AdoptCookies(Session("old").Cookies);missing.Required="new";
+            for(int i=0;i<2;i++)try {client.VerifySession();}catch(HLineException){}
+            Check(reads==1 && client.Status==SessionStatus.Expired,"missing valid Firefox session is reported and automatic recovery is rate limited");
+        }
+        SessionServer concurrent=new SessionServer();
+        using(HLineClient client=new HLineClient(concurrent,delegate {return new List<FirefoxSession>();}))
+        {
+            client.AdoptCookies(Session("old").Cookies);Exception error=null;
+            Thread a=new Thread(delegate(){try {for(int i=0;i<8;i++)client.VerifySession();}catch(Exception ex){error=ex;}});
+            Thread b=new Thread(delegate(){try {for(int i=0;i<8;i++){string p;client.TryAdoptFirefoxSession(null,out p);}}catch(Exception ex){error=ex;}});
+            a.Start();b.Start();a.Join();b.Join();
+            Check(error==null && concurrent.MaxConcurrent==1 && concurrent.Adoptions==1,"concurrent session checks serialize requests without replacing a valid cookie jar");
+        }
+    }
     static void HttpCookieTest()
     {
         TcpListener portFinder=new TcpListener(IPAddress.Loopback,0);portFinder.Start();int port=((IPEndPoint)portFinder.LocalEndpoint).Port;portFinder.Stop();
@@ -432,7 +500,7 @@ class HLineIntegrationTests
                 catch(Exception ex) {serverError=ex;}
             }) {IsBackground=true}; worker.Start();
             var transport=(IHLineTransport)Activator.CreateInstance(typeof(HLineHttpTransport),BindingFlags.Instance|BindingFlags.NonPublic,null,new object[] {new Uri(url)},null);
-            using(HLineClient client=new HLineClient(transport))
+            using(HLineClient client=new HLineClient(transport,delegate {return new List<FirefoxSession>();}))
             {
                 client.Login("synthetic-user","synthetic-password","123456");Check(cookieSeen && csrfSeen && client.Status==SessionStatus.Connected,"real loopback HTTP mock verifies cookie jar and CSRF header across login");
                 Refuses(client.VerifySession,"loopback HTTP expired session refused");Check(client.Status==SessionStatus.Expired,"expired-session state explicit");
@@ -451,7 +519,7 @@ class HLineIntegrationTests
     {
         IntPtr statement;
         if(sqlite3_prepare_v2(db,sql,-1,out statement,IntPtr.Zero)!=0) throw new Exception("sqlite prepare failed");
-        try {if(sqlite3_step(statement)!=101) throw new Exception("sqlite step failed");}
+        try {int step;while((step=sqlite3_step(statement))==100){}if(step!=101) throw new Exception("sqlite step failed");}
         finally {sqlite3_finalize(statement);}
     }
     static string Esc(string value) {return (value??"").Replace("'","''");}
@@ -499,6 +567,35 @@ class HLineIntegrationTests
         Check(otherDomain.Count==1 && otherDomain[0].Cookies.Count==1 && otherDomain[0].Cookies[0].Name=="other","cookie set is filtered per requested domain");
         Check(FirefoxSessions.Candidates("no-such-host.test",null,out problem,baseDir).Count==0 && problem!=null,"missing session reports a concrete problem");
     }
+    static byte[] ReadShared(string path)
+    {using(FileStream file=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete)) using(MemoryStream bytes=new MemoryStream()){file.CopyTo(bytes);return bytes.ToArray();}}
+    static void FirefoxWalTest()
+    {
+        string baseDir=Path.Combine(root,"ff-wal"),profile=Path.Combine(baseDir,"Profiles","active");Directory.CreateDirectory(profile);
+        string database=Path.Combine(profile,"cookies.sqlite");IntPtr db;
+        if(sqlite3_open_v2(database,out db,6,IntPtr.Zero)!=0)throw new Exception("synthetic WAL open failed");
+        try
+        {
+            Exec(db,"PRAGMA journal_mode=WAL");Exec(db,CookieSchema);
+            Exec(db,"INSERT INTO moz_cookies VALUES ('sid','committed','hline.ssu.ac.ir','/',0,1,1,1000)");
+            Exec(db,"INSERT INTO moz_cookies VALUES ('bad','ignored','hline.ssu.ac.ir','/','invalid',1,1,1000)");
+            Exec(db,"BEGIN IMMEDIATE");Exec(db,"INSERT INTO moz_cookies VALUES ('uncommitted','invisible','hline.ssu.ac.ir','/',0,1,1,2000)");
+            byte[] before=ReadShared(database),wal=ReadShared(database+"-wal");string problem;
+            var sessions=FirefoxSessions.Candidates("hline.ssu.ac.ir",null,out problem,baseDir);
+            Check(sessions.Count==1 && sessions[0].Cookies.Count==1 && sessions[0].Cookies[0].Value=="committed","Firefox read-only reader sees committed WAL state while excluding pending rows and invalid expiry");
+            Check(before.SequenceEqual(ReadShared(database)) && wal.SequenceEqual(ReadShared(database+"-wal")),"WAL read leaves Firefox database and WAL bytes untouched");
+            Exec(db,"ROLLBACK");
+        }
+        finally {sqlite3_close(db);}
+        string store=Path.Combine(root,"ff-store"),older=Path.Combine(store,"Profiles","older.default"),newer=Path.Combine(store,"Profiles","newer.default-release");
+        using(FileStream active=new FileStream(Path.Combine(older,"parent.lock"),FileMode.Create,FileAccess.ReadWrite,FileShare.None))
+        {
+            string problem;var sessions=FirefoxSessions.Candidates("hline.ssu.ac.ir",null,out problem,store);
+            Check(sessions[0].Profile.Directory==older && sessions[0].Profile.IsActive,"locked active Firefox profile precedes a merely default profile");
+            sessions=FirefoxSessions.Candidates("hline.ssu.ac.ir",newer,out problem,store);
+            Check(sessions[0].Profile.Directory==newer,"explicit configured profile retains precedence over active-profile detection");
+        }
+    }
     static void FirefoxAdoptionTest()
     {
         string baseDir=Path.Combine(root,"ff-adopt");if(Directory.Exists(baseDir)) Directory.Delete(baseDir,true);
@@ -536,7 +633,7 @@ class HLineIntegrationTests
                 catch(Exception ex) {serverError=ex;}
             }) {IsBackground=true};worker.Start();
             var transport=(IHLineTransport)Activator.CreateInstance(typeof(HLineHttpTransport),BindingFlags.Instance|BindingFlags.NonPublic,null,new object[] {new Uri(url)},null);
-            using(HLineClient client=new HLineClient(transport))
+            using(HLineClient client=new HLineClient(transport,delegate {return new List<FirefoxSession>();}))
             {
                 string problem;
                 var sessions=FirefoxSessions.Candidates("127.0.0.1",null,out problem,baseDir);
@@ -590,9 +687,11 @@ class HLineIntegrationTests
     {
         try
         {
-            Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);root=Path.GetFullPath(args[0]);Directory.CreateDirectory(root);
+            Application.EnableVisualStyles();Application.SetCompatibleTextRenderingDefault(false);root=Path.Combine(Path.GetFullPath(args[0]),"run-"+Guid.NewGuid().ToString("N").Substring(0,8));Directory.CreateDirectory(root);
             HttpCookieTest();
+            SessionRecoveryTests();
             FirefoxStoreTest();
+            FirefoxWalTest();
             FirefoxAdoptionTest();
             foreach(string code in new string[] {"missing_mfa_token","invalid_mfa_token","invalid_credentials","needs_mfa_setup"})
             {

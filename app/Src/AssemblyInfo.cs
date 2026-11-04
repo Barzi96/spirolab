@@ -3,4 +3,4 @@ using System.Reflection;
 [assembly: AssemblyDescription("Spirometry acquisition, HLine read integration and protected upload preparation")]
 [assembly: AssemblyVersion("5.4.6.0")]
 [assembly: AssemblyFileVersion("5.4.6.0")]
-[assembly: AssemblyInformationalVersion("5.4.6-clinical-workflow5-review")]
+[assembly: AssemblyInformationalVersion("5.4.6-records-hline-rc2")]

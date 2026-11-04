@@ -25,7 +25,7 @@ class HLinePhaseTests
         try
         {
             Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
-            string root=Path.GetFullPath(args[0]); Directory.CreateDirectory(root);
+            string root=Path.Combine(Path.GetFullPath(args[0]),"run-"+Guid.NewGuid().ToString("N").Substring(0,8)); Directory.CreateDirectory(root);
             using(MainForm form=new MainForm())
             {
                 form.Size=new Size(1280,1000);form.Show(); Application.DoEvents();

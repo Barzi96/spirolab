@@ -122,8 +122,13 @@ namespace SpiroLab.Ui
             {
                 if(hline.Status!=SessionStatus.Connected)
                 {
-                    if(!interactive) { lastLookupError="نشست منقضی شده؛ دوباره وارد شوید.";if(!IsDisposed) error.Text=lastLookupError;return null; }
-                    if(!HLineLoginForm.SignIn(hline,this))
+                    if(!interactive)
+                    {
+                        string problem=null;
+                        if(!await Task.Factory.StartNew(delegate {return hline.EnsureSession(out problem);}))
+                        {lastLookupError=problem??hline.StatusText;if(!IsDisposed) error.Text=lastLookupError;return null;}
+                    }
+                    else if(!await HLineLoginForm.SignIn(hline,this))
                     { lastLookupError="ورود به سامانه انجام نشد.";if(!IsDisposed) error.Text=lastLookupError;return null; }
                 }
                 try { return await Task.Factory.StartNew(delegate {return hline.LoadLatestPatient(code);}); }

@@ -37,13 +37,13 @@ namespace SpiroLab.Ui
             Panel bottom=new Panel {Dock=DockStyle.Bottom,Height=150,BackColor=Color.White};
             status=new Label {Name="HLineStatus",Dock=DockStyle.Top,Height=44,Text=client.StatusText,Padding=new Padding(15,6,15,6)}; bottom.Controls.Add(status);
             FlowLayoutPanel actions=new FlowLayoutPanel {Dock=DockStyle.Bottom,Height=56,FlowDirection=FlowDirection.RightToLeft,RightToLeft=RightToLeft.No,Padding=new Padding(12,4,12,4)};
-            firefoxConnect=ClinicalStyle.Button("اتصال مجدد با فایرفاکس",async delegate { await Adopt(); },true); firefoxConnect.Name="HLineFirefoxConnect";
+            firefoxConnect=ClinicalStyle.Button("اتصال مجدد با فایرفاکس",async delegate { await Adopt(true); },true); firefoxConnect.Name="HLineFirefoxConnect";
             firefoxOpen=ClinicalStyle.Button("باز کردن سایت در فایرفاکس",delegate { OpenFirefox(); },false); firefoxOpen.Name="HLineFirefoxOpen";
             login=ClinicalStyle.Button("ورود با رمز",async delegate { await Login(); },false); login.Name="HLineLogin";
             actions.Controls.Add(firefoxConnect); actions.Controls.Add(firefoxOpen); actions.Controls.Add(login);
             bottom.Controls.Add(actions); Controls.Add(bottom);
             AcceptButton=login;
-            poll=new Timer {Interval=3000}; poll.Tick+=async delegate { if(working) return; if(++pollAttempts>40) { poll.Stop(); return; } await Adopt(); };
+            poll=new Timer {Interval=5000}; poll.Tick+=async delegate { if(working) return; if(++pollAttempts>12) { poll.Stop(); return; } await Adopt(); };
             Shown+=delegate { if(username.Text.Length==0) username.Focus(); else if(password.Text.Length==0) password.Focus(); else mfa.Focus(); };
             FormClosing+=delegate(object s,FormClosingEventArgs e) {e.Cancel=working;};
             Disposed+=delegate { poll.Dispose(); };
@@ -73,7 +73,7 @@ namespace SpiroLab.Ui
         }
         // Reads the current Firefox session, validates it and closes the dialog
         // without asking for any credential.
-        async Task Adopt()
+        async Task Adopt(bool interactive=false)
         {
             if(working) return;
             working=true; SetActions(false); status.Text="در حال خواندن نشست فایرفاکس…";
@@ -84,6 +84,8 @@ namespace SpiroLab.Ui
                 {
                     string message; bool adopted=client.TryAdoptFirefoxSession(preferredProfile,out message); problem=message; return adopted;
                 });
+                if(!ok && interactive && client.IdentityChangePending && MessageBox.Show(this,"هویت کاربر یا مرکز فایرفاکس با نشست قبلی متفاوت است. تغییر نشست را تأیید می‌کنید؟ مقصد هر پرونده دوباره کنترل خواهد شد.","تغییر نشست",MessageBoxButtons.YesNo,MessageBoxIcon.Warning)==DialogResult.Yes)
+                    ok=await Task.Factory.StartNew(delegate {string message;bool adopted=client.TryAdoptFirefoxSession(preferredProfile,out message,true);problem=message;return adopted;});
             }
             catch(Exception) { problem="خواندن نشست فایرفاکس ممکن نشد."; }
             SetActions(true); working=false;
@@ -117,13 +119,15 @@ namespace SpiroLab.Ui
         }
         // Single entry point used by the toolbar and the patient form: reuse a
         // live Firefox session first, only then show the password dialog.
-        public static bool SignIn(HLineClient client,IWin32Window owner) { return SignIn(client,owner,null); }
-        public static bool SignIn(HLineClient client,IWin32Window owner,string preferredProfile)
+        public static Task<bool> SignIn(HLineClient client,IWin32Window owner) { return SignIn(client,owner,null); }
+        public static async Task<bool> SignIn(HLineClient client,IWin32Window owner,string preferredProfile)
         {
             if(client==null) return false;
-            if(client.Status==SessionStatus.Connected) { try { client.VerifySession(); return true; } catch(HLineException) { } }
-            string problem;
-            if(client.TryAdoptFirefoxSession(preferredProfile,out problem)) return true;
+            if(!string.IsNullOrEmpty(preferredProfile)) client.PreferredFirefoxProfile=preferredProfile;
+            string problem=null;
+            if(await Task.Factory.StartNew(delegate {return client.EnsureSession(out problem);})) return true;
+            Control control=owner as Control;if(control!=null && control.IsDisposed) return false;
+            if(client.Status==SessionStatus.Unavailable) {MessageBox.Show(owner,problem,"عدم دسترسی موقت",MessageBoxButtons.OK,MessageBoxIcon.Information);return false;}
             using(HLineLoginForm form=new HLineLoginForm(client,preferredProfile)) return form.ShowDialog(owner)==DialogResult.OK && client.Status==SessionStatus.Connected;
         }
     }

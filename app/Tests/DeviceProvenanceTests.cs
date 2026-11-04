@@ -230,7 +230,7 @@ class DeviceProvenanceTests
     {
         try
         {
-            root=Path.GetFullPath(args[0]);Directory.CreateDirectory(root);
+            root=Path.Combine(Path.GetFullPath(args[0]),"run-"+Guid.NewGuid().ToString("N").Substring(0,8));Directory.CreateDirectory(root);
 
             // 1. A structurally verified device block is accepted.
             Exam valid=ValidExam(3);ExaminationSnapshot vs=ExaminationSnapshot.Capture(valid);
