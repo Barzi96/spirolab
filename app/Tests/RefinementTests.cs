@@ -47,7 +47,7 @@ internal static class RefinementTests
         {
             root=Path.GetFullPath(args[0]); Directory.CreateDirectory(root);
             Patient p=Patient();
-            Exam e=Exam.CreateNew(new AppSettings {OperatorName="refine operator"}); e.Patient=p;
+            Exam e=Exam.CreateNew(new AppSettings {OperatorName="refine operator"}); e.SelectionWorkflowVersion=4; e.Patient=p; // Historical selected-clinical-set regression.
             Trial t0=Blow(p,100,3.0,2.0),t1=Blow(p,101,4.0,2.5),t2=Blow(p,102,3.5,3.0),t3=Blow(p,103,4.5,3.2),t4=Blow(p,104,2.8,2.2);
             foreach(Trial t in new Trial[] {t0,t1,t2,t3,t4}) e.AddManeuver(t);
             Check(e.SelectionWorkflowVersion==4 && e.ReportManeuverIds.Count==3,"new examination uses workflow4 and at most three automatic selections");
@@ -159,7 +159,15 @@ internal static class RefinementTests
                 Call(form,"RenderTrials");
                 DataGridView grid=(DataGridView)Field(form,"gridTrials");
                 Check(grid.Columns.Count==8 && grid.Columns[0] is ManeuverColumn && grid.Columns["ReportSelection"] is ReportColumn,"compact history includes FET and keeps delete and final selection");
-                Check(grid.Columns["ReportSelection"].HeaderText=="انتخاب نهایی" && grid.Columns["ReportSelection"].ToolTipText.Contains("حداکثر سه"),"final-selection control has the required Persian label and tooltip");
+                Check(grid.Columns["ReportSelection"].HeaderText=="نمایش گزارش" && grid.Columns["ReportSelection"].ToolTipText.Contains("حداکثر سه") && grid.Columns["ReportSelection"].ToolTipText.Contains("همهٔ"),"workflow5 display-selection control explains its independent clinical aggregate");
+                ui.SelectionWorkflowVersion=4;Call(form,"RenderTrials");
+                Check(grid.Columns["ReportSelection"].HeaderText=="انتخاب نهایی" && grid.Columns["ReportSelection"].ToolTipText.Contains("از همین مانورها"),"historical workflow4 selection keeps its clinical label and meaning");
+                ui.SelectionWorkflowVersion=5;Call(form,"RenderTrials");
+                ExamSummary initial=(ExamSummary)Call(form,"CurrentSummary");
+                ui.ReportManeuverIds.Clear();for(int i=0;i<3;i++) ui.SetReportManeuver(ui.Trials[i].ManeuverId,true);
+                Call(form,"RenderTrials");ExamSummary displayed=(ExamSummary)Call(form,"CurrentSummary");
+                Check(initial.Fvc==displayed.Fvc && initial.Fev1==displayed.Fev1 && displayed.Trials.Count==3 && !displayed.Trials.Contains(displayed.BestTrial),"actual UI summary keeps best values when their source is outside manual display selection");
+                ui.ResetReportSelectionAutomatic();Call(form,"RenderTrials");
                 Check(grid.Rows[0].Cells[0].Value.ToString()==ui.Trials[0].AcquisitionSequence.ToString() && !grid.Rows[0].Cells[0].Value.ToString().Contains("·"),"first column keeps only the maneuver number and no long quality suffix");
                 Check(((ManeuverColumn)grid.Columns[0]).HitDelete(grid.Columns[0].Width,grid.Columns[0].Width-5) && !((ManeuverColumn)grid.Columns[0]).HitDelete(grid.Columns[0].Width,5),"compact delete action is hit-tested inside the existing first column");
                 Button stop=(Button)Field(form,"btnStop"); ToolTip tips=(ToolTip)Field(form,"_tips");

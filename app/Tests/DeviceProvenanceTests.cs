@@ -25,6 +25,7 @@ class DeviceProvenanceTests
     static Exam Base()
     {
         Exam e=Exam.CreateNew(new AppSettings {OperatorName="آزمون ساختگی منشأ"});
+        e.SelectionWorkflowVersion=4; // Keep the existing workflow-4 regression fixtures historical.
         e.Patient=Patient(); e.ExaminationDate=new DateTime(2026,10,19); return e;
     }
     static double SafeFvc(Trial t) {return t.Result!=null && t.Result.Fvc>=0.5 && t.Result.Fvc<=10.0?t.Result.Fvc:4.5;}
@@ -44,6 +45,53 @@ class DeviceProvenanceTests
             e.AddManeuver(t);
         }
         return e;
+    }
+    static ExaminationSnapshot ClinicalSnapshot()
+    {
+        Exam e=ValidExam(5);e.SelectionWorkflowVersion=5;
+        for(int i=0;i<e.Trials.Count;i++)
+        {
+            Trial t=e.Trials[i];
+            t.Result.BevAvailable=t.Result.BevOk=t.Result.PlateauOk=true;t.Result.Cough=false;
+            SyntheticDeviceEvidence.Attach(t,i==1?5.2:4.7,i==3?4.4:3.4,i==3?10:8,6,SyntheticDeviceEvidence.FixtureSerial,i+1);
+        }
+        e.Trials[3].Result.Bev=.190;
+        SelectFirstThree(e);
+        return ExaminationSnapshot.Capture(e);
+    }
+    static void ClinicalSourcePolicy()
+    {
+        ExaminationSnapshot good=ClinicalSnapshot();
+        Check(Summary(good).BestValues.Fev1.SourceManeuverId==Data(good).Trials[3].ManeuverId && !Data(good).ReportManeuverIds.Contains(Data(good).Trials[3].ManeuverId) && Validate(good).Allowed,"workflow5 accepts valid best FEV1 outside the three display maneuvers");
+        Check(ClinicVext.SelectForExam(Data(good)).ValueMl==110,"workflow5 keeps clinic VEXT within the selected three despite an outside 190mL source");
+        Exam curveLimited=Data(ClinicalSnapshot());curveLimited.Trials[3].Result.CurveUsable=false;curveLimited.Trials[3].Result.Fef2575Available=false;
+        Check(Validate(ExaminationSnapshot.Capture(curveLimited)).Allowed,"workflow5 accepts independently valid core data from a source unsuitable for display or mid-flow calculation");
+        SubmissionDraft draft=new SubmissionDraft(good,ResultExport.SaveToDirectory(Path.Combine(root,"workflow5"),good));
+        Check(draft.Fields["fev1_amount"].Value==4.4 && draft.Fields["fvc_amount"].Value==5.2 && draft.Fields["fev1_fvc_percent"].Value==4.4/5.2*100 && draft.Fields["vext"].Value==110,"workflow5 HLine preparation uses the same aggregate and separate selected VEXT without a live write");
+        ExaminationSnapshot bad=ClinicalSnapshot();Data(bad).Trials[3].DeviceValues.Raw[0x12]^=1;
+        Reject("workflow5 rejects corrupt raw LAST of an out-of-display source",bad,null);
+        bad=ClinicalSnapshot();Data(bad).Trials[3].DeviceValues.SerialNumber="OTHER";
+        Reject("workflow5 rejects hidden-source serial mismatch",bad,null);
+        bad=ClinicalSnapshot();Data(bad).Trials[3].DeviceValues.CaptureSequence++;
+        Reject("workflow5 rejects hidden-source capture association mismatch",bad,null);
+        bad=ClinicalSnapshot();Data(bad).Trials[3].DeviceValues=Data(bad).Trials[0].DeviceValues.Clone();
+        Reject("workflow5 rejects LAST copied from another maneuver",bad,null);
+        bad=ClinicalSnapshot();Data(bad).Trials[3].Simulated=true;
+        Reject("workflow5 rejects a simulated clinical source",bad,null);
+        bad=ClinicalSnapshot();Data(bad).Trials[3].Imported=true;
+        Reject("workflow5 rejects a replayed clinical source",bad,null);
+        bad=ClinicalSnapshot();Summary(bad).BestValues.Fev1.Source=MeasurementSource.SoftwareCalculated;
+        Reject("workflow5 rejects reconstructed FEV1 substituted for direct device data",bad,null);
+        bad=ClinicalSnapshot();Summary(bad).BestValues.Fev1.Value=null;
+        Reject("workflow5 rejects a missing required FEV1",bad,null);
+        bad=ClinicalSnapshot();Summary(bad).BestValues.Fev1.SourceManeuverId=Data(bad).Trials[0].ManeuverId;
+        Reject("workflow5 rejects tampered source id in frozen aggregate",bad,null);
+        bad=ClinicalSnapshot();Summary(bad).BestValues.Fev1.Value=3.4;
+        Reject("workflow5 rejects tampered value in frozen aggregate",bad,null);
+        bad=ClinicalSnapshot();Data(bad).Trials[3].DiscardedAt=DateTime.Now;
+        Reject("workflow5 rejects an archived clinical source",bad,null);
+        bad=ClinicalSnapshot();Data(bad).Trials[2].DeviceValues.Raw=new byte[2];
+        Reject("workflow5 still checks every displayed maneuver even without a best value",bad,null);
     }
     static bool EntryAccepted(Trial t)
     {
@@ -314,6 +362,7 @@ class DeviceProvenanceTests
 
             SelectedManeuverPolicy();
             SerialPolicy();
+            ClinicalSourcePolicy();
             Console.WriteLine("ALL "+checks+" CHECKS PASSED");return 0;
         }
         catch(Exception ex) {Console.WriteLine("FAIL "+ex);return 1;}

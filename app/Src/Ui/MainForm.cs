@@ -256,7 +256,7 @@ namespace SpiroLab.Ui
         }
         ExamSummary CurrentSummary()
         {
-            return _exam.SelectionWorkflowVersion>=4?ExamSummary.BuildSelected(_exam.Trials,ReportIds()):ExamSummary.Build(_exam.Trials);
+            return ExamSummary.BuildForExam(_exam);
         }
 
         private void ConnectDevice(bool startAfter,Action completed=null)
@@ -410,9 +410,11 @@ namespace SpiroLab.Ui
         void RenderTrials()
         {
             _rendering=true; gridTrials.Rows.Clear();
+            gridTrials.Columns["ReportSelection"].HeaderText=_exam.SelectionWorkflowVersion>=5?"نمایش گزارش":"انتخاب نهایی";
+            gridTrials.Columns["ReportSelection"].ToolTipText=_exam.SelectionWorkflowVersion>=5?"حداکثر سه منحنی برای نمایش گزارش؛ BEST VALUES از همهٔ مانورهای واجد شرایط است. VEXT مرکز از همین انتخاب محاسبه می‌شود.":"حداکثر سه مانور؛ بهترین مقادیر گزارش و سایت از همین مانورها انتخاب می‌شوند.";
             for(int i=0;i<_exam.Trials.Count;i++)
             {
-                Trial t=_exam.Trials[i]; AnalysisResult r=t.Result; ManeuverAssessment assessment=ManeuverAssessment.Assess(t); string state=assessment.Status;
+                Trial t=_exam.Trials[i]; AnalysisResult r=t.Result; ManeuverAssessment assessment=ManeuverAssessment.Assess(t,_exam.SelectionWorkflowVersion>=5); string state=assessment.Status;
                 gridTrials.Rows.Add(t.AcquisitionSequence.ToString(),MetricText(t,0),MetricText(t,1),MetricText(t,2),MetricText(t,3),MetricText(t,7),MetricText(t,9),ReportIds().Contains(t.ManeuverId));
                 string info=ExamStore.Source(t)+" | "+t.When.ToString("o")+(t.EndReason.Length>0?" | "+t.EndReason:"");
                 if(r!=null) info+=" | "+r.InvalidReason;
@@ -421,7 +423,7 @@ namespace SpiroLab.Ui
                 info+=" | FVC: "+SourceFa(fvc)+" | FEV1: "+SourceFa(fev1)+" | PEF: "+SourceFa(pef);
                 foreach(DataGridViewCell cell in gridTrials.Rows[i].Cells) cell.ToolTipText=info;
                 gridTrials.Rows[i].Cells[0].ToolTipText="حذف مانور "+t.AcquisitionSequence+" | "+info;
-                if(!ExamSummary.CanReport(t)) gridTrials.Rows[i].DefaultCellStyle.ForeColor=Color.FromArgb(144,113,113);
+                if(!ExamSummary.CanReport(t,_exam.SelectionWorkflowVersion>=5)) gridTrials.Rows[i].DefaultCellStyle.ForeColor=Color.FromArgb(144,113,113);
             }
             _rendering=false; UpdateSummary(); UpdateComparisons(); UpdateControls();
         }
@@ -446,7 +448,7 @@ namespace SpiroLab.Ui
             Trial t=_exam.Trials[row];
             try
             {
-                if(!_exam.ReportManeuverIds.Contains(t.ManeuverId) && !ExamSummary.CanReport(t))
+                if(!_exam.ReportManeuverIds.Contains(t.ManeuverId) && !ExamSummary.CanReport(t,_exam.SelectionWorkflowVersion>=5))
                 {
                     Error("این مانور برای انتخاب نهایی واجد شرایط نیست؛ وضعیت کیفیت و هشدارهای آن را ببینید.");
                     return;
@@ -527,7 +529,7 @@ namespace SpiroLab.Ui
         }
         string SelectionWarning(ExamSummary selected)
         {
-            if(_exam.SelectionWorkflowVersion<4 || selected==null || selected.BestValues==null) return "";
+            if(_exam.SelectionWorkflowVersion!=4 || selected==null || selected.BestValues==null) return "";
             ExamSummary all=ExamSummary.Build(_exam.Trials);
             if(all.BestValues==null) return "";
             bool fvc=all.BestValues.Fvc.Available && selected.BestValues.Fvc.Available && all.BestValues.Fvc.Value.Value>selected.BestValues.Fvc.Value.Value+1e-9;

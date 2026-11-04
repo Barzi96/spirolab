@@ -3,8 +3,8 @@ using System.Collections.Generic;
 
 namespace SpiroLab
 {
-    // Session-level facade. Workflow 4 selects at most three authoritative
-    // maneuvers; old workflow builds retain their all-eligible aggregate.
+    // Workflow 5 separates all-active clinical values from at most three curves.
+    // Earlier workflows retain their original aggregation and screening rules.
     public sealed class ExamSummary
     {
         public readonly List<Trial> Trials = new List<Trial>();
@@ -14,6 +14,7 @@ namespace SpiroLab
         public Trial BestTrial;
         public bool OperatorReviewed;
         public int Excluded;
+        bool clinicalRules;
         public double Fvc { get { return BestValues!=null && BestValues.Fvc.Available?BestValues.Fvc.Value.Value:double.NaN; } }
         public double Fev1 { get { return BestValues!=null && BestValues.Fev1.Available?BestValues.Fev1.Value.Value:double.NaN; } }
         public double Pef { get { return BestValues!=null && BestValues.Pef.Available?BestValues.Pef.Value.Value:double.NaN; } }
@@ -29,19 +30,29 @@ namespace SpiroLab
         public string Fef2575SourceManeuverId { get { return BestValues==null?null:BestValues.Fef2575.SourceManeuverId; } }
 
         public static bool CanReport(Trial t)
+        { return CanReport(t,false); }
+        public static bool CanReport(Trial t,bool clinicalRules)
         {
             if(t==null || t.OperatorRejected) return false;
-            ManeuverAssessment a=ManeuverAssessment.Assess(t);
-            return a.TechnicalValid && a.FvcUsable;
+            ManeuverAssessment a=ManeuverAssessment.Assess(t,clinicalRules);
+            return a.TechnicalValid && (!clinicalRules || (t.Result!=null && t.Result.CurveUsable)) && (a.FvcUsable || (clinicalRules && a.Fev1Usable));
         }
+        public static ExamSummary BuildForExam(Exam exam)
+        {
+            if(exam.SelectionWorkflowVersion<5) return exam.SelectionWorkflowVersion>=4?BuildSelected(exam.Trials,exam.ReportManeuverIds):Build(exam.Trials);
+            ExamSummary summary=BuildClinical(exam.Trials);
+            summary.SetDisplay(exam.Trials.FindAll(delegate(Trial t) {return exam.ReportManeuverIds.Contains(t.ManeuverId);}));
+            return summary;
+        }
+        public static ExamSummary BuildClinical(IList<Trial> trials) { return BuildCore(trials,true,null,true); }
         public static ExamSummary Build(IList<Trial> trials) { return BuildCore(trials,true,null); }
         // Workflow 4: the operator-selected (or automatically selected) set is the
         // authoritative clinical result set, not merely the report display subset.
         public static ExamSummary BuildSelected(IList<Trial> trials,IList<string> selectedIds) { return BuildCore(trials,true,selectedIds); }
         internal static ExamSummary Build(IList<Trial> trials,bool qualityRanking) { return BuildCore(trials,qualityRanking,null); }
-        static ExamSummary BuildCore(IList<Trial> trials,bool qualityRanking,IList<string> selectedIds)
+        static ExamSummary BuildCore(IList<Trial> trials,bool qualityRanking,IList<string> selectedIds,bool clinicalRules=false)
         {
-            ExamSummary s=new ExamSummary();
+            ExamSummary s=new ExamSummary(); s.clinicalRules=clinicalRules;
             List<Trial> source=new List<Trial>();
             HashSet<string> selected=null;
             if(selectedIds!=null) { selected=new HashSet<string>(); foreach(string id in selectedIds) if(!string.IsNullOrEmpty(id)) selected.Add(id); if(selected.Count>3) throw new ArgumentException("حداکثر سه مانور می‌توانند مبنای انتخاب نهایی باشند."); }
@@ -49,8 +60,7 @@ namespace SpiroLab
             {
                 source.Add(t);
                 if(selected!=null && !selected.Contains(t.ManeuverId)) continue;
-                ManeuverAssessment a=ManeuverAssessment.Assess(t);
-                if(!t.OperatorRejected && a.TechnicalValid && a.FvcUsable) {s.Candidates.Add(t); if(t.OperatorAccepted) s.OperatorReviewed=true;}
+                if(CanReport(t,clinicalRules)) {s.Candidates.Add(t); if(t.OperatorAccepted) s.OperatorReviewed=true;}
             }
             List<Trial> aggregateSource=new List<Trial>();
             foreach(Trial t in source) if(selected==null || selected.Contains(t.ManeuverId)) aggregateSource.Add(t);
@@ -58,17 +68,26 @@ namespace SpiroLab
             for(int i=0;i<s.Candidates.Count;i++) if(!originalOrder.ContainsKey(s.Candidates[i])) originalOrder.Add(s.Candidates[i],i);
             s.Candidates.Sort(delegate(Trial a,Trial b)
             {
-                int score=qualityRanking?ManeuverAssessment.Compare(a,b):CompareSum(a,b);
+                int score=qualityRanking?ManeuverAssessment.Compare(a,b,clinicalRules):CompareSum(a,b);
+                if(score==0 && clinicalRules) score=a.AcquisitionSequence.CompareTo(b.AcquisitionSequence);
                 return score!=0?score:originalOrder[a].CompareTo(originalOrder[b]);
             });
-            s.BestValues=SessionBestValues.Build(aggregateSource);
+            s.BestValues=SessionBestValues.Build(aggregateSource,clinicalRules);
             s.BestTrial=s.BestValues.ReportTrial;
             s.Best=s.BestTrial==null?null:s.BestTrial.Result;
-            s.Excluded=source.Count-s.Candidates.Count;
+            s.Excluded=source.Count-(clinicalRules?s.BestValues.Eligible.Count:s.Candidates.Count);
+            if(clinicalRules)
+            {
+                foreach(string id in new string[] {s.FvcSourceManeuverId,s.Fev1SourceManeuverId})
+                {
+                    Trial t=s.Candidates.Find(delegate(Trial x) {return x.ManeuverId==id;});
+                    if(t!=null && !s.Trials.Contains(t)) s.Trials.Add(t);
+                }
+            }
             foreach(Trial t in s.Candidates)
             {
                 if(s.Trials.Count==3) break;
-                s.Trials.Add(t);
+                if(!s.Trials.Contains(t)) s.Trials.Add(t);
             }
             s.Trials.Sort(delegate(Trial a,Trial b) { return a.AcquisitionSequence.CompareTo(b.AcquisitionSequence); });
             return s;
@@ -93,7 +112,8 @@ namespace SpiroLab
                 if(!Candidates.Contains(t)) continue;
                 chosen.Add(t);
             }
-            if(chosen.Count==0 && BestValues!=null && BestValues.ReportTrial!=null) chosen.Add(BestValues.ReportTrial);
+            if(chosen.Count==0 && BestValues!=null && BestValues.ReportTrial!=null && (!clinicalRules || Candidates.Contains(BestValues.ReportTrial))) chosen.Add(BestValues.ReportTrial);
+            if(chosen.Count==0 && clinicalRules && Candidates.Count>0) chosen.Add(Candidates[0]);
             chosen.Sort(delegate(Trial a,Trial b) { return a.AcquisitionSequence.CompareTo(b.AcquisitionSequence); });
             Trials.Clear(); Trials.AddRange(chosen);
         }
@@ -120,8 +140,9 @@ namespace SpiroLab
                 foreach(Trial t in BestValues==null?Candidates:BestValues.Eligible)
                 {
                     MeasuredValue a=t.Measurements.Fvc,b=t.Measurements.Fev1;
-                    if(a.Available) fvc.Add(a.Value.Value);
-                    if(b.Available) fev.Add(b.Value.Value);
+                    ManeuverAssessment assessment=ManeuverAssessment.Assess(t,clinicalRules);
+                    if(a.Available && (!clinicalRules || assessment.FvcUsable)) fvc.Add(a.Value.Value);
+                    if(b.Available && (!clinicalRules || assessment.Fev1Usable)) fev.Add(b.Value.Value);
                 }
                 if(fvc.Count<2 && fev.Count<2) return "";
                 string fvcText=fvc.Count>=2?Fmt.N((Max(fvc)-Second(fvc))*1000,0)+" mL":"—";

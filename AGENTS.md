@@ -15,7 +15,7 @@ Persian README and phase evidence live in [README.md](README.md), [docs/operator
 
 - `app\build.bat` — compiles `app\release\SpiroLab.exe` with the in-box `csc.exe` (no SDK needed); no simulation or test route is compiled into it.
 - `app\build.bat test` — compiles the isolated `app\release-test\SpiroLab.Test.dll` with `SPIROLAB_TEST` for automated tests only.
-- `app\test.bat` — builds both, then runs all eleven check suites (they open real WinForms windows). Current total: **964 PASS + 10 SKIPPED** without the optional external MIR capture; the real-capture checks run only when its path is supplied as the first argument. The separate opt-in pending-end acceptance passes. Two user-operated manual finishes passed on the connected MIR; broader hardware validation remains PENDING. See `docs/standalone/manual-finish-field-validation-546.md`.
+- `app\test.bat` — builds both, then runs all eleven check suites (they open real WinForms windows). This workflow-5 review branch has **1053 PASS + 10 SKIPPED** without the optional external MIR capture (5.4.6 baseline: 964 PASS). The separate opt-in pending-end acceptance passes. Two user-operated manual finishes passed on the prior connected-MIR build; this branch's clinical/layout changes and broader hardware validation remain PENDING. See `docs/standalone/clinical-best-values-layout-review.md` and the historical `docs/standalone/manual-finish-field-validation-546.md`.
 - Operator docs live in [docs/operator](docs/operator); historical GUI evidence is [docs/standalone/gui-e2e-results.md](docs/standalone/gui-e2e-results.md) (not a live write).
 - `tools\package-release.ps1` — portable package + self-test + SHA256 into `dist\`.
 - Suite logs land in `app\*-test-output\` and are ignored by Git; do not commit them.

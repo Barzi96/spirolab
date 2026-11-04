@@ -18,7 +18,7 @@ namespace SpiroLab.Ui
         private IList<Trial> _comparisonTrials=new List<Trial>();
         private readonly List<Expiration> _comparisons=new List<Expiration>();
         public IList<Trial> ComparisonTrials { get { return _comparisonTrials; } set { _comparisonTrials=value??new List<Trial>(); Invalidate(); } }
-        public bool SideBySide { get { return Height<340*Font.Size/9f && Width>=600*Font.Size/9f; } }
+        public bool SideBySide { get { return Width>=600*Font.Size/9f; } }
 
         private static readonly Color Ink = Color.FromArgb(60, 66, 78);
         private static readonly Color Grid = Color.FromArgb(228, 232, 238);

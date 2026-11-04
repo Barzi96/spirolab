@@ -183,7 +183,7 @@ namespace SpiroLab
         public void MaintainSelections()
         {
             if(FinalizedAt.HasValue) return;
-            ExamSummary summary=ExamSummary.Build(Trials);
+            ExamSummary summary=SelectionWorkflowVersion>=5?ExamSummary.BuildClinical(Trials):ExamSummary.Build(Trials);
             if(SelectionWorkflowVersion>=3)
             {
                 // New workflow: there is no primary maneuver. The best aggregate is
@@ -238,7 +238,7 @@ namespace SpiroLab
             {
                 Trial t=Trials.Find(delegate(Trial item) { return item.ManeuverId==id; });
                 if(t==null) throw new InvalidDataException("شناسهٔ مانور گزارش در معاینه وجود ندارد.");
-                if(required && !ExamSummary.CanReport(t)) throw new InvalidOperationException("مانور "+t.AcquisitionSequence+": "+ManeuverAssessment.Assess(t).Problem);
+                if(required && !ExamSummary.CanReport(t,SelectionWorkflowVersion>=5)) throw new InvalidOperationException("مانور "+t.AcquisitionSequence+": "+ManeuverAssessment.Assess(t,SelectionWorkflowVersion>=5).Problem);
             }
             if(required && ReportManeuverIds.Count==0) throw new InvalidOperationException("حداقل یک مانور برای گزارش انتخاب کنید.");
         }
@@ -272,7 +272,7 @@ namespace SpiroLab
             MaintainSelections();
         }
         public static Exam CreateNew(AppSettings settings)
-        { return new Exam { CenterName=settings.CenterName,OperatorName=settings.OperatorName,ExaminationDate=DateTime.Today,ExaminationDateSource="windows_local_date",PrimarySelectionRequired=false,SelectionWorkflowVersion=4,SessionType="PRE" }; }
+        { return new Exam { CenterName=settings.CenterName,OperatorName=settings.OperatorName,ExaminationDate=DateTime.Today,ExaminationDateSource="windows_local_date",PrimarySelectionRequired=false,SelectionWorkflowVersion=5,SessionType="PRE" }; }
         public void FinalizeExamination()
         {
             if(FinalizedAt.HasValue) return;
@@ -410,7 +410,7 @@ namespace SpiroLab
             using (StreamWriter w = new StreamWriter(path, false, new UTF8Encoding(true)))
             {
                 w.WriteLine("Patient,NationalId,Age,Sex,Origin,Height_cm,Weight_kg,Trial,Source,Section,Time_s,Volume_L,Flow_Lps,Metric,Value,Unit");
-                ExamSummary best = e.SelectionWorkflowVersion>=4?ExamSummary.BuildSelected(e.Trials,e.ReportManeuverIds):ExamSummary.Build(e.Trials,false);
+                ExamSummary best = e.SelectionWorkflowVersion>=5?ExamSummary.BuildForExam(e):e.SelectionWorkflowVersion>=4?ExamSummary.BuildSelected(e.Trials,e.ReportManeuverIds):ExamSummary.Build(e.Trials,false);
                 if (best.Best != null)
                 {
                     string prefix = CsvText(e.Patient.FullName) + "," + CsvText(e.Patient.NationalId) + "," + e.Patient.Age.ToString(CultureInfo.InvariantCulture) + "," + e.Patient.Sex + "," + e.Patient.Origin + "," + e.Patient.HeightCm.ToString("R",CultureInfo.InvariantCulture) + "," + e.Patient.WeightKg.ToString("R",CultureInfo.InvariantCulture) + ",BEST," + CsvText(Source(best.BestTrial)) + ",";

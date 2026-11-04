@@ -59,16 +59,18 @@ namespace SpiroLab
         }
 
         public static SessionBestValues Build(IList<Trial> trials)
+        { return Build(trials,false); }
+        public static SessionBestValues Build(IList<Trial> trials,bool clinicalRules)
         {
             SessionBestValues b=new SessionBestValues();
             List<Candidate> all=new List<Candidate>();
             if(trials!=null) foreach(Trial t in trials)
             {
                 if(t==null) continue;
-                ManeuverAssessment a=ManeuverAssessment.Assess(t);
+                ManeuverAssessment a=ManeuverAssessment.Assess(t,clinicalRules);
                 if(!a.TechnicalValid || t.OperatorRejected) continue;
                 Candidate c=new Candidate {Trial=t,Assessment=a,Measurements=t.Measurements};
-                if(c.Measurements.Fvc.Available || c.Measurements.Fev1.Available || c.Measurements.Pef.Available) all.Add(c);
+                if(clinicalRules?(a.FvcUsable || a.Fev1Usable):(c.Measurements.Fvc.Available || c.Measurements.Fev1.Available || c.Measurements.Pef.Available)) all.Add(c);
             }
             b.Eligible=new List<Trial>();
             foreach(Candidate c in all) b.Eligible.Add(c.Trial);
@@ -76,8 +78,8 @@ namespace SpiroLab
             b.Reference=ReferenceFor(all);
             b.Fvc=PickMax(b,all,Metric.Fvc,delegate(Candidate c){return c.Assessment.FvcUsable;},delegate(Candidate c){return c.Assessment.FvcAcceptable;});
             b.Fev1=PickMax(b,all,Metric.Fev1,delegate(Candidate c){return c.Assessment.Fev1Usable;},delegate(Candidate c){return c.Assessment.Fev1Acceptable;});
-            b.Pef=PickMax(b,all,Metric.Pef,delegate(Candidate c){return (c.Assessment.FvcUsable||c.Assessment.Fev1Usable) && c.Measurements.Pef.Available;},delegate(Candidate c){return c.Assessment.QualityScreenPassed;});
-            b.Fet=PickMax(b,all,Metric.Fet,delegate(Candidate c){return c.Assessment.TechnicalValid && c.Measurements.Fet.Available;},delegate(Candidate c){return c.Assessment.EndScreenPassed;});
+            b.Pef=PickMax(b,all,Metric.Pef,delegate(Candidate c){return (clinicalRules?c.Assessment.Fev1Usable:(c.Assessment.FvcUsable||c.Assessment.Fev1Usable)) && c.Measurements.Pef.Available;},delegate(Candidate c){return clinicalRules?c.Assessment.Fev1Acceptable:c.Assessment.QualityScreenPassed;});
+            b.Fet=clinicalRules?FetFromFvc(b,all):PickMax(b,all,Metric.Fet,delegate(Candidate c){return c.Assessment.TechnicalValid && c.Measurements.Fet.Available;},delegate(Candidate c){return c.Assessment.EndScreenPassed;});
             b.Fef2575=PickFef2575(b,all);
 
             if(b.Fvc.Available && b.Fev1.Available && b.Fvc.Value.Value>0 && b.Fev1.Value.Value<=b.Fvc.Value.Value+.05)
@@ -89,9 +91,25 @@ namespace SpiroLab
             }
             else b.Fev1Fvc=Unavailable(Metric.Fev1Fvc,"best_fvc_or_fev1_unavailable");
 
-            b.ReportTrial=PickReportTrial(all);
+            b.ReportTrial=PickReportTrial(all,clinicalRules);
+            if(clinicalRules) b.QualityLimitations.Add("software_screen_only;leak_glottic_closure_zero_flow_inspiration_and_timing_not_independently_validated;cough_is_signal_screen_not_confirmed_diagnosis;EOFE_repeatability_alternative_not_assessed");
             b.QualityLimited=b.QualityLimitations.Count>0;
             return b;
+        }
+
+        static MeasuredValue FetFromFvc(SessionBestValues session,List<Candidate> all)
+        {
+            foreach(Candidate c in all) if(session.Fvc.Available && c.Trial.ManeuverId==session.Fvc.SourceManeuverId)
+            {
+                MeasuredValue fet=c.Measurements.Fet.Clone();
+                if(!fet.Available)
+                {
+                    fet.MissingReason="best_fvc_maneuver_fet_unavailable:"+fet.MissingReason;
+                    session.QualityLimitations.Add(Metric.Fet+":unavailable_in_best_fvc_maneuver");
+                }
+                return fet;
+            }
+            return Unavailable(Metric.Fet,"best_fvc_source_unavailable");
         }
 
         static Reference ReferenceFor(List<Candidate> all)
@@ -151,13 +169,13 @@ namespace SpiroLab
             return c.Measurements.Fvc.Value.Value+c.Measurements.Fev1.Value.Value;
         }
 
-        static Trial PickReportTrial(List<Candidate> all)
+        static Trial PickReportTrial(List<Candidate> all,bool clinicalRules)
         {
             if(all.Count==0) return null;
             Candidate selected=all[0];
             foreach(Candidate c in all)
             {
-                int score=ManeuverAssessment.Compare(c.Trial,selected.Trial);
+                int score=ManeuverAssessment.Compare(c.Trial,selected.Trial,clinicalRules);
                 if(score<0 || (score==0 && c.Trial.AcquisitionSequence<selected.Trial.AcquisitionSequence)) selected=c;
             }
             return selected.Trial;

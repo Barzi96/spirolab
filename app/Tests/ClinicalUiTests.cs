@@ -24,7 +24,7 @@ internal static class ClinicalUiTests
     static Patient Patient() { return new Patient { NationalId="0000000001",FirstName="مراجع",LastName="آزمایشی",Age=44,HeightCm=164,WeightKg=74,Origin=Origin.Caucasian }; }
     static Exam ExamWith(int blows)
     {
-        Exam e=Exam.CreateNew(new AppSettings { OperatorName="کارشناس آزمایشی" }); e.Patient=Patient();
+        Exam e=Exam.CreateNew(new AppSettings { OperatorName="کارشناس آزمایشی" }); e.SelectionWorkflowVersion=4; e.Patient=Patient(); // Historical selected-clinical-set regression.
         for(int i=0;i<blows;i++) e.AddManeuver(Simulator.Build(e.Patient,100+i)); return e;
     }
     static void Shot(Form form,string name) { Application.DoEvents(); using(Bitmap b=new Bitmap(form.Width,form.Height)) { form.DrawToBitmap(b,new Rectangle(Point.Empty,form.Size)); b.Save(Path.Combine(root,name+".png")); } }
@@ -136,12 +136,12 @@ internal static class ClinicalUiTests
                 int reportColumn=grid.Columns["ReportSelection"].Index;
                 foreach(string id in ui.ReportManeuverIds.ToArray()) Space(grid,ui.Trials.FindIndex(t=>t.ManeuverId==id),reportColumn);
                 Space(grid,0,reportColumn); Space(grid,2,reportColumn); Space(grid,4,reportColumn);
-                Check(ui.SelectionWorkflowVersion==4 && ui.ReportManeuverIds.SequenceEqual(new string[] {ui.Trials[0].ManeuverId,ui.Trials[2].ManeuverId,ui.Trials[4].ManeuverId}),"keyboard final-selection directly saves1,3,5 without a primary");
+                Check(ui.SelectionWorkflowVersion==5 && ui.ReportManeuverIds.SequenceEqual(new string[] {ui.Trials[0].ManeuverId,ui.Trials[2].ManeuverId,ui.Trials[4].ManeuverId}),"keyboard display selection directly saves1,3,5 without a primary");
                 Space(grid,3,reportColumn); Check(((Label)Field(form,"lblStatus")).Text=="برای گزارش حداکثر سه مانور قابل انتخاب است." && ui.ReportManeuverIds.Count==3,"fourth checkbox gives short Persian inline message");
                 Call(form,"SelectTrial",0); Check(ui.OperatorSelectedManeuverId!=ui.Trials[0].ManeuverId && ui.ReportManeuverIds.Count==3,"row preview does not alter report choices or create a primary");
                 Call(form,"SelectTrial",3); Shot(form,"04-main-five");
                 string stableId=ui.ExaminationId; Call(form,"LoadExam",uiPath); ui=(Exam)Field(form,"_exam");
-                Check(ui.ExaminationId==stableId && ui.ReportManeuverIds.Count==3 && ui.SelectionWorkflowVersion==4,"GUI reopens saved final selections without a primary");
+                Check(ui.ExaminationId==stableId && ui.ReportManeuverIds.Count==3 && ui.SelectionWorkflowVersion==5,"GUI reopens saved display selections without a primary");
                 ((TextBox)Field(form,"txtExamDate")).Text="۱۴۰۵/۰۷/۲۷"; Check((bool)Call(form,"SyncMetadata") && (bool)Call(form,"SaveExam",false),"manual Jalali date edit validates and saves");
                 Call(form,"LoadExam",uiPath); ui=(Exam)Field(form,"_exam");
                 Check(ui.ExaminationDate==new DateTime(2026,10,19),"historical chosen date does not become today on reopen");
@@ -185,6 +185,12 @@ internal static class ClinicalUiTests
                         Check(table.ClientSize.Height-table.ColumnHeadersHeight>=table.RowTemplate.Height,"at least one complete data row is readable "+size+" scale"+scale);
                         Check(new string[] {"lblPatient","txtExamDate","btnNew","btnStart","btnFinish","btnStop","btnReport","btnLogin"}.All(k=>InsideParents((Control)Field(form,k),form)) && ((Control)Field(form,"lblPatient")).Height>=((Control)Field(form,"lblPatient")).Font.Height,"patient date and actions are not clipped by parent panels "+size+" scale"+scale);
                         Check((plot.SideBySide?plot.Height:plot.Height/2)>100*scale,"responsive plot orientation preserves readable axis height "+size+" scale"+scale);
+                        Check(plot.SideBySide,"desktop charts stay in a horizontal row at "+size+" scale"+scale);
+                        Trial plotted=plot.Trial; double[] flow=plotted.Flow.ToArray();
+                        plot.VisibleSamples=plotted.Flow.Count/2;Shot(form,"live-"+size.Width+"x"+size.Height+"-"+(int)(scale*100));
+                        plot.VisibleSamples=-1;
+                        Check(plotted.Flow.SequenceEqual(flow) && plot.SideBySide,"live redraw preserves samples and horizontal layout "+size+" scale"+scale);
+                        plot.Trial=null;Shot(form,"empty-"+size.Width+"x"+size.Height+"-"+(int)(scale*100));plot.Trial=plotted;
                         Shot(form,"layout-"+size.Width+"x"+size.Height+"-"+(int)(scale*100));
                     }
             File.WriteAllText(Path.Combine(root,"visual-acceptance.txt"),"Native WinForms windows launched/rendered. Actual OS scaling unchanged. 125/150% are equivalent control/font scaling stress, not a claim of changing Windows display settings. Review PNGs before delivery. Real USB/second-PC pending.");

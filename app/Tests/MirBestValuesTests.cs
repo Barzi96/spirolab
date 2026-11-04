@@ -109,6 +109,7 @@ namespace MirBestValuesTests
                 Patient p=new Patient { Age=41,HeightCm=182,WeightKg=78,Sex=Sex.Male,Origin=Origin.Caucasian,NationalId="0000000001",FirstName="synthetic",LastName="fixture",HLinePersonId="P-TEST",HLineRecordId="R-TEST",HLineRecordDate="2026/11/01",HLineRecordStatus="complete" };
                 FixtureTests(p);
                 IndependentBestTests(p);
+                ClinicalWorkflowTests(p);
                 DeviceProvenanceTests(p);
                 DeviceSessionTests();
                 VextTests();
@@ -181,6 +182,102 @@ namespace MirBestValuesTests
             metadata.Result.AvailabilityMetadata=true; metadata.Result.Fev1Available=false;
             Check(metadata.Result.Fev1>0,"test setup retains a positive legacy-like FEV1 numeric field");
             Check(!metadata.Measurements.Fev1.Available,"modern availability metadata overrides a positive but unavailable FEV1 field");
+        }
+
+        static void ClinicalWorkflowTests(Patient p)
+        {
+            Trial a=Numeric(p,501,4.80,3.50,8,3,6,true),b=Numeric(p,502,4.50,3.40,7,2,12,true),c=Numeric(p,503,4.60,3.30,7,2,9,true);
+            a.AcquisitionSequence=1;b.AcquisitionSequence=2;c.AcquisitionSequence=3;
+            SessionBestValues best=SessionBestValues.Build(new Trial[] {a,b,c},true);
+            Check(best.Fvc.Value==4.80 && best.Fet.Value==6 && best.Fvc.SourceManeuverId==a.ManeuverId && best.Fet.SourceManeuverId==a.ManeuverId,"workflow5 FET follows best FVC, not the longest 12-second maneuver");
+            Check(SessionBestValues.Build(new Trial[] {a,b,c}).Fet.Value==12,"historical aggregate retains its maximum-FET rule");
+            b.Result.Fvc=4.80;
+            best=SessionBestValues.Build(new Trial[] {b,a,c},true);
+            Check(best.Fvc.SourceManeuverId==a.ManeuverId && best.Fet.Value==6,"equal FVC uses stable acquisition order for both FVC and FET");
+            a.Result.FetAvailable=false;
+            foreach(Trial t in new Trial[] {a,b,c}) t.Result.BevAvailable=false;
+            best=SessionBestValues.Build(new Trial[] {a,b,c},true);
+            Check(!best.Fet.Available && best.Fet.SourceManeuverId==a.ManeuverId && best.Fet.AcquisitionSequence==1 && best.Fet.MissingReason.Contains("best_fvc_maneuver"),"missing best-FVC FET keeps its source and reason without borrowing another duration");
+            Trial direct=Numeric(p,504,4.7,3.2,8,3,9,true);
+            SyntheticDeviceEvidence.Attach(direct,4.8,3.3,8.2,6,SyntheticDeviceEvidence.FixtureSerial,1);
+            best=SessionBestValues.Build(new Trial[] {direct},true);
+            Check(best.Fet.DeviceReported && best.Fet.Value==6 && best.Fvc.Value==4.8,"workflow5 uses direct MIR FET from the best-FVC source without editing reconstruction");
+
+            Trial early=Numeric(p,505,4.7,3.2,8,3,2,true);early.Result.PlateauOk=false;
+            ManeuverAssessment assessment=ManeuverAssessment.Assess(early,true);
+            Check(assessment.Fev1Acceptable && !assessment.FvcAcceptable && assessment.FvcUsable,"early termination after one second does not reject FEV1 acceptance");
+            Check(!ManeuverAssessment.Assess(early).Fev1Acceptable,"historical FEV1 screen retains its original end requirement");
+            early.Result.Fet=.75;
+            Check(!ManeuverAssessment.Assess(early,true).Fev1Usable,"less than one second cannot supply a usable FEV1");
+            early.Result.Fet=2;early.Result.Cough=true;
+            Check(!ManeuverAssessment.Assess(early,true).Fev1Usable && ManeuverAssessment.Assess(early,true).FvcUsable,"first-second cough screen rejects FEV1 without erasing usable FVC");
+            early.Result.Cough=false;early.Result.BevOk=false;early.Result.Bev=.400;
+            assessment=ManeuverAssessment.Assess(early,true);
+            Check(!assessment.Fev1Usable && !assessment.FvcUsable,"known failing BEV blocks both indices rather than usable fallback");
+            early.Result.BevAvailable=false;
+            Check(ManeuverAssessment.Assess(early,true).Fev1Usable && !ManeuverAssessment.Assess(early,true).Fev1Acceptable,"unknown BEV stays usable with limitations and is never labelled accepted");
+            early.Result.BevAvailable=early.Result.BevOk=true;early.Result.Bev=.050;early.Result.Fev1Available=false;
+            Check(!ManeuverAssessment.Assess(early,true).Fev1Usable,"missing first-second availability cannot be replaced by a positive number");
+            early.Result.Fev1Available=true;early.OperatorStopped=true;
+            Check(!ManeuverAssessment.Assess(early,true).TechnicalValid,"cancelled capture stays outside workflow5 clinical candidates");
+            early.OperatorStopped=false;early.Result.PlateauOk=true;
+            Check(ManeuverAssessment.Assess(early,true).QualityScreenPassed,"complete start, first second and plateau retain the valid software screen");
+            early.Result.PlateauOk=false;early.Result.Fet=15;
+            Check(ManeuverAssessment.Assess(early,true).EndScreenPassed,"15-second expiration remains a documented EOFE indicator");
+            early.Result.Fet=2;early.Result.FvcAvailable=false;
+            Check(!ManeuverAssessment.Assess(early,true).FvcUsable && ManeuverAssessment.Assess(early,true).Fev1Usable && ExamSummary.CanReport(early,true),"FEV1-only maneuver remains eligible independently of missing FVC");
+
+            Exam exam=Exam.CreateNew(new AppSettings {OperatorName="synthetic workflow5"});exam.Patient=p;
+            Check(exam.SelectionWorkflowVersion==5,"only newly created examinations opt into workflow5");
+            for(int i=0;i<7;i++)
+            {
+                Trial t=Numeric(p,510+i,i==1?5.20:4.70,i==3?4.40:3.40,i==3?9.9:8,3+i*.1,6+i*.1,true);
+                exam.AddManeuver(t);
+            }
+            string fvcId=exam.Trials[1].ManeuverId,fevId=exam.Trials[3].ManeuverId;
+            Check(exam.ReportManeuverIds.Count==3 && exam.ReportManeuverIds.Contains(fvcId) && exam.ReportManeuverIds.Contains(fevId),"automatic display prioritizes distinct best FVC and FEV1 sources among seven maneuvers");
+            exam.Trials[3].Result.CurveUsable=false;exam.Trials[3].Result.Fef2575Available=false;exam.ResetReportSelectionAutomatic();
+            Check(!exam.ReportManeuverIds.Contains(fevId) && ExamSummary.BuildForExam(exam).Fev1SourceManeuverId==fevId,"valid metric source without a usable display curve is traced without forcing its curve into the report");
+            exam.Trials[3].Result.CurveUsable=true;exam.Trials[3].Result.Fef2575Available=true;
+            exam.ReportManeuverIds.Clear();foreach(int i in new int[] {0,1,2}) exam.SetReportManeuver(exam.Trials[i].ManeuverId,true);
+            ExaminationSnapshot snapshot=ExaminationSnapshot.Capture(exam);
+            var doc=Obj(new JavaScriptSerializer().DeserializeObject(snapshot.ToJson()));var values=Obj(doc["bestValues"]);
+            Check(N(Obj(values["fvc"])["value"])==5.20 && N(Obj(values["fev1"])["value"])==4.40 && Obj(values["fev1"])["sourceManeuverId"].ToString()==fevId,"JSON best FEV1 retains its fourth-maneuver source outside three display columns");
+            Check(((object[])Obj(doc["report"])["displayedManeuvers"]).Length==3 && Obj(doc["reportSelection"])["scope"].ToString().StartsWith("display_only") && values["selectedManeuverIds"]==null,"JSON separates display-only selection from the clinical aggregate");
+            ExamSummary summary=ExamSummary.BuildForExam(exam);
+            Check(summary.Fvc==5.20 && summary.Fev1==4.40 && !summary.Trials.Exists(delegate(Trial t){return t.ManeuverId==fevId;}),"single summary retains independent maxima while displaying only selected curves");
+            var rows=(string[][])typeof(SpiroReport).GetMethod("BestRows",BindingFlags.Static|BindingFlags.NonPublic).Invoke(null,new object[] {summary});
+            Check(rows[1][2]==Fmt.N(4.4,2),"report BEST column uses the same out-of-display FEV1");
+            using(Bitmap image=SpiroReport.Render(snapshot)) image.Save(Path.Combine(root,"workflow5-report.png"));
+            double fvc=summary.Fvc,fev=summary.Fev1;
+            exam.SetReportManeuver(exam.Trials[0].ManeuverId,false);exam.SetReportManeuver(exam.Trials[4].ManeuverId,true);
+            Check(ExamSummary.BuildForExam(exam).Fvc==fvc && ExamSummary.BuildForExam(exam).Fev1==fev,"changing display selection does not change clinical values");
+            string[] manual=exam.ReportManeuverIds.ToArray();exam.AddManeuver(Numeric(p,520,4.8,3.5,8,3,6,true));
+            Check(string.Join(",",manual)==string.Join(",",exam.ReportManeuverIds.ToArray()),"new maneuver preserves the operator's manual display selection");
+            Trial discarded=exam.DiscardManeuver(manual[0]);exam.RestoreLastDiscarded();
+            Check(exam.ReportManeuverIds.Contains(discarded.ManeuverId) && ExamSummary.BuildForExam(exam).Fev1==fev,"discard and restore preserve selection recovery and independent best values");
+            exam.ResetReportSelectionAutomatic();
+            Check(!exam.ReportSelectionManual && exam.ReportManeuverIds.Contains(fvcId) && exam.ReportManeuverIds.Contains(fevId),"reset restores source-prioritized automatic display");
+            exam.SetRejected(exam.Trials[3],true,"synthetic operator","synthetic rejection");
+            Check(ExamSummary.BuildForExam(exam).Fev1<fev && !exam.ReportManeuverIds.Contains(fevId),"operator rejection removes a source from both clinical computation and automatic display");
+            exam.SetRejected(exam.Trials[3],false,"synthetic operator","");
+            string path=Path.Combine(root,"workflow5.spiro");exam.FinalizeExamination();ExamStore.Save(path,exam);
+            Exam reopened=ExamStore.Load(path);
+            Check(reopened.SelectionWorkflowVersion==5 && ExamSummary.BuildForExam(reopened).Fev1==4.4,"workflow5 finalization and reopening preserve its calculation policy");
+            Exam post=Exam.CreateNew(new AppSettings());post.Patient=p;post.SessionType="POST";post.AddManeuver(Numeric(p,521,3.2,2.5,5,2,6,true));
+            Check(ExamSummary.BuildForExam(post).Fvc==3.2 && ExamSummary.BuildForExam(exam).Fvc==5.2,"separate PRE and POST examinations never share a candidate collection");
+            Exam small=Exam.CreateNew(new AppSettings());small.Patient=p;small.AddManeuver(Numeric(p,522,4.8,3.4,8,3,6,true));
+            Check(small.ReportManeuverIds.Count==1,"automatic selection does not invent missing display maneuvers");
+            small.AddManeuver(Numeric(p,523,4.7,3.2,7,2,6,true));
+            Check(small.ReportManeuverIds.Count==2,"automatic selection accepts only two available maneuvers");
+            Check(small.ReportManeuverIds.Contains(small.Trials[0].ManeuverId) && ExamSummary.BuildForExam(small).FvcSourceManeuverId==ExamSummary.BuildForExam(small).Fev1SourceManeuverId,"same best-FVC and best-FEV1 source is selected only once");
+            small.SelectionWorkflowVersion=4;small.Trials[1].Result.Fet=12;small.ReportManeuverIds.Clear();small.SetReportManeuver(small.Trials[1].ManeuverId,true);
+            small.FinalizeExamination();string legacyPath=Path.Combine(root,"legacy-workflow4.spiro");ExamStore.Save(legacyPath,small);
+            Exam legacy=ExamStore.Load(legacyPath);
+            Check(legacy.SelectionWorkflowVersion==4 && ExamSummary.BuildForExam(legacy).Fvc==4.7 && ExamSummary.BuildForExam(legacy).BestValues.Fet.Value==12,"finalized workflow4 retains selected clinical scope and historical FET on reopen");
+            Exam unfinished=Exam.CreateNew(new AppSettings());unfinished.Patient=p;unfinished.SelectionWorkflowVersion=4;unfinished.AddManeuver(Numeric(p,524,4.6,3.2,7,2,6,true));
+            string unfinishedPath=Path.Combine(root,"unfinished-workflow4.spiro");ExamStore.Save(unfinishedPath,unfinished);
+            Check(ExamStore.Load(unfinishedPath).SelectionWorkflowVersion==4,"unfinished historical examinations are not implicitly migrated");
         }
 
         static void DeviceProvenanceTests(Patient p)

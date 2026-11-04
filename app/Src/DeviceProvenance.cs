@@ -112,6 +112,16 @@ namespace SpiroLab
 
                 Exam exam = snapshot.Data;
                 SessionBestValues best = snapshot.Summary.BestValues;
+                if(exam.SelectionWorkflowVersion>=5)
+                {
+                    SessionBestValues expected=SessionBestValues.Build(exam.Trials,true);
+                    foreach(string metric in new string[] {Metric.Fvc,Metric.Fev1,Metric.Pef,Metric.Fet,Metric.Fef2575,Metric.Fev1Fvc})
+                    {
+                        MeasuredValue actual=best.Get(metric), canonical=expected.Get(metric);
+                        if(actual.Available!=canonical.Available || actual.SourceManeuverId!=canonical.SourceManeuverId || actual.AcquisitionSequence!=canonical.AcquisitionSequence || actual.Source!=canonical.Source || (actual.Available && Math.Abs(actual.Value.Value-canonical.Value.Value)>1e-9))
+                            result.Reject(DeviceProvenanceCode.IncompleteOrInconsistentData,metric,null,"best_value_or_source_differs_from_active_session_aggregate");
+                    }
+                }
 
                 CheckCore(result, snapshot, Metric.Fvc, best.Fvc);
                 CheckCore(result, snapshot, Metric.Fev1, best.Fev1);
@@ -139,10 +149,8 @@ namespace SpiroLab
                         result.Reject(DeviceProvenanceCode.IncompleteOrInconsistentData, "selection", null, "selected_report_set_empty");
                     if (exam.ReportManeuverIds != null && exam.ReportManeuverIds.Count > 3)
                         result.Reject(DeviceProvenanceCode.IncompleteOrInconsistentData, "selection", null, "selected_report_set_larger_than_three");
-                    // The selected set is authoritative for the whole report, not only
-                    // for the BEST VALUES it happens to supply. Reuse the same trial
-                    // checks for every selected maneuver, including one that supplies
-                    // no BEST VALUE and is not the VEXT source.
+                    // Every displayed maneuver still needs device evidence even
+                    // when it supplies neither a BEST VALUE nor VEXT.
                     CheckSelectedManeuvers(result, exam);
                 }
             }
@@ -425,6 +433,16 @@ namespace SpiroLab
 
         static bool CheckSelected(DeviceProvenanceResult result, ExaminationSnapshot snapshot, Trial trial, string metric)
         {
+            if(snapshot.Data.SelectionWorkflowVersion>=5)
+            {
+                ManeuverAssessment assessment=ManeuverAssessment.Assess(trial,true);
+                if(trial==null || trial.OperatorRejected || !assessment.TechnicalValid || (!assessment.FvcUsable && !assessment.Fev1Usable))
+                {
+                    result.Reject(DeviceProvenanceCode.InvalidManeuverAssociation,metric,trial,"source_maneuver_not_eligible_in_active_session");
+                    return false;
+                }
+                return true;
+            }
             if (snapshot.Data.SelectionWorkflowVersion < 4) return true;
             if (snapshot.Data.ReportManeuverIds == null || !snapshot.Data.ReportManeuverIds.Contains(trial.ManeuverId))
             {
@@ -437,7 +455,12 @@ namespace SpiroLab
         static void CheckSelectedManeuvers(DeviceProvenanceResult result, Exam exam)
         {
             foreach (string id in exam.ReportManeuverIds)
-                CheckTrial(result, FindTrial(exam, id), "selection");
+            {
+                Trial trial=FindTrial(exam,id);
+                CheckTrial(result, trial, "selection");
+                if(exam.SelectionWorkflowVersion>=5 && !ExamSummary.CanReport(trial,true))
+                    result.Reject(DeviceProvenanceCode.InvalidManeuverAssociation,"selection",trial,"display_maneuver_not_eligible_in_active_session");
+            }
         }
 
         static Trial FindTrial(Exam exam, string id)
