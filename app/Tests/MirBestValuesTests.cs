@@ -17,6 +17,7 @@ namespace MirBestValuesTests
         public bool IsOpen {get;private set;}
         public string DevicePath {get{return "fixture";}}
         public byte[] Block;
+        public byte[] Sda;
         public int PacketReads, Aborts, ResultReads;
         public Action Completing;
         public bool Idle, FailReads, RequireFinishEsc, FailEsc;
@@ -29,6 +30,7 @@ namespace MirBestValuesTests
         public byte State() { return 0; }
         public byte[] ReadSda(int length)
         {
+            if(Sda!=null) return (byte[])Sda.Clone();
             byte[] b=new byte[Math.Max(length,24)];
             byte[] text=System.Text.Encoding.ASCII.GetBytes("SPIROLAB J22889");
             Array.Copy(text,b,text.Length); return b;
@@ -112,6 +114,7 @@ namespace MirBestValuesTests
                 ClinicalWorkflowTests(p);
                 DeviceProvenanceTests(p);
                 DeviceSessionTests();
+                FirmwareLayoutTests();
                 VextTests();
                 SnapshotAndHLineTests(p);
                 Console.WriteLine("ALL "+checks+" MIR / BEST VALUES CHECKS PASSED"); return;
@@ -437,6 +440,45 @@ namespace MirBestValuesTests
                 Trial truncated=new Trial(); CaptureOutcome four=session.Capture(truncated,delegate{return false;},delegate(DevicePacket packet) { });
                 truncated.DeviceValues=four.Results;
                 Check(four.Completed && !four.Results.Present && four.Results.InvalidReason=="truncated_cod_LAST_block","truncated LAST block is rejected, not partially decoded");
+            }
+        }
+
+        static void FirmwareLayoutTests()
+        {
+            foreach(bool legacy in new bool[] {true,false})
+            {
+                byte[] sda=new byte[legacy?36:92];sda[0]=13;
+                Array.Copy(System.Text.Encoding.ASCII.GetBytes(legacy?"4.8":"8.2"),0,sda,1,3);
+                WriteU16(sda,4,legacy?208:241);sda[16]=1;WriteU16(sda,17,1);
+                Array.Copy(System.Text.Encoding.ASCII.GetBytes("F00048"),0,sda,6,6);
+                byte[] block=new byte[160];int core=legacy?14:16;
+                WriteU16(block,core,478);WriteU16(block,core+2,181);WriteU16(block,core+4,792);WriteU16(block,core+10,720);
+                WriteU16(block,legacy?74:80,187);WriteU16(block,legacy?10:12,201);
+                FixtureTransport usb=new FixtureTransport {Sda=sda,Block=block};
+                using(DeviceSession session=new DeviceSession(usb))
+                {
+                    string error;Check(session.Connect(out error),"structured firmware SDA connects: "+legacy);
+                    Check(session.FirmwareVersion==(legacy?"4.8":"8.2") && session.SerialNumber=="F00048","firmware and fixed-width serial identified: "+legacy);
+                    Trial t=new Trial();CaptureOutcome outcome=session.Capture(t,delegate{return false;},delegate(DevicePacket p){});
+                    DeviceResults d=outcome.Results;
+                    Check(outcome.Completed && d.Present && d.LegacySpirolab==legacy,"capture retains the detected layout: "+legacy);
+                    Near(d.Fvc,4.78,"firmware FVC: "+legacy);Near(d.Fev1,1.81,"firmware FEV1: "+legacy);
+                    Near(d.Pef,7.92,"firmware PEF: "+legacy);Near(d.Fet,7.20,"firmware FET: "+legacy);
+                    Check(d.PefTimeValid && d.PefTime==1.87 && d.Quality==201,"layout-specific PEFTIME and diagnostic quality: "+legacy);
+                }
+                sda[16]=0;
+                using(DeviceSession session=new DeviceSession(new FixtureTransport {Sda=sda}))
+                {string error;Check(!session.Connect(out error) && !session.Connected,"unsupported byte order rejected: "+legacy);}
+                sda[16]=1;
+                if(legacy)
+                {
+                    sda[3]=(byte)'7';
+                    using(DeviceSession session=new DeviceSession(new FixtureTransport {Sda=sda}))
+                    {string error;Check(!session.Connect(out error),"unverified legacy firmware rejected rather than guessed");}
+                    sda[3]=(byte)'8';Array.Resize(ref sda,20);
+                    using(DeviceSession session=new DeviceSession(new FixtureTransport {Sda=sda}))
+                    {string error;Check(!session.Connect(out error),"truncated legacy identification rejected");}
+                }
             }
         }
 

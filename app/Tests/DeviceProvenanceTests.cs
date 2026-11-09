@@ -59,6 +59,28 @@ class DeviceProvenanceTests
         SelectFirstThree(e);
         return ExaminationSnapshot.Capture(e);
     }
+    static void LegacyFirmwarePolicy()
+    {
+        Exam exam=ValidExam(3);SelectFirstThree(exam);
+        foreach(Trial trial in exam.Trials)
+        {
+            DeviceResults d=trial.DeviceValues;byte[] legacy=new byte[d.Raw.Length];
+            Array.Copy(d.Raw,16,legacy,14,12);d.Raw=legacy;d.LegacySpirolab=true;
+        }
+        ExaminationSnapshot frozen=ExaminationSnapshot.Capture(exam);
+        Check(Validate(frozen).Allowed,"4.8 raw field offsets pass the unchanged provenance policy");
+        Check(frozen.ToJson().Contains("spirolab_4_8"),"schema2 records the 4.8 result layout");
+        string path=Path.Combine(root,"firmware48.spiro");ExamStore.Save(path,exam);Exam reopened=ExamStore.Load(path);
+        Check(reopened.Trials[0].DeviceValues.LegacySpirolab && Validate(ExaminationSnapshot.Capture(reopened)).Allowed,"4.8 layout survives XML save/reopen and frozen validation");
+        exam.Trials[0].DeviceValues.LegacySpirolab=false;
+        Check(Validate(frozen).Allowed,"frozen snapshot owns the 4.8 layout independently");
+        Check(!Validate(ExaminationSnapshot.Capture(exam)).Allowed,"changing the layout without changing raw bytes is rejected");
+        reopened.Trials[0].DeviceValues.Raw[14]^=1;
+        Check(!Validate(ExaminationSnapshot.Capture(reopened)).Allowed,"tampered 4.8 raw FVC is rejected before submission");
+        Exam previous=ValidExam(3);SelectFirstThree(previous);
+        Check(!previous.Trials[0].DeviceValues.LegacySpirolab && Validate(ExaminationSnapshot.Capture(previous)).Allowed,"existing 8.2 evidence retains the default layout");
+    }
+
     static void ClinicalSourcePolicy()
     {
         ExaminationSnapshot good=ClinicalSnapshot();
@@ -363,6 +385,7 @@ class DeviceProvenanceTests
             SelectedManeuverPolicy();
             SerialPolicy();
             ClinicalSourcePolicy();
+            LegacyFirmwarePolicy();
             Console.WriteLine("ALL "+checks+" CHECKS PASSED");return 0;
         }
         catch(Exception ex) {Console.WriteLine("FAIL "+ex);return 1;}

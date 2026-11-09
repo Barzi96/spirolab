@@ -1,5 +1,7 @@
 # SpiroLab 5.4.6 — تثبیت پایان دستی MIR
 
+سازگاری پروتکل Spirolab **۴٫۸** در کنار مسیر **۸٫۲ / ATS2019** اضافه شده است؛ انتخاب قالب از شناسایی خود دستگاه انجام می‌شود. اتصال و شناسایی دستگاه واقعی ۴٫۸ بررسی شده، اما برابری نتایج مانور با MIR و اعتبارسنجی بالینی همچنان PENDING است. [راهنمای سازگاری فریمور](docs/operator/firmware-48-fa.md) · [شواهد فنی و آزمون‌ها](docs/standalone/firmware-48-compatibility.md).
+
 نسخهٔ آزمایشی **Records & HLine Reliability — RC2** در شاخهٔ `feature/spirolab-records-hline-firefox`: پرونده‌های تازه در `records/تاریخ‌شمسی/نام کامل - ساعت.spiro` کنار EXE ذخیره می‌شوند؛ کپی سوابق قبلی اختیاری و غیرمخرب است. بررسی مقصد HLine و بازیابی امن نشست Firefox اصلاح شده‌اند. [راهنمای RC2](docs/operator/records-hline-firefox-rc2-fa.md) · [گزارش فنی و آزمون‌ها](docs/standalone/records-hline-firefox-rc2.md).
 
 این شاخهٔ بازبینی `feature/spirolab-clinical-best-values-layout` پنج اصلاح گردش‌کار ۵ را دارد؛ فقط معاینات تازه از آن استفاده می‌کنند. BEST VALUES از همهٔ مانورهای فعال واجد شرایط همان جلسه محاسبه می‌شود و سه انتخاب، مجموعهٔ نمایشی هستند. VEXT مرکز همچنان از همین سه انتخاب می‌آید. سوابق قبلی مهاجرت خودکار ندارند. [راهنمای بازبینی و آزمون](docs/operator/clinical-workflow5-review-fa.md).

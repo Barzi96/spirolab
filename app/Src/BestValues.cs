@@ -137,10 +137,11 @@ namespace SpiroLab
             // Device-reported fields for which the observed protocol supplies values.
             if(verifiedDevice)
             {
-                set.Add(DeviceValue(trial,device,Metric.Fvc,device.FvcValid?device.Fvc:(double?)null,0.01,"cod_LAST@0x10 observed_u16_0.01L",reference==null?null:(double?)Predicted(reference,Metric.Fvc)));
-                set.Add(DeviceValue(trial,device,Metric.Fev1,device.Fev1Valid?device.Fev1:(double?)null,0.01,"cod_LAST@0x12 observed_u16_0.01L",reference==null?null:(double?)Predicted(reference,Metric.Fev1)));
-                set.Add(DeviceValue(trial,device,Metric.Pef,device.PefValid?device.Pef:(double?)null,0.01,"cod_LAST@0x14 observed_u16_0.01L/s",reference==null?null:(double?)Predicted(reference,Metric.Pef)));
-                set.Add(DeviceValue(trial,device,Metric.Fet,device.FetValid?device.Fet:(double?)null,0.01,"cod_LAST@0x1A observed_u16_0.01s",null));
+                int core=device.CoreOffset;
+                set.Add(DeviceValue(trial,device,Metric.Fvc,device.FvcValid?device.Fvc:(double?)null,0.01,"cod_LAST@0x"+core.ToString("X2")+" observed_u16_0.01L",reference==null?null:(double?)Predicted(reference,Metric.Fvc)));
+                set.Add(DeviceValue(trial,device,Metric.Fev1,device.Fev1Valid?device.Fev1:(double?)null,0.01,"cod_LAST@0x"+(core+2).ToString("X2")+" observed_u16_0.01L",reference==null?null:(double?)Predicted(reference,Metric.Fev1)));
+                set.Add(DeviceValue(trial,device,Metric.Pef,device.PefValid?device.Pef:(double?)null,0.01,"cod_LAST@0x"+(core+4).ToString("X2")+" observed_u16_0.01L/s",reference==null?null:(double?)Predicted(reference,Metric.Pef)));
+                set.Add(DeviceValue(trial,device,Metric.Fet,device.FetValid?device.Fet:(double?)null,0.01,"cod_LAST@0x"+(core+10).ToString("X2")+" observed_u16_0.01s",null));
             }
             else if(legacyDevice)
             {

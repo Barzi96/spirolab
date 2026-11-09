@@ -341,17 +341,18 @@ namespace SpiroLab
                 result.Reject(DeviceProvenanceCode.RawBlockMismatch, metric, trial, "raw_device_block_absent");
                 return false;
             }
-            if (device.Raw.Length < 0x1C || device.Raw.Length > 4096)
+            int core=device.CoreOffset;
+            if (device.Raw.Length < core+12 || device.Raw.Length > 4096)
             {
                 result.Reject(DeviceProvenanceCode.RawBlockMismatch, metric, trial, "raw_device_block_length_invalid");
                 ok = false;
             }
             else
             {
-                double rawFvc = U16(device.Raw, 0x10) / 100.0;
-                double rawFev1 = U16(device.Raw, 0x12) / 100.0;
-                double rawPef = U16(device.Raw, 0x14) / 100.0;
-                double rawFet = U16(device.Raw, 0x1A) / 100.0;
+                double rawFvc = U16(device.Raw, core) / 100.0;
+                double rawFev1 = U16(device.Raw, core+2) / 100.0;
+                double rawPef = U16(device.Raw, core+4) / 100.0;
+                double rawFet = U16(device.Raw, core+10) / 100.0;
                 if (!Finite(rawFvc) || !Finite(rawFev1) || !Finite(rawPef) || !Finite(rawFet))
                 {
                     result.Reject(DeviceProvenanceCode.RawBlockMismatch, metric, trial, "raw_device_field_not_finite");
