@@ -21,10 +21,12 @@ namespace SpiroLab.Ui
             DeviceDiagnostics diagnostics=readDiagnostics==null?new DeviceDiagnostics():readDiagnostics();
             Label state=new Label { Name="DeviceState",Text=diagnostics.PersianSummary,AutoSize=true };
             ClinicalStyle.Row(table,"وضعیت دستگاه",state,58);
+            Label firmware=new Label {Name="DeviceFirmware",Text=diagnostics.FirmwareSummary,AutoSize=true};
+            ClinicalStyle.Row(table,"نسخهٔ دستگاه",firmware,46);
             Label driver=new Label { Text=diagnostics.DriverName+"  "+diagnostics.DriverVersion+" | "+diagnostics.DriverState,AutoSize=true,RightToLeft=RightToLeft.No };
             ClinicalStyle.Row(table,"درایور MIRUSB",driver,45);
             Button connectButton=ClinicalStyle.Button("بررسی اتصال دستگاه",null,false); connectButton.Name="TestDeviceConnection"; connectButton.Enabled=connect!=null;
-            connectButton.Click+=delegate { connectButton.Enabled=false; state.Text="در حال بررسی اتصال…"; connect(delegate { if(IsDisposed) return; diagnostics=readDiagnostics(); state.Text=diagnostics.PersianSummary; driver.Text=diagnostics.DriverName+" "+diagnostics.DriverVersion+" | "+diagnostics.DriverState; connectButton.Enabled=true; }); };
+            connectButton.Click+=delegate { connectButton.Enabled=false; state.Text="در حال بررسی اتصال…"; connect(delegate { if(IsDisposed) return; diagnostics=readDiagnostics(); state.Text=diagnostics.PersianSummary; firmware.Text=diagnostics.FirmwareSummary; driver.Text=diagnostics.DriverName+" "+diagnostics.DriverVersion+" | "+diagnostics.DriverState; connectButton.Enabled=true; }); };
             ClinicalStyle.Row(table,"ارتباط",connectButton,50);
             Button details=ClinicalStyle.Button("جزئیات و ذخیرهٔ گزارش تشخیصی",delegate { using(DiagnosticsForm form=new DiagnosticsForm(readDiagnostics==null?diagnostics:readDiagnostics())) form.ShowDialog(this); },false); details.Name="DeviceDiagnostics";
             ClinicalStyle.Row(table,"گزارش بدون اطلاعات بیمار",details,50);

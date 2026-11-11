@@ -1,4 +1,6 @@
-# SpiroLab 5.4.6 — تثبیت پایان دستی MIR
+# SpiroLab 5.8.4 — MIR Spirolab 8.2 و 4.8
+
+این شاخه از کامیت مرجع `5721f69` ساخته شده و فقط سازگاری ارتباط نسخهٔ ۴٫۸ را از پروژهٔ معرفی‌شدهٔ مالک به مسیر موجود ۸٫۲ اضافه می‌کند. نسخه از SDA در اتصال تشخیص داده می‌شود و در «تنظیمات ← بررسی اتصال دستگاه» نمایش داده می‌شود؛ انتخاب دستی لازم نیست. [راهنمای ۵٫۸٫۴](docs/operator/dual-firmware-584-fa.md). آزمون عملی این ساخت با هر دو دستگاه هنوز PENDING است.
 
 نسخهٔ آزمایشی **HLine Manual Retry — RC3** فقط ارسال مجدد تأییدشدهٔ همان معاینه پس از حذف داده و فایل ناقص و محدودیت بازیابی نشست پس از موفقیت را اصلاح می‌کند. [راهنمای RC3](docs/operator/hline-manual-retry-rc3-fa.md). سایر امکانات **Records & HLine Reliability — RC2** در شاخهٔ `feature/spirolab-records-hline-firefox` حفظ شده‌اند: پرونده‌های تازه در `records/تاریخ‌شمسی/نام کامل - ساعت.spiro` کنار EXE ذخیره می‌شوند؛ کپی سوابق قبلی اختیاری و غیرمخرب است. [راهنمای RC2](docs/operator/records-hline-firefox-rc2-fa.md) · [گزارش RC2](docs/standalone/records-hline-firefox-rc2.md).
 

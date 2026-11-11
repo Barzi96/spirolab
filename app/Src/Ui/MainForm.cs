@@ -666,7 +666,12 @@ namespace SpiroLab.Ui
             using(ExaminationDetailsForm form=new ExaminationDetailsForm(_exam,_selected))
                 if(form.ShowDialog(this)==DialogResult.OK) { _dirty=true; SaveExam(false); PopulateMetadata(); UpdateControls(); }
         }
-        DeviceDiagnostics ReadDiagnostics() { return DeviceDiagnostics.Read(_device.ControlResponded,_receivedLiveSamples,_device.SafeTransportError!="none"?_device.SafeTransportError:_safeError,_device.HandleOpened,_device.StartCommandSucceeded,_device.LivePacketCount,_decodedLiveSamples); }
+        DeviceDiagnostics ReadDiagnostics()
+        {
+            DeviceDiagnostics diagnostics=DeviceDiagnostics.Read(_device.ControlResponded,_receivedLiveSamples,_device.SafeTransportError!="none"?_device.SafeTransportError:_safeError,_device.HandleOpened,_device.StartCommandSucceeded,_device.LivePacketCount,_decodedLiveSamples);
+            diagnostics.FirmwareVersion=_device.Connected?_device.FirmwareVersion:"";
+            return diagnostics;
+        }
         void OpenSettings()
         {
             if(_busy) return;

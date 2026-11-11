@@ -164,6 +164,17 @@ internal static class ClinicalUiTests
                 Check(Named(settings,"DeviceDiagnostics")!=null && Named(settings,"DefaultCenter").Text==AppSettings.DefaultCenter,"settings exposes global defaults and retained device diagnostics");
                 Check(!Descendants(settings).OfType<LinkLabel>().Any(c=>c.Text.Contains("توسعه") || c.Text.Contains("آزمون")) && !Descendants(settings).OfType<ToolStripItem>().Any(),"settings has no development or simulated-maneuver control");
             }
+            DeviceDiagnostics identified=new DeviceDiagnostics();int identificationCalls=0;
+            using(SettingsForm settings=new SettingsForm(new AppSettings(),delegate {return identified;},delegate(Action done) {identificationCalls++;identified.FirmwareVersion=identificationCalls==1?"4.8":"8.2";done();}))
+            {
+                settings.Show();Application.DoEvents();
+                Check(Named(settings,"DeviceFirmware").Text.Contains("هنوز شناسایی نشده"),"settings does not invent a firmware version before identification");
+                ((Button)Named(settings,"TestDeviceConnection")).PerformClick();
+                Check(Named(settings,"DeviceFirmware").Text.Contains("4.8") && Named(settings,"TestDeviceConnection").Enabled,"existing identification button automatically displays firmware 4.8");
+                ((Button)Named(settings,"TestDeviceConnection")).PerformClick();
+                Check(Named(settings,"DeviceFirmware").Text.Contains("8.2") && identificationCalls==2,"re-identification refreshes firmware 8.2 without a manual setting");
+                Check(identified.SafeText().Contains("Firmware: 8.2") && identified.ProgramVersion=="5.8.4","diagnostics carries the actual firmware and new product version without a serial number");
+            }
             // Physical OS scaling is unchanged: exercise equivalent 100/125/150% control/font layout stress.
             foreach(Size size in new Size[] {new Size(1280,800),new Size(1366,768),new Size(1600,900),new Size(1920,1080)})
                 foreach(float scale in new float[] {1,1.25f,1.5f})

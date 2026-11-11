@@ -27,6 +27,9 @@ namespace SpiroLab.Device
         public int Quality;        // Observed field; never interpreted as an ATS grade.
         public bool FvcValid, Fev1Valid, PefValid, FetValid, PefTimeValid;
         public byte[] Raw;
+        // Persist the wire layout: older Spirolab results omit ATS2019's step_time.
+        public bool LegacySpirolab;
+        internal int CoreOffset { get { return LegacySpirolab ? 14 : 16; } }
 
         public double Fev1Fvc { get { return Fvc > 0 ? Fev1 / Fvc * 100.0 : 0; } }
 
@@ -68,6 +71,8 @@ namespace SpiroLab.Device
         public string SafeTransportError { get { MirUsb native=_usb as MirUsb; return native==null?"none":native.CleanupPending?"native_cancel_acknowledgement_pending":native.LastError==0?"none":"Win32 error "+native.LastError; } }
         public string SerialNumber { get; private set; }
         public string ModelName { get; private set; }
+        public string FirmwareVersion { get; private set; }
+        private bool _legacySpirolab;
         public string LogPath { get; private set; }
         public double VolumeStepL { get; private set; }
         public double TimeStepS { get; private set; }
@@ -86,6 +91,7 @@ namespace SpiroLab.Device
             _usb = usb;
             SerialNumber = "";
             ModelName = "";
+            FirmwareVersion = "";
             VolumeStepL = 0.03;
         }
 
@@ -100,6 +106,7 @@ namespace SpiroLab.Device
                     OpenLog();
                     SerialNumber = "";
                     ModelName = "";
+                    FirmwareVersion = ""; _legacySpirolab=false;
                     HandleOpened=ControlResponded=StartCommandSucceeded=false; LivePacketCount=0;
                     CaptureSequence=0; _activeCaptureSequence=0; _lastResultSequence=0; _lastResultRaw=null; _lastResultSerial="";
                     Log("=== connect ===");
@@ -141,6 +148,23 @@ namespace SpiroLab.Device
 
         private void ParseSda(byte[] sda)
         {
+            // Identification and layout mapping from the supplied 4.8 project.
+            if(sda.Length>=6 && (sda[0]==13 || sda[0]==15) && sda[2]=='.')
+            {
+                int type=U16(sda,4);
+                if(type==208 || type==241)
+                {
+                    if(sda.Length<(type==208?36:92)) throw new IOException("بلوک شناسایی دستگاه ناقص است.");
+                    FirmwareVersion=Encoding.ASCII.GetString(sda,1,3);
+                    if(type==208 && FirmwareVersion!="4.8") throw new IOException("نسخهٔ این نسل دستگاه پشتیبانی نمی‌شود: "+FirmwareVersion);
+                    if(sda[16]!=1) throw new IOException("ترتیب بایت‌های این دستگاه پشتیبانی نمی‌شود.");
+                    _legacySpirolab=type==208;
+                    SerialNumber=Encoding.ASCII.GetString(sda,6,6).Trim('\0',' ','\xFF');
+                    ModelName="spirolab";
+                    Log("identified spirolab firmware="+FirmwareVersion+" layout="+(_legacySpirolab?"legacy48":"ats2019"));
+                    return;
+                }
+            }
             // the SDA block is ASCII text with a length/footer around it
             StringBuilder sb = new StringBuilder();
             foreach (byte b in sda) sb.Append(b >= 32 && b < 127 ? (char)b : ' ');
@@ -368,6 +392,7 @@ namespace SpiroLab.Device
             lock (_lock)
             {
                 r.CaptureSequence=captureSequence;
+                r.LegacySpirolab=_legacySpirolab;
                 r.SerialNumber=SerialNumber;
                 r.ReadAtUtc=DateTime.UtcNow;
                 double delay=_captureCompletedUtc==DateTime.MinValue?double.NaN:(r.ReadAtUtc-_captureCompletedUtc).TotalSeconds;
@@ -408,7 +433,8 @@ namespace SpiroLab.Device
                 }
                 r.Raw = last;
                 Log("cod_LAST " + last.Length + " bytes: " + MirUsb.Hex(last));
-                if (last.Length < 0x1C)
+                int core=r.CoreOffset;
+                if (last.Length < core+12)
                 {
                     r.InvalidReason="truncated_cod_LAST_block";
                     Log("cod_LAST truncated -> ignored");
@@ -429,21 +455,20 @@ namespace SpiroLab.Device
                     }
                 }
 
-                // Observed layout only. Unknown/reserved bytes are not interpreted.
-                //   0x10 FVC [0.01 L]   0x12 FEV1 [0.01 L]   0x14 PEF [0.01 L/s]
-                //   0x1A FET [0.01 s]   0x50 time to PEF [0.01 s]
-                r.Fvc = U16(last, 0x10) / 100.0;
-                r.Fev1 = U16(last, 0x12) / 100.0;
-                r.Pef = U16(last, 0x14) / 100.0;
-                r.Fet = U16(last, 0x1A) / 100.0;
-                if (last.Length >= 0x52) r.PefTime = U16(last, 0x50) / 100.0;
+                // Same centi-units and byte order; only the 4.8 wire offsets differ.
+                r.Fvc = U16(last, core) / 100.0;
+                r.Fev1 = U16(last, core+2) / 100.0;
+                r.Pef = U16(last, core+4) / 100.0;
+                r.Fet = U16(last, core+10) / 100.0;
+                int pefTime=_legacySpirolab?74:80;
+                if (last.Length >= pefTime+2) r.PefTime = U16(last, pefTime) / 100.0;
                 if (last.Length >= 0x0C) r.Quality = U16(last, 0x0A); // unverified; diagnostic only
 
                 r.FvcValid=Finite(r.Fvc) && r.Fvc>=.05 && r.Fvc<=12;
                 r.Fev1Valid=Finite(r.Fev1) && r.Fev1>=.05 && r.Fev1<=r.Fvc+.05;
                 r.PefValid=Finite(r.Pef) && r.Pef>0 && r.Pef<=20;
                 r.FetValid=Finite(r.Fet) && r.Fet>0 && r.Fet<=30;
-                r.PefTimeValid=last.Length>=0x52 && Finite(r.PefTime) && r.PefTime>0 && r.PefTime<=r.Fet+.05;
+                r.PefTimeValid=last.Length>=pefTime+2 && Finite(r.PefTime) && r.PefTime>0 && r.PefTime<=r.Fet+.05;
                 if(!r.FvcValid || !r.Fev1Valid || !r.PefValid || !r.FetValid)
                 {
                     r.InvalidReason="cod_LAST_required_core_field_missing_or_outside_supported_ranges";

@@ -7,7 +7,7 @@ if (-not (Test-Path -LiteralPath $releaseExe)) { throw 'Build the production rel
 if (-not (Test-Path -LiteralPath $testAssembly)) { throw 'Build the isolated test assembly first (app\build.bat test).' }
 $outRoot = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Force -Path $outRoot | Out-Null
-$packageId = 'SpiroLab-5.4.6-HLine-Retry-RC3-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture)
+$packageId = 'SpiroLab-5.8.4-Dual-Firmware-RC1-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss', [Globalization.CultureInfo]::InvariantCulture)
 $packageRoot = Join-Path $outRoot $packageId
 New-Item -ItemType Directory -Path $packageRoot | Out-Null
 Copy-Item -LiteralPath $releaseExe -Destination $packageRoot
@@ -16,31 +16,32 @@ New-Item -ItemType Directory -Path (Join-Path $packageRoot 'Docs') | Out-Null
 Copy-Item -Path (Join-Path $repoRoot 'docs\operator\*') -Destination (Join-Path $packageRoot 'Docs') -Recurse
 $sourceState = if (@(& git -C $repoRoot status --porcelain).Count -gt 0) { 'Uncommitted source changes.' } else { 'Clean committed source.' }
 $versionText = @(
-  'SpiroLab 5.4.6',
-  'HLine Manual Retry — RC3؛ آزمون عملی و بالینی PENDING',
+  'SpiroLab 5.8.4',
+  'MIR Spirolab 8.2 & 4.8 — RC1؛ آزمون عملی هر دو دستگاه PENDING',
   ('Source commit: {0}' -f (& git -C $repoRoot rev-parse HEAD)),
   ('Source state: {0}' -f $sourceState),
   ('Build UTC: {0}' -f [DateTime]::UtcNow.ToString('o', [Globalization.CultureInfo]::InvariantCulture)),
   'Executable: SpiroLab.exe (x86, .NET Framework 4.x)',
   'No MIR driver, proprietary software, test data, test executable, source or logs are bundled.',
   'MIRUSB.SYS must be installed from the official MIR distribution.',
-  'Manual finish: two user-operated maneuvers passed; general hardware validation remains PENDING.',
+  'Historical 5.4.6 manual finish: two user-operated maneuvers passed; 5.8.4 validation on both firmwares PENDING.',
   'Independent MIR output parity, clean-PC, BTPS and production HLine validation: PENDING.'
 ) -join "`r`n"
 $versionText | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $packageRoot 'Version.txt')
 $readme = @(
-  'SpiroLab 5.4.6 - HLine Manual Retry - RC3',
-  'راهنمای فارسی hline-manual-retry-rc3-fa.md را ابتدا بخوانید.',
+  'SpiroLab 5.8.4 - MIR Spirolab 8.2 & 4.8 - RC1',
+  'راهنمای فارسی dual-firmware-584-fa.md را ابتدا بخوانید.',
   '',
   'Run Launch.cmd. The app starts without an installer.',
-  'Read Docs\hline-manual-retry-rc3-fa.md first. Older release notes describe prior builds.',
+  'Read Docs\dual-firmware-584-fa.md first. Older release notes describe prior builds.',
   'MIRUSB driver is NOT included; install the compatible driver from the official MIR distribution.',
+  'Firmware 8.2 / ATS2019 and 4.8 / legacy Spirolab are selected automatically from SDA during connection.',
   'New clinical records: records\Persian-yyyy-MM-dd\Full name - HH-mm-ss.spiro beside SpiroLab.exe.',
   'Settings remain in %APPDATA%\SpiroLab; old exams are not automatically moved.',
   '',
   'Manual finish: one ESC, continue polling for 0x04, then read validated LAST. Response wait: 10 seconds after ESC.',
   'No simulated patient data, test executable, benchmark, log or source file is part of this package.',
-  'Two user-operated manual finishes passed; independent MIR output parity and broader validation remain PENDING.'
+  'Historical 5.4.6 manual finishes passed; this 5.8.4 build needs operator validation on both 8.2 and 4.8.'
 ) -join "`r`n"
 $readme | Set-Content -Encoding UTF8 -LiteralPath (Join-Path $packageRoot 'README.txt')
 @('@echo off', 'start "" "%~dp0SpiroLab.exe"') | Set-Content -Encoding ASCII -LiteralPath (Join-Path $packageRoot 'Launch.cmd')
@@ -77,6 +78,6 @@ Compress-Archive -Path (Join-Path $packageRoot '*') -DestinationPath $zipPath
   ValidationDirectory = $validationRoot
   ValidationJpegBytes = $jpeg.Length
   CleanWindowsAcceptance = 'PENDING'
-  Hardware = 'Manual finish passed in two user-operated maneuvers; general validation PENDING'
+  Hardware = '5.8.4 validation on both 8.2 and 4.8 PENDING; historical manual-finish evidence is not validation of this build'
   ProductionHLine = 'PENDING'
 } | ConvertTo-Json

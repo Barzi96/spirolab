@@ -7,7 +7,9 @@ namespace SpiroLab.Device
 {
     public sealed class DeviceDiagnostics
     {
-        public string ProgramVersion="5.2.0";
+        public string ProgramVersion=Ui.SpiroReport.ProductVersion;
+        public string FirmwareVersion="";
+        public string FirmwareSummary {get {return string.IsNullOrEmpty(FirmwareVersion)?"هنوز شناسایی نشده؛ اتصال دستگاه را بررسی کنید.":"Spirolab "+FirmwareVersion+" (تشخیص خودکار)";}}
         public string WindowsVersion=Environment.OSVersion.VersionString;
         public string Architecture=Environment.Is64BitOperatingSystem?"x64":"x86";
         public bool Detected;
@@ -77,6 +79,6 @@ namespace SpiroLab.Device
             }
         }
         public string SafeText()
-        { return "وضعیت دستگاه\r\n"+PersianSummary+"\r\nProgram: "+ProgramVersion+"\r\nWindows: "+WindowsVersion+" "+Architecture+"\r\nDetected: "+Detected+"\r\nUSB: "+VidPid+"\r\nDriver: "+DriverName+" "+DriverVersion+"\r\nDriver signer (Windows inventory): "+DriverSigner+"\r\nDriver state: "+DriverState+"\r\nHandle opened: "+HandleOpened+"\r\nControl response: "+ControlResponded+"\r\nStart command succeeded: "+StartCommandSucceeded+"\r\nLive packets: "+LivePackets+"\r\nDecoded samples: "+DecodedSamples+"\r\nCommunication: "+Communication+"\r\nLast safe error: "+LastSafeError+"\r\nHARDWARE VALIDATION PENDING\r\n"; }
+        { return "وضعیت دستگاه\r\n"+PersianSummary+"\r\nProgram: "+ProgramVersion+"\r\nFirmware: "+FirmwareVersion+"\r\nWindows: "+WindowsVersion+" "+Architecture+"\r\nDetected: "+Detected+"\r\nUSB: "+VidPid+"\r\nDriver: "+DriverName+" "+DriverVersion+"\r\nDriver signer (Windows inventory): "+DriverSigner+"\r\nDriver state: "+DriverState+"\r\nHandle opened: "+HandleOpened+"\r\nControl response: "+ControlResponded+"\r\nStart command succeeded: "+StartCommandSucceeded+"\r\nLive packets: "+LivePackets+"\r\nDecoded samples: "+DecodedSamples+"\r\nCommunication: "+Communication+"\r\nLast safe error: "+LastSafeError+"\r\nHARDWARE VALIDATION PENDING\r\n"; }
     }
 }
