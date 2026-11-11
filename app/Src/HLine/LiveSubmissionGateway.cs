@@ -94,7 +94,7 @@ namespace SpiroLab.HLine
             {
                 string module=client.SpirometryModuleStatus(draft.RecordId).Replace("_","").ToLowerInvariant();
                 if(module!="nodata") throw new HLineException("remote_state","نتیجه در API یافت نشد، اما وضعیت ماژول نبود نتیجه را تأیید نمی‌کند؛ بررسی سامانه لازم است.");
-                if(client.Files(draft.RecordId).Count>0) throw new HLineException("orphan_file","رکورد اسپیرومتری یافت نشد اما فایل قبلی در همین پرونده وجود دارد؛ بدون ارسال دوباره، فایل و سامانه بررسی شوند.");
+                if(client.Files(draft.RecordId).Count>0) throw new HLineException("orphan_file","رکورد اسپیرومتری یافت نشد اما فایل قبلی در همین پرونده وجود دارد؛ آن را در HLine بررسی کنید و اگر متعلق به ارسال ناقص است حذف کنید، سپس «ارسال به سایت» را دوباره بزنید.");
                 return null;
             }
             Dictionary<string,double?> fields=new Dictionary<string,double?>();

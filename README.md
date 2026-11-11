@@ -1,6 +1,6 @@
 # SpiroLab 5.4.6 — تثبیت پایان دستی MIR
 
-نسخهٔ آزمایشی **Records & HLine Reliability — RC2** در شاخهٔ `feature/spirolab-records-hline-firefox`: پرونده‌های تازه در `records/تاریخ‌شمسی/نام کامل - ساعت.spiro` کنار EXE ذخیره می‌شوند؛ کپی سوابق قبلی اختیاری و غیرمخرب است. بررسی مقصد HLine و بازیابی امن نشست Firefox اصلاح شده‌اند. [راهنمای RC2](docs/operator/records-hline-firefox-rc2-fa.md) · [گزارش فنی و آزمون‌ها](docs/standalone/records-hline-firefox-rc2.md).
+نسخهٔ آزمایشی **HLine Manual Retry — RC3** فقط ارسال مجدد تأییدشدهٔ همان معاینه پس از حذف داده و فایل ناقص و محدودیت بازیابی نشست پس از موفقیت را اصلاح می‌کند. [راهنمای RC3](docs/operator/hline-manual-retry-rc3-fa.md). سایر امکانات **Records & HLine Reliability — RC2** در شاخهٔ `feature/spirolab-records-hline-firefox` حفظ شده‌اند: پرونده‌های تازه در `records/تاریخ‌شمسی/نام کامل - ساعت.spiro` کنار EXE ذخیره می‌شوند؛ کپی سوابق قبلی اختیاری و غیرمخرب است. [راهنمای RC2](docs/operator/records-hline-firefox-rc2-fa.md) · [گزارش RC2](docs/standalone/records-hline-firefox-rc2.md).
 
 این شاخهٔ بازبینی `feature/spirolab-clinical-best-values-layout` پنج اصلاح گردش‌کار ۵ را دارد؛ فقط معاینات تازه از آن استفاده می‌کنند. BEST VALUES از همهٔ مانورهای فعال واجد شرایط همان جلسه محاسبه می‌شود و سه انتخاب، مجموعهٔ نمایشی هستند. VEXT مرکز همچنان از همین سه انتخاب می‌آید. سوابق قبلی مهاجرت خودکار ندارند. [راهنمای بازبینی و آزمون](docs/operator/clinical-workflow5-review-fa.md).
 

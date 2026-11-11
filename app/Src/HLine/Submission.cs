@@ -140,15 +140,16 @@ namespace SpiroLab.HLine
             if(draft.PersonId!=testRecord.PersonId || draft.NationalId!=testRecord.NationalId || draft.RecordId!=testRecord.Id || draft.RecordDate!=testRecord.DateText || draft.RecordStatus!=testRecord.Status) throw new InvalidOperationException("در مرحلهٔ تست، ارسال فقط به پروندهٔ تست تعیین‌شده مجاز است.");
         }
         public void Submit(SubmissionDraft draft)
+        { Submit(draft,false); }
+        public void Submit(SubmissionDraft draft,bool operatorConfirmedRetry)
         {
             if(Interlocked.CompareExchange(ref active,1,0)!=0) throw new InvalidOperationException("ارسال در حال انجام است.");
             bool attempted=false;
             try
             {
                 AlreadyPresent=false;
-                // A journal that already attempted the non-idempotent write is
-                // reconciled read-only. Provenance failures must not make a
-                // previously committed result unreadable.
+                // Reconciliation remains read-only unless the operator confirms
+                // a fresh attempt after the gateway proves the destination empty.
                 if(!journal.WriteAttempted) Timed("draft_validate",delegate { draft.ValidateForSubmission(); });
                 // A designated test record is optional now: normal production submission
                 // is bound to the destination that the live gateway has just re-verified.
@@ -156,8 +157,7 @@ namespace SpiroLab.HLine
                 if(gateway==null || !gateway.ContractVerified) throw new InvalidOperationException("قرارداد ارسال هنوز تأیید نشده است.");
                 if(journal.WriteAttempted)
                 {
-                    // A previous non-idempotent attempt may have committed. Reconcile
-                    // read-only; never send the write again automatically.
+                    // A previous non-idempotent attempt may have committed.
                     Timed("destination_verify",delegate { gateway.VerifyDestination(draft); });
                     RemoteSpirometry pending=Timed("existing_result_read",delegate { return gateway.Read(draft); });
                     if(pending!=null && SameResult(draft,pending))
@@ -166,7 +166,9 @@ namespace SpiroLab.HLine
                         Timed("module_verify",delegate { gateway.VerifySaved(draft); });
                         journal.FileId=pending.FileId;journal.Problem="";journal.State=SubmissionState.Confirmed;AlreadyPresent=true;Timed("journal_persist",delegate { persist(); });return;
                     }
-                    throw new InvalidOperationException("وضعیت ارسال قبلی این معاینه نامطمئن است؛ بررسی سامانه لازم است. نبود یا متفاوت‌بودن نتیجه، اجازهٔ ارسال دوبارهٔ همان معاینه نیست.");
+                    if(pending!=null) throw new InvalidOperationException("نتیجهٔ متفاوت یا ناقصی هنوز در این پرونده وجود دارد؛ ابتدا آن را در HLine بررسی کنید. اگر متعلق به ارسال ناقص است، نتیجه و فایل ناقص را حذف کنید، سپس ارسال به سایت را بزنید.");
+                    if(!operatorConfirmedRetry) throw new HLineException("retry_available","اکنون نبود نتیجه و فایل اسپیرومتری در پروندهٔ مقصد تأیید شد. آیا پس از بررسی یا حذف داده‌های قبلی در HLine، ارسال کامل همین معاینه را دوباره انجام می‌دهید؟");
+                    Timed("draft_validate",delegate { draft.ValidateForSubmission(); });
                 }
                 Timed("destination_verify",delegate { gateway.VerifyDestination(draft); });
                 RemoteSpirometry existing=Timed("existing_result_read",delegate { return gateway.Read(draft); });
@@ -176,6 +178,7 @@ namespace SpiroLab.HLine
                     Timed("module_verify",delegate { gateway.VerifySaved(draft); });
                     journal.State=SubmissionState.Confirmed;AlreadyPresent=true;Timed("journal_persist",delegate { persist(); });return;
                 }
+                journal.FileId="";journal.Problem="";
                 MoveTimed(SubmissionState.ValidationPassed);
                 attempted=journal.WriteAttempted=true;MoveTimed(SubmissionState.Uploading); // Durable before the first non-idempotent request.
                 journal.FileId=Timed("jpg_upload",delegate { return gateway.UploadJpeg(draft,journal.Reference); });Timed("journal_persist",delegate { persist(); });

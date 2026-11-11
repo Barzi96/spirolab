@@ -433,8 +433,8 @@ class HLineIntegrationTests
     {
         foreach(int expired in new int[] {401,419})
         {
-            SessionServer server=new SessionServer {InvalidStatus=expired};int candidates=0;
-            using(HLineClient client=new HLineClient(server,delegate {candidates++;return new List<FirefoxSession> {Session("fresh")};}))
+            SessionServer server=new SessionServer {InvalidStatus=expired};int candidates=0;string browserToken="fresh";
+            using(HLineClient client=new HLineClient(server,delegate {candidates++;return new List<FirefoxSession> {Session(browserToken)};}))
             {
                 client.AdoptCookies(Session("old").Cookies);
                 string problem;Check(client.TryAdoptFirefoxSession(null,out problem) && candidates==0 && server.Adoptions==1,"healthy application session survives closed Firefox and stale profile candidates "+expired);
@@ -443,8 +443,11 @@ class HLineIntegrationTests
                 server.Network=false;Check(client.EnsureSession(out problem) && client.Status==SessionStatus.Connected && server.Adoptions==1,"safe read recovers the same session after network/sleep interruption "+expired);
                 server.Required="fresh";client.VerifySession();
                 Check(client.Status==SessionStatus.Connected && server.Adoptions==2 && candidates==1,"expired application session refreshes from verified Firefox cookies once "+expired);
+                server.Required=browserToken="old";
+                bool recovered=true;try {client.VerifySession();}catch(HLineException){recovered=false;}
+                Check(recovered && client.Status==SessionStatus.Connected && server.Adoptions==3 && candidates==2,"a later expiry after successful recovery is not blocked by the failed-recovery cooldown "+expired);
                 server.Forbidden=true;failed=false;try {client.VerifySession();}catch(HLineException ex){failed=ex.Code=="forbidden";}
-                Check(failed && client.Status!=SessionStatus.Expired && candidates==1,"403 is a permission failure, not a trigger to replace authentication "+expired);
+                Check(failed && client.Status!=SessionStatus.Expired && candidates==2,"403 is a permission failure, not a trigger to replace authentication "+expired);
             }
         }
         foreach(bool centerOnly in new bool[] {false,true})

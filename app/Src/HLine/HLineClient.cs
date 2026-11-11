@@ -345,7 +345,12 @@ namespace SpiroLab.HLine
                     try
                     {
                         string problem;
-                        if(TryAdoptFirefoxSessionCore(PreferredFirefoxProfile,out problem,false)) return RequestCore(method,path,body);
+                        if(TryAdoptFirefoxSessionCore(PreferredFirefoxProfile,out problem,false))
+                        {
+                            object result=RequestCore(method,path,body);
+                            // Back off failed recovery, not a later independent expiry.
+                            nextRecoveryUtc=DateTime.MinValue;return result;
+                        }
                         if(IdentityChangePending) throw new HLineException("identity_changed","هویت کاربر یا مرکز نشست فایرفاکس متفاوت است؛ تأیید کارشناس برای تغییر نشست لازم است.");
                         throw;
                     }

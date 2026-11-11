@@ -60,10 +60,20 @@ class HLineWriteTests
                 bool blocked=false;try {new SubmissionCoordinator(gateway,new SubmissionJournal(),delegate {},null).Submit(Draft(Exam()));}catch(InvalidOperationException ex){blocked=ex.Message.Contains("پروندهٔ پزشکی");}
                 Check(blocked && server.Creates==creates,"a different result in the same destination blocks replacement with a specific message");
                 server.Saved=null;server.FileBytes=new byte[0];
-                blocked=false;try {coordinator.Submit(draft);}catch(InvalidOperationException ex){blocked=ex.Message.Contains("نامطمئن");}
-                Check(blocked && server.Creates==creates,"even confirmed absence never resets a prior non-idempotent attempt for the same examination");
+                blocked=false;try {coordinator.Submit(draft);}catch(HLineException ex){blocked=ex.Code=="retry_available";}
+                Check(blocked && server.Creates==creates,"confirmed absence offers an explicit operator retry without writing automatically");
+                string reference=first.Submission.Reference;
+                string path=Path.Combine(root,"manual-retry.spiro");ExamStore.Save(path,first);
+                Exam reopened=ExamStore.Load(path);
+                var retry=new SubmissionCoordinator(gateway,reopened.Submission,delegate {ExamStore.Save(path,reopened);},null);
+                retry.Submit(draft,true);
+                Check(retry.State==SubmissionState.Confirmed && server.Uploads==uploads+1 && server.Creates==creates+1,"operator-confirmed retry after deletion uploads and verifies the complete examination after restart");
+                Check(reopened.ExaminationId==first.ExaminationId && reopened.Submission.Reference==reference && ExamStore.Load(path).Submission.WriteAttempted,"manual retry preserves examination identity, reference and durable attempted-write protection");
+                retry.Submit(draft,true);
+                Check(retry.AlreadyPresent && server.Uploads==uploads+1 && server.Creates==creates+1,"confirmed retry cannot duplicate an already stored matching result");
+                server.Saved=null;server.FileBytes=new byte[0];
                 Exam fresh=Exam();var next=new SubmissionCoordinator(gateway,fresh.Submission,delegate {},null);next.Submit(Draft(fresh));
-                Check(fresh.ExaminationId!=first.ExaminationId && fresh.Submission.Reference!=first.Submission.Reference && server.Creates==creates+1,"a new examination with a fresh journal can fill an API-confirmed empty destination");
+                Check(fresh.ExaminationId!=first.ExaminationId && fresh.Submission.Reference!=first.Submission.Reference && server.Creates==creates+2,"a new examination with a fresh journal can fill an API-confirmed empty destination");
             }
         }
         foreach(string kind in new string[] {"module","orphan","malformed","template"})
@@ -91,12 +101,52 @@ class HLineWriteTests
             }
         }
     }
+    static void ManualRetrySafetyTests()
+    {
+        foreach(string kind in new string[] {"module","orphan","malformed","destination","provenance","persist","network"})
+            using(MockHLine server=new MockHLine())
+            {
+                HLineHttpTransport transport;using(HLineClient client=Client(server,out transport))
+                {
+                    Exam exam=Exam();SubmissionDraft draft=Draft(exam);
+                    if(kind=="module")server.ModuleStatus="complete";
+                    if(kind=="orphan")server.FileBytes=new byte[] {1,2,3};
+                    if(kind=="malformed")server.ReadBody="{\"unexpected\":true}";
+                    if(kind=="destination")server.Center="OTHER";
+                    if(kind=="provenance") foreach(Trial trial in ((Exam)Field(draft.Snapshot,"Data")).Trials) trial.DeviceValues.Raw[0x12]^=1;
+                    if(kind=="network")server.FailResultRead=true;
+                    exam.Submission.WriteAttempted=true;exam.Submission.State=SubmissionState.FailedOrUncertain;exam.Submission.FileId="OLD";
+                    var retry=new SubmissionCoordinator(new LiveSubmissionGateway(client),exam.Submission,delegate {if(kind=="persist")throw new IOException("synthetic disk error");},null);
+                    bool blocked=false;try {retry.Submit(draft,true);}catch {blocked=true;}
+                    Check(blocked && server.Uploads==0 && server.Creates==0 && exam.Submission.WriteAttempted,"manual retry still blocks "+kind+" without a clinical write or journal bypass");
+                }
+            }
+        using(MockHLine server=new MockHLine {AbortAfterCreate=true})
+        {
+            HLineHttpTransport transport;using(HLineClient client=Client(server,out transport))
+            {
+                Exam exam=Exam();SubmissionDraft draft=Draft(exam);
+                var c=new SubmissionCoordinator(new LiveSubmissionGateway(client),exam.Submission,delegate {},null);
+                try {c.Submit(draft);}catch {}
+                Check(c.State==SubmissionState.FailedOrUncertain && server.Creates==1,"lost create response leaves the original attempt uncertain");
+                server.Saved=null;server.FileBytes=new byte[0];server.AbortAfterCreate=false;
+                bool offered=false;try {c.Submit(draft);}catch(HLineException ex){offered=ex.Code=="retry_available";}
+                Check(offered && server.Creates==1 && server.Uploads==1,"deleting an uncertain partial result enables confirmation without an automatic retry");
+                c.Submit(draft,true);
+                Check(c.State==SubmissionState.Confirmed && server.Creates==2 && server.Uploads==2,"explicit retry completes an uncertain attempt after confirmed server cleanup");
+                server.Saved["fvc_amount"]=99;
+                bool blocked=false;try {c.Submit(draft,true);}catch(InvalidOperationException){blocked=true;}
+                Check(blocked && server.Creates==2 && server.Uploads==2,"operator confirmation never overwrites a different result that appears before retry");
+            }
+        }
+    }
     [STAThread] static int Main(string[] args)
     {
         try
         {
             root=Path.Combine(Path.GetFullPath(args[0]),"run-"+Guid.NewGuid().ToString("N").Substring(0,8));Directory.CreateDirectory(root);
             RepeatVisitTests();
+            ManualRetrySafetyTests();
             using(MockHLine server=new MockHLine())
             {
                 HLineHttpTransport transport;using(HLineClient client=Client(server,out transport))
@@ -279,7 +329,7 @@ class HLineWriteTests
         public string Center="C-1";
         public string UserCenter="C-1";
         public string[] Scopes=new string[] {"mrsp_u","mrsp_p","mrsp_i","mrsp_nf","mrsp_rf","mrsp_dm"};
-        public bool ExpireNextWrite,AbortAfterUpload,AbortAfterCreate;
+        public bool ExpireNextWrite,AbortAfterUpload,AbortAfterCreate,FailResultRead;
         public string ModuleStatus;
         public int Uploads,Creates,Patches,CsrfRefreshes;
         public string UploadedModule,UploadedFilename,UploadedType;
@@ -313,6 +363,7 @@ class HLineWriteTests
             if(path=="/api/medical-records/"+RecordId) {Write(c,200,"{\"data\":"+Record()+"}");return;}
             if(path=="/api/medical-records/"+RecordId+"/spirometry")
             {
+                if(FailResultRead && c.Request.HttpMethod=="GET") {c.Response.Abort();return;}
                 if(c.Request.HttpMethod=="GET") {if(ReadBody!=null) {string once=ReadBody;ReadBody=null;Write(c,200,once);return;}if(Saved==null) Write(c,404,"{\"data\":null}");else Write(c,200,"{\"data\":"+new JavaScriptSerializer().Serialize(Saved)+"}");return;}
                 if(c.Request.HttpMethod=="POST" || c.Request.HttpMethod=="PATCH")
                 {

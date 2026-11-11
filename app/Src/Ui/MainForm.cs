@@ -713,21 +713,36 @@ namespace SpiroLab.Ui
                 ResultPackage package=await Task.Factory.StartNew(delegate { return ResultExport.SaveToDirectory(exportRoot,snapshot); },CancellationToken.None,TaskCreationOptions.DenyChildAttach,TaskScheduler.Default);
                 StoreExport(package,submitting,submittingPath);
                 SubmissionDraft draft=new SubmissionDraft(snapshot,package);
-                // An already attempted write is reconciled read-only by the
-                // coordinator, so do not let a provenance failure hide it.
+                // Keep reconciliation readable; the coordinator revalidates
+                // provenance before any operator-confirmed fresh write.
                 if(!submitting.Submission.WriteAttempted) draft.ValidateForSubmission();
-                bool already=await Task.Factory.StartNew(delegate
+                bool already=false;
+                for(int attempt=0;attempt<2;attempt++)
                 {
-                    if(_submissionGateway==null) throw new InvalidOperationException("ارسال به سایت روی این نسخه فعال نیست.");
-                    bool designatedTest=_testRecord!=null || (!_allowProductionWrites && !string.IsNullOrEmpty(_testNationalId));
-                    LiveSubmissionGateway live=_submissionGateway as LiveSubmissionGateway;
-                    if(live!=null) live.AllowHistoricalRecord=designatedTest;
-                    if(live==null || !designatedTest) _hline.VerifyLatestRecord(submitting.Patient);
-                    MedicalRecord allowed=SubmissionDestination(draft);
-                    SubmissionCoordinator coordinator=new SubmissionCoordinator(_submissionGateway,submitting.Submission,delegate {ExamStore.Save(submittingPath,submitting);},allowed);
-                    coordinator.Submit(draft);
-                    return coordinator.AlreadyPresent;
-                });
+                    bool confirmedRetry=attempt==1;
+                    try
+                    {
+                        already=await Task.Factory.StartNew(delegate
+                        {
+                            if(_submissionGateway==null) throw new InvalidOperationException("ارسال به سایت روی این نسخه فعال نیست.");
+                            bool designatedTest=_testRecord!=null || (!_allowProductionWrites && !string.IsNullOrEmpty(_testNationalId));
+                            LiveSubmissionGateway live=_submissionGateway as LiveSubmissionGateway;
+                            if(live!=null) live.AllowHistoricalRecord=designatedTest;
+                            if(live==null || !designatedTest) _hline.VerifyLatestRecord(submitting.Patient);
+                            MedicalRecord allowed=SubmissionDestination(draft);
+                            SubmissionCoordinator coordinator=new SubmissionCoordinator(_submissionGateway,submitting.Submission,delegate {ExamStore.Save(submittingPath,submitting);},allowed);
+                            coordinator.Submit(draft,confirmedRetry);
+                            return coordinator.AlreadyPresent;
+                        });
+                        break;
+                    }
+                    catch(HLineException ex)
+                    {
+                        if(ex.Code!="retry_available" || confirmedRetry) throw;
+                        if(MessageBox.Show(this,ex.Message,"ارسال مجدد همین معاینه",MessageBoxButtons.YesNo,MessageBoxIcon.Question,MessageBoxDefaultButton.Button2)!=DialogResult.Yes)
+                        {lblStatus.Text="ارسال مجدد انجام نشد؛ پروندهٔ محلی محفوظ است.";return;}
+                    }
+                }
                 lock(_uiSync) { if(!_closing && !IsDisposed && !Disposing && _tips!=null) lblStatus.Text=already?"این نتیجه قبلاً در پرونده ثبت شده بود؛ ارسال دوباره انجام نشد.":"نتیجه و تصویر در سایت ثبت و بررسی شد."; }
             }
             catch(HLineException ex) {Error(ex.Message);}
